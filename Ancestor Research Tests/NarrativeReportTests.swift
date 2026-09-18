@@ -2,7 +2,7 @@ import Testing
 import Foundation
 @testable import Ancestor_Research
 
-/// Covers the M10 narrative composer and renderer (DESIGN.md §7.9.4).
+/// Covers the M10 narrative composer and renderer (by design).
 /// Tests focus on the composer because it owns all of the conditional
 /// logic; the SwiftUI page is exercised indirectly by markdown round-trips.
 struct NarrativeReportTests {

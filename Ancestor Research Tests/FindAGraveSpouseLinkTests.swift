@@ -3,7 +3,7 @@ import Foundation
 import AncestorKit
 @testable import Ancestor_Research
 
-/// FINDAGRAVE_DEATH_SEARCH_SPEC Fix 2 — the pure hop that turns a fetched
+/// Find a Grave death search Fix 2 — the pure hop that turns a fetched
 /// memorial's parsed Family Members block into the partner's memorial id, so the
 /// pipeline can recover a spouse's memorial that a name+year search missed
 /// (dogfood: Mary 216193100 → Ernest 216193076, birth "unknown", invisible to

@@ -3,7 +3,7 @@ import Foundation
 /// How much permanence a foreign identifier carries, and whether it still
 /// points at a live record. The three cases mirror the inbound counterpart of
 /// the publisher's outbound `published_ids.superseded_by` mechanism
-/// (MODEL_EVOLUTION_SPEC §Change1): we invented merge-forwarding for the
+/// (Model evolution Change 1): we invented merge-forwarding for the
 /// publish boundary and never applied it to identifiers we *receive*.
 ///
 /// - `.primary`   — the current, canonical identifier for its system. Exactly
@@ -32,7 +32,7 @@ public enum IdentifierKind: String, Codable, Hashable, Sendable, CaseIterable {
 /// simultaneously: a primary ID, any number of deprecated IDs that forward to
 /// it, and a persistent ID — none of which the old dict could express.
 ///
-/// Storage rules (MODEL_EVOLUTION_SPEC §Change1 acceptance criteria):
+/// Storage rules (Model evolution Change 1 acceptance criteria):
 /// - `value` is the **bare** identifier. FamilySearch ARKs store as the
 ///   `ark:/…` *path segment* only — never a full URL — because ARK permanence
 ///   covers the path segment, not the domain. `ExternalIdentifier.value` must

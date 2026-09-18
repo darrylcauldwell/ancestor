@@ -1,11 +1,11 @@
 import SwiftUI
 
 /// Chronological view of one profile's life — the single view that turns
-/// "a database of facts" into "a story of a person." Per DESIGN.md §7.8.
+/// "a database of facts" into "a story of a person." By design
 ///
 /// Reads from the live AppState snapshot + workbench arrays; renders rows
 /// produced by `TimelineBuilder`. Hypothetical events render in italic
-/// muted styling per §7.7.7.
+/// muted styling per.
 struct ProfileTimelineView: View {
     @Environment(AppState.self) private var appState
     let profileID: String

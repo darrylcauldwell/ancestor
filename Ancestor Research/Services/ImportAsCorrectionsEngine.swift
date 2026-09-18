@@ -2,7 +2,7 @@ import Foundation
 
 /// Pure helper that turns a GEDCOM import into a set of additions plus
 /// workbench hypotheses (the "Import corrections as suggestions" path —
-/// DESIGN.md §13). Profiles only present in the import become direct
+/// the design). Profiles only present in the import become direct
 /// additions; profiles that overlap with the existing tree generate
 /// `.fieldValue` hypotheses for any differing fields rather than
 /// auto-overwriting.

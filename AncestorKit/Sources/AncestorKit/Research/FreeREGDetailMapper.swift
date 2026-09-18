@@ -1,6 +1,6 @@
 import Foundation
 
-// MARK: - FreeREG detail-page → typed model mapper (FREEREG_INTEGRATION_SPEC §2)
+// MARK: - FreeREG detail-page → typed model mapper (FreeREG integration)
 //
 // Maps the (label, value) pairs scraped from a FreeREG record detail page into
 // the typed `FreeREGDetail`. Input is the ORDERED raw pairs (labels as

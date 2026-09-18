@@ -4,7 +4,7 @@ import CryptoKit
 /// On-disk layout and write/read primitives for a single prose corpus.
 ///
 /// Each corpus lives under `<baseDirectory>/corpora/<source_id>/` with the
-/// shape from spec §3:
+/// shape from spec:
 ///
 ///     corpora/<source_id>/
 ///       manifest.json                    — populated by the crawler
@@ -12,7 +12,7 @@ import CryptoKit
 ///       logs/crawl-<iso-timestamp>.log   — crawler diagnostics
 ///
 /// All writes are atomic (write-to-temp + rename). Content hashing per
-/// spec §5.2 — SHA-256 of the markdown body alone (trailing whitespace
+/// spec — SHA-256 of the markdown body alone (trailing whitespace
 /// stripped, LF line endings) so frontmatter updates that don't change
 /// the body produce no `content_hash` diff.
 ///
@@ -85,7 +85,7 @@ nonisolated struct ProseCorpusStorage {
         return digest.map { String(format: "%02x", $0) }.joined()
     }
 
-    /// Spec §5.2 body normalisation. Pure function. Re-exposed so the
+    /// Spec body normalisation. Pure function. Re-exposed so the
     /// indexer can recompute hashes against the canonical form when
     /// auditing frontmatter integrity (AC-B3).
     nonisolated static func normaliseBody(_ body: String) -> String {
@@ -383,7 +383,7 @@ nonisolated struct ProseCorpusStorage {
     }
 }
 
-/// YAML frontmatter shape per spec §5.1. Required keys are all
+/// YAML frontmatter shape per spec. Required keys are all
 /// non-optional; `title` is the only optional because some source
 /// pages legitimately lack both `<title>` and `<h1>`.
 nonisolated struct PageFrontmatter: Equatable {

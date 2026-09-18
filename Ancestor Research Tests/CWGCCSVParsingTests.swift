@@ -3,7 +3,7 @@ import Foundation
 @testable import Ancestor_Research
 
 /// Connector-audit T1-09 + T1-13 (parse level) + T1-C4
-/// (CONNECTOR_AUDIT_2026-07.md §6.2/§8) — CWGC's CSV export is parsed
+/// (the 2026-07 connector audit/) — CWGC's CSV export is parsed
 /// header-keyed (DictReader semantics, matching Python cwgc.py) with an
 /// RFC-4180 quote-aware tokeniser. Pins:
 ///   * embedded newlines inside quoted fields are data, not row breaks

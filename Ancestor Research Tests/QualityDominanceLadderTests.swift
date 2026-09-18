@@ -4,7 +4,7 @@ import GRDB
 @testable import Ancestor_Research
 import AncestorKit
 
-/// CONFLICT_LAYER_SPEC CL5 (Half A) — the R2 quality-dominance ladder:
+/// Conflict layer CL5 (Half A) — the R2 quality-dominance ladder:
 /// R2a originality, R2b tier, R2c error-band-gated proximity ⟨G7⟩, the
 /// DS-09 displacement scenario, and the R3 shield (AC1/2/3/7).
 struct QualityDominanceLadderTests {

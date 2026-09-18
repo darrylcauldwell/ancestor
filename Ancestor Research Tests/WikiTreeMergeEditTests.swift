@@ -3,7 +3,7 @@ import Foundation
 @testable import Ancestor_Research
 @testable import AncestorKit
 
-/// MergeEdit payload builder (WT1 — WIKITREE_MERGEEDIT_SPEC §3/§4): the
+/// MergeEdit payload builder (WT1 — WikiTree MergeEdit/): the
 /// eligibility gates, the differs-AND-research-provenance sendability rule,
 /// twin-valued `expected` guards, the maiden-surname manual note, and the
 /// research-notes bio block with citation dedup.

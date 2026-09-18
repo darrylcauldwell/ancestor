@@ -3,7 +3,7 @@ import Foundation
 import AncestorKit
 @testable import Ancestor_Research
 
-/// EVIDENCE_ABSORPTION_SPEC Change 2 — a census must fan out into every typed
+/// Evidence absorption Change 2 — a census must fan out into every typed
 /// LifeEvent its fields imply (census + occupation + residence), not collapse
 /// the occupation/address nuggets into a single catch-all census entry. The
 /// dedicated `.occupation` / `.residence` event types existed but were never

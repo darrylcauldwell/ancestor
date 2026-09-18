@@ -1,6 +1,6 @@
 import SwiftUI
 
-/// M19 — Side-by-side profile comparison sheet (DESIGN.md §13).
+/// M19 — Side-by-side profile comparison sheet (by design).
 ///
 /// Used for two distinct flows:
 ///   1. Identity matching during duplicate review — opened from a

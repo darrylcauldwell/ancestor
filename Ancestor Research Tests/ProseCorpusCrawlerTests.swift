@@ -2,7 +2,7 @@ import Testing
 import Foundation
 @testable import Ancestor_Research
 
-/// Pins the generic crawler contract from spec §6 — BFS frontier,
+/// Pins the generic crawler contract from spec — BFS frontier,
 /// politeness primitives (robots.txt, rate limit, 429 ladder), discovery
 /// helpers (sitemap, link extraction), and content-type guard.
 ///

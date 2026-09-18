@@ -27,7 +27,7 @@ nonisolated enum FamilySearchMatchCollection: Sendable, Equatable {
 /// official API reference and the FamilySearch Bruno example collection — cited
 /// per method. Network execution belongs to `FamilySearchClient` (a later
 /// slice); these builders are pure so the wire contract is unit-testable
-/// without a token. See `AncestorApp/FAMILYSEARCH_CLIENT_SPEC.md`.
+/// without a token. See `AncestorApp/FamilySearch client`.
 nonisolated enum FamilySearchEndpoints {
 
     private static func base(_ environment: FamilySearchEnvironment) -> URLComponents {
@@ -92,7 +92,7 @@ nonisolated enum FamilySearchEndpoints {
         url(environment, path: "/users/current")
     }
 
-    // MARK: - User Tree write leg (WL1 — paths per FS_WRITE_WIRE_CONTRACTS.md)
+    // MARK: - User Tree write leg (WL1 — paths per the FamilySearch write wire contracts)
 
     /// Create a group (prerequisite of tree creation) — `POST /platform/groups`.
     static func groups(_ environment: FamilySearchEnvironment) -> URL {

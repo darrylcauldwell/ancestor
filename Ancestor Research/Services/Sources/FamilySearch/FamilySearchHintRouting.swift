@@ -7,7 +7,7 @@ import AncestorKit
 ///
 /// The FS match confidence (`rawFields["fsMatchScore"]`) is INERT to the
 /// scorer: `RecordScorer.classify` reads only the name/date/geography/
-/// familyContext gates, never `fsMatchScore` — so §18 holds by construction, and
+/// familyContext gates, never `fsMatchScore` — so holds by construction, and
 /// a hint that FamilySearch's ML attached to the *wrong* same-name tree person
 /// simply scores `.impossible`/`.lead` on the real subject's gates and is
 /// filtered/flagged there. That deterministic net is the whole point of routing

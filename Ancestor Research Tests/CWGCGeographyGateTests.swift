@@ -2,7 +2,7 @@ import Testing
 import Foundation
 @testable import Ancestor_Research
 
-/// Connector-audit T1-05 (CONNECTOR_AUDIT_2026-07.md §6.2) — the CWGC
+/// Connector-audit T1-05 (the 2026-07 connector audit) — the CWGC
 /// geography-gate port. Pins the Python behaviour table from
 /// `agent/scorer.py:236-273`:
 ///

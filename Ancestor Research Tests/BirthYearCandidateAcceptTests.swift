@@ -2,7 +2,7 @@ import Testing
 import Foundation
 @testable import Ancestor_Research
 
-/// Slice 5 of `project_multi_hypothesis_birth_year_plan` — apply path
+/// Slice 5 of the multi-hypothesis birth-year plan — apply path
 /// for user-accepted `.birthYearCandidate` hypotheses. Exercises the
 /// static `ApplyEngine.applyBirthYearCandidate(_:snapshot:db:)`
 /// helper (testable without an `AppState` harness).

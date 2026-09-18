@@ -2,7 +2,7 @@ import Testing
 import Foundation
 @testable import Ancestor_Research
 
-/// Tests for GEDCOM SOUR / PAGE / QUAY emission. Per DESIGN.md §5.12 a
+/// Tests for GEDCOM SOUR / PAGE / QUAY emission. By design a
 /// `Citation` carried by a `FieldSource` should round-trip into standard
 /// GEDCOM citation tags so other genealogy tools can verify each fact.
 struct GEDCOMCitationExportTests {

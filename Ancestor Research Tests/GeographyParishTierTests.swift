@@ -3,7 +3,7 @@ import Foundation
 @testable import Ancestor_Research
 import AncestorKit
 
-/// LOCATION_MODEL_SPEC Slice 0 — the geography gate resolves PARISH-level
+/// Location model Slice 0 — the geography gate resolves PARISH-level
 /// district names against the REAL bundled catalogue.
 ///
 /// `PlaceResolver.resolveDistrict` only matches nodes whose kind is

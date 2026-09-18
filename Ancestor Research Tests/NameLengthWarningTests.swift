@@ -2,7 +2,7 @@ import Testing
 import Foundation
 @testable import Ancestor_Research
 
-/// Tests for the 100-char soft warning helper (M17.3, DESIGN.md §7.5.3).
+/// Tests for the 100-char soft warning helper (M17.3, the design).
 struct NameLengthWarningTests {
 
     @Test func nameWarningNilBelow100() {

@@ -36,7 +36,7 @@ nonisolated struct ClusteringEngine {
         // Step 4: FLAG merge candidates (never auto-merge)
         flagMergeCandidates(&clusters)
 
-        // RESEARCH_CONFIDENCE_SPEC Change 5 removed the old `scoreConfidence`
+        // Research confidence Change 5 removed the old `scoreConfidence`
         // step. Callers now derive `EvidenceConfidence` on demand via
         // `LifeCluster.evidenceConfidence(sourceInfoMap:)`.
         _ = sourceInfoMap
@@ -144,7 +144,7 @@ nonisolated struct ClusteringEngine {
         }
     }
 
-    // Phase 5 (LEAD_DISCOVERY_SPEC §7/§9): lifespan constants live in the
+    // Phase 5 (Lead discovery/): lifespan constants live in the
     // SHARED identity core so acceptance- and discovery-clustering can't
     // drift apart again. These aliases keep existing call sites readable.
     static let maxLifespanYears = IdentityConstraints.maxLifespanYears
@@ -177,7 +177,7 @@ nonisolated struct ClusteringEngine {
 
     /// The earliest death/burial year in the cluster, if any — a hard upper
     /// bound on the life. Nothing can happen after it (+ a small registration /
-    /// burial-lag margin). ROADMAP clustering item (c) / LEAD_DISCOVERY §7.
+    /// burial-lag margin). ROADMAP clustering item (c) / LEAD_DISCOVERY.
     /// Alias of the shared identity core (Phase 5).
     static let postDeathMarginYears = IdentityConstraints.postDeathMarginYears
     /// The set of historical counties (Chapman codes) the cluster's located
@@ -471,7 +471,7 @@ nonisolated struct ClusteringEngine {
             }
         }
 
-        // T-D ⟨G13⟩ (CONFLICT_LAYER_SPEC CL2) — same-enumeration-year
+        // T-D ⟨G13⟩ (Conflict layer CL2) — same-enumeration-year
         // impossibility: two census records with the SAME censusYear in one
         // cluster cannot be one person (one enumeration per year). Split
         // the later-scored one out; over-splitting is the safe direction
@@ -482,7 +482,7 @@ nonisolated struct ClusteringEngine {
                 censusByYear[r.censusYear, default: []].append(record)
             }
         }
-        // Deterministic year selection (CAMPAIGN_REVIEW_SPEC Change 5):
+        // Deterministic year selection (Campaign review Change 5):
         // Dictionary.first(where:) iterates in hash-seed order, so when TWO
         // census years each held duplicates, which year split first — and
         // therefore cluster ids and append order — varied per process. A DB

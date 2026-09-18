@@ -3,7 +3,7 @@ import Foundation
 @testable import Ancestor_Research
 
 /// Slice B1 — guards on `BirthYearConsensusDetector.detect` per
-/// `SUBJECT_SELF_NARROWING_SPEC.md` §7.1. The detector is purely
+/// `Subject self-narrowing`. The detector is purely
 /// rule-driven; these tests pin the four MUST/tier outcomes the spec
 /// lists as the acceptance gate for B1.
 @MainActor
@@ -71,7 +71,7 @@ struct BirthYearConsensusDetectorTests {
         )
     }
 
-    // MARK: - MUST §3.0 record-count floor
+    // MARK: - MUST record-count floor
 
     @Test func tooFewRecords_returnsNil() {
         let subject = belperSubject()
@@ -83,7 +83,7 @@ struct BirthYearConsensusDetectorTests {
         #expect(BirthYearConsensusDetector.detect(in: scored, for: subject) == nil)
     }
 
-    // MARK: - MUST §3.1 source diversity
+    // MARK: - MUST source diversity
 
     @Test func sameSourceOnly_returnsNil() {
         let subject = belperSubject()
@@ -98,7 +98,7 @@ struct BirthYearConsensusDetectorTests {
         #expect(BirthYearConsensusDetector.detect(in: scored, for: subject) == nil)
     }
 
-    // MARK: - MUST §3.2 locality alignment
+    // MARK: - MUST locality alignment
 
     @Test func noLocalityAlignment_returnsNil() {
         let subject = belperSubject()
@@ -127,7 +127,7 @@ struct BirthYearConsensusDetectorTests {
         #expect(BirthYearConsensusDetector.detect(in: scored, for: subject) == nil)
     }
 
-    // MARK: - Tier discrimination (§3.5)
+    // MARK: - Tier discrimination
 
     @Test func threeRecordsTwoSources_aligned_isMedium() {
         // Ages chosen so every record implies birth 1883 exactly. Without
@@ -184,12 +184,12 @@ struct BirthYearConsensusDetectorTests {
         #expect(result?.distinctSourceCount == 3)
     }
 
-    // MARK: - MUST §3.6 user rejections
+    // MARK: - MUST user rejections
 
     @Test func userRejectedRecords_areExcludedFromConsensus() {
         // Four records that would otherwise produce a HIGH-tier consensus,
         // but the user has discarded two — leaving only the BMD birth and
-        // one census. That's below the §3.0 floor of 3 records, so the
+        // one census. That's below the floor of 3 records, so the
         // detector returns nil. Same gesture the user makes in the
         // ClusterReviewView "Discard this record" button; the persistence
         // path is `record_rejections` / `evidence_records.user_status`.

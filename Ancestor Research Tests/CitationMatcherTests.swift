@@ -2,8 +2,8 @@ import Testing
 import Foundation
 @testable import Ancestor_Research
 
-/// Pins the CitationMatcher contract used by the §5.8 eval harness
-/// (RESEARCH_PIPELINE_SPEC.md §5.8.5). Mirrors the Python reference
+/// Pins the CitationMatcher contract used by the eval harness
+/// (Research pipeline). Mirrors the Python reference
 /// implementation at `eval/extract_gedcom_citations.py`.
 struct CitationMatcherTests {
 

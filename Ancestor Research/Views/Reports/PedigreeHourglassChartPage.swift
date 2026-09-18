@@ -1,6 +1,6 @@
 import SwiftUI
 
-/// SwiftUI page view for an hourglass pedigree chart (DESIGN.md §7.9.2).
+/// SwiftUI page view for an hourglass pedigree chart (by design).
 ///
 /// Layout: the subject sits in the vertical middle of the page, centred
 /// horizontally. Ancestors expand upward (parents → grandparents → …) like

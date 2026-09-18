@@ -1,7 +1,7 @@
 import Foundation
 
 /// Derive the "effective" `FactConfidence` to surface for a field given its
-/// list of `FieldSource` rows. Per DESIGN.md §5.14, only `.tentative` and
+/// list of `FieldSource` rows. By design, only `.tentative` and
 /// `.wellEvidenced` produce visual indicators — `.standard` is the default
 /// and is shown unchanged.
 ///

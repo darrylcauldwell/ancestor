@@ -2,7 +2,7 @@ import Testing
 import Foundation
 @testable import Ancestor_Research
 
-/// M10 Family Group Sheet renderer (DESIGN.md §7.9.3).
+/// M10 Family Group Sheet renderer (by design).
 ///
 /// Covers:
 ///   - family-unit resolution rules (subject with spouse, with parents,

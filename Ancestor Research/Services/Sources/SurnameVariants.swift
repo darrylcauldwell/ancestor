@@ -10,7 +10,7 @@ import os
 /// unknown surnames return an empty variant list — the dispatcher's variant
 /// fan-out becomes a single-query no-op for those.
 ///
-/// See RESEARCH_AXES_SPEC §7 and §8 Change 5.
+/// See Research axes and Change 5.
 nonisolated final class SurnameVariants: Sendable {
     static let shared = SurnameVariants()
 

@@ -8,7 +8,7 @@ import os
 /// request gets the "Just a moment..." JS challenge interstitial instead of
 /// the real page. WKWebView (real Safari engine) can execute that JS and
 /// produces a `cf_clearance` cookie. Once captured here, URLSession reuses
-/// it for direct fetches until it expires (~30 days). Spec §22.
+/// it for direct fetches until it expires (~30 days). Spec.
 ///
 /// One generic-password keychain item per app:
 ///   service = "dev.dreamfold.Ancestor-Research.findagrave"

@@ -6,7 +6,7 @@ public nonisolated enum ProfileField: String, Codable, CaseIterable, Hashable, S
     case birthDate, birthLocation
     case deathDate, deathLocation
     case bio
-    /// Typed repeatable name forms (MODEL_EVOLUTION_SPEC §Change2 / E2 AC5).
+    /// Typed repeatable name forms (Model evolution Change 2 / E2 AC5).
     /// Present so `Profile.nameForms` provenance is journalled at a single
     /// whole-list granularity through `field_sources`/`field_changes`, exactly
     /// like every other field. It is **not** a scalar string field and **not** a
@@ -20,8 +20,8 @@ public nonisolated enum ProfileField: String, Codable, CaseIterable, Hashable, S
 /// Type-safe relationship field identifiers.
 public nonisolated enum RelationshipField: String, Codable, Hashable, Sendable {
     case marriageDate, marriageLocation, divorceDate, subtype, role
-    /// Provenance for the edge existing *at all* — MODEL_EVOLUTION_SPEC
-    /// §Change4 / E4. Not a value-carrying field: `existence` rows in
+    /// Provenance for the edge existing *at all* — Model evolution
+    /// Change 4 / E4. Not a value-carrying field: `existence` rows in
     /// `field_sources` answer "why do we believe this parent/spouse/child
     /// edge exists?" by citing the driving record. Additive raw value —
     /// Codable-safe, and decoded only when an existence row is present, so
@@ -40,7 +40,7 @@ public nonisolated enum ChangeField: Codable, Hashable, Sendable {
 /// A single source supporting a field value. Multiple sources per field
 /// provide corroboration — "birth date confirmed by GEDCOM and FreeBMD".
 ///
-/// Per DESIGN.md §5.12 + §5.14, a FieldSource may carry a structured
+/// By design +, a FieldSource may carry a structured
 /// `Citation`, an `EvidenceQuality` rating, and a `FactConfidence`.
 /// All three are optional — most manual entries skip them.
 public nonisolated struct FieldSource: Codable, Hashable, Sendable {
@@ -70,7 +70,7 @@ public nonisolated struct FieldSource: Codable, Hashable, Sendable {
     }
 }
 
-/// What shape of conflict a dispute represents (CONFLICT_LAYER_SPEC §3/§5).
+/// What shape of conflict a dispute represents (Conflict layer/).
 /// `fieldValue` is the classic two-values-one-field dispute the v1 machinery
 /// was built for; the other kinds are structural conflicts (timeline
 /// impossibilities, two identities in one biological role, a record naming a
@@ -82,7 +82,7 @@ public nonisolated enum DisputeKind: String, Codable, Sendable, CaseIterable {
     case spouseIdentity
 }
 
-/// Which producer detected a dispute (CONFLICT_LAYER_SPEC §4.3 ⟨G6⟩,
+/// Which producer detected a dispute (Conflict layer ⟨G6⟩,
 /// persisted in `field_disputes.detected_by`). Cheap provenance that lets
 /// producer coverage be audited against the detection-completeness claim.
 public nonisolated enum DisputeProducer: String, Codable, Sendable {
@@ -94,7 +94,7 @@ public nonisolated enum DisputeProducer: String, Codable, Sendable {
 /// When sources disagree on a field value, the field is disputed.
 /// Preserves all competing sources so undo can restore the dispute.
 ///
-/// CONFLICT_LAYER_SPEC §5: `kind` / `severity` / `detectedBy` are additive
+/// Conflict layer: `kind` / `severity` / `detectedBy` are additive
 /// (decode-defaulted) so JSON written before the conflict layer still
 /// decodes — old blobs read back as `.fieldValue` with no severity/producer.
 public nonisolated struct FieldDispute: Codable, Hashable, Sendable {
@@ -135,7 +135,7 @@ public nonisolated struct FieldDispute: Codable, Hashable, Sendable {
     }
 
     /// Decode-defaulted custom decoder: pre-conflict-layer JSON carries no
-    /// `kind`/`severity`/`detectedBy` keys and must keep decoding (§5,
+    /// `kind`/`severity`/`detectedBy` keys and must keep decoding (,
     /// Change 1 acceptance criterion 7).
     public init(from decoder: any Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
@@ -156,7 +156,7 @@ public nonisolated enum DisputeReason: String, Codable, Sendable {
     case valueMismatch
 }
 
-/// How a dispute was closed. `.rule` is CONFLICT_LAYER_SPEC §4.6 — a
+/// How a dispute was closed. `.rule` is Conflict layer — a
 /// deterministic ladder rung fired and chose a value; the rule ID is
 /// recorded so GPS criterion 4 can cite it ("resolved by R2a"). Additive
 /// case: old JSON (accepted/manual/deferred) decodes unchanged. No rung

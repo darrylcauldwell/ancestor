@@ -2,7 +2,7 @@ import Foundation
 import GRDB
 import AncestorKit
 
-/// Correcting the location TEXT itself (LOCATION_MODEL_SPEC Part III).
+/// Correcting the location TEXT itself (Location model Part III).
 ///
 /// The Places tab deliberately refuses to edit the tree from a triage screen —
 /// settling a place records where it is, and never rewrites what you wrote. But

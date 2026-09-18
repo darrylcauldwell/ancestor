@@ -157,7 +157,7 @@ nonisolated extension HypothesisEngine {
     /// at every level means T7's deficit-query path never re-dispatches
     /// against this kind; the kind contributes to the framework's
     /// hypothesis set but its inconclusive cases fall through to T8's
-    /// MLX next-search fallback (§5.4) instead.
+    /// MLX next-search fallback instead.
     static func deficitQueryParentInferred(
         for hypothesis: ResearchHypothesis,
         atLevel level: Int,

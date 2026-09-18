@@ -14,7 +14,7 @@ nonisolated struct GazetteerEntry: Codable, Sendable, Hashable, Identifiable {
     /// "county" for top-level county entries; nil for towns/parishes within counties.
     let kind: String?
 
-    // MARK: - E3 hierarchy + temporal validity (MODEL_EVOLUTION_SPEC §Change3)
+    // MARK: - E3 hierarchy + temporal validity (Model evolution Change 3)
     //
     // Additive, all-optional so pre-E3 `uk-places.json` entries (which carry
     // none of these keys) still decode losslessly — Swift's synthesized Codable
@@ -179,7 +179,7 @@ nonisolated final class LocationGazetteer: Sendable {
         places.first { $0.id == id }
     }
 
-    // MARK: - E3 place-authority backing (MODEL_EVOLUTION_SPEC §Change3)
+    // MARK: - E3 place-authority backing (Model evolution Change 3)
 
     /// Resolve a stored `birthLocationCode`/`deathLocationCode`
     /// (`COUNTY:Place` gazetteer id) to its **display county string**, exactly

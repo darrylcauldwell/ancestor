@@ -6,7 +6,7 @@ import Foundation
 ///
 /// Generator emits one hypothesis per distinct precise (span-0) year
 /// attested in `Profile.sources[.birthDate]`, but only when ≥ 2 distinct
-/// years compete. See `project_multi_hypothesis_birth_year_plan` memory.
+/// years compete. See the multi-hypothesis birth-year plan memory.
 @MainActor
 struct HypothesisEngineBirthYearCandidateTests {
 
@@ -164,9 +164,9 @@ struct HypothesisEngineBirthYearCandidateTests {
     // MARK: - Multi-candidate cases
 
     @Test func emitsTwoHypothesesForGeorgeBrooksCanonicalCase() {
-        // The motivating case from project_multi_hypothesis_birth_year_plan:
+        // The motivating case from the multi-hypothesis birth-year plan:
         // Jun 1870 vs Dec 1883, with a wide range alongside that should be
-        // ignored. Per known_george_brooks_test_state.md.
+        // ignored. Per the canonical George Brooks case.
         let profile = makeProfile(id: "george", birthDateSources: [
             birthDateSource("BET 1869 AND 1896"),
             birthDateSource("Jun 1870"),
@@ -360,7 +360,7 @@ struct HypothesisEngineBirthYearCandidateTests {
     }
 
     @Test func grade_inconclusiveForGeorgeBrooksCanonicalCase() {
-        // Per known_george_brooks_test_state.md: child Hilda b. 1912.
+        // Per the canonical George Brooks case: child Hilda b. 1912.
         //   1870 → age 42 at first child → rule 3 plausible (1.0)
         //   1883 → age 29 at first child → rule 3 plausible (1.0)
         // Both score 1.0; gap 0.0 < 0.4 → both .inconclusive.

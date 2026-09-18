@@ -1,6 +1,6 @@
 import Foundation
 
-/// IMPORT_DEDUPE_SPEC — detects orphan-stub duplicates: profiles with NO
+/// Import dedupe — detects orphan-stub duplicates: profiles with NO
 /// relationship edges whose name matches an edge-bearing profile.
 ///
 /// The motivating case is Ancestry.com's GEDCOM export: its tree-merge

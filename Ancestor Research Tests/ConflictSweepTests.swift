@@ -4,7 +4,7 @@ import GRDB
 @testable import Ancestor_Research
 import AncestorKit
 
-/// CONFLICT_LAYER_SPEC CL2 — the standing sweep (T-C), acceptance criteria
+/// Conflict layer CL2 — the standing sweep (T-C), acceptance criteria
 /// 1–5, plus the shared-predicate lock (AC2: sweep and audit rule can
 /// never disagree) and the ClusteringEngine T-D split (AC3).
 struct ConflictSweepTests {
@@ -291,7 +291,7 @@ struct ConflictSweepTests {
                 "the disagreement is gone, so the dispute must retract")
     }
 
-    /// §4.3 upsert identity: the re-derivation must JOIN the open row as a
+    /// upsert identity: the re-derivation must JOIN the open row as a
     /// no-op, not append a fresh witness on every sweep. Pins the competing-
     /// source raws against `ProjectDatabase.recordParentRoleDispute`'s.
     @Test func reDerivedReassignmentDisputeIsIdempotent() throws {

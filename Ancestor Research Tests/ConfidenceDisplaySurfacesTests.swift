@@ -2,7 +2,7 @@ import Testing
 import Foundation
 @testable import Ancestor_Research
 
-/// Acceptance tests for RESEARCH_CONFIDENCE_SPEC.md Change 4 — migrating
+/// Acceptance tests for Research confidence Change 4 — migrating
 /// the remaining display surfaces (proposed-relative cards, BulkReviewView
 /// routing) to the three-axis model. No view in `Views/` should reference
 /// `ClusterConfidence` after this Change.

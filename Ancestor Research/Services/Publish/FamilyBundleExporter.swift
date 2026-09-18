@@ -1,7 +1,7 @@
 import Foundation
 
-// PUBLISHER_SPEC Change 2 — Export Family Bundle. The offline artifact:
-// the §4 published schema as JSON files plus copied media, produced by
+// Publisher Change 2 — Export Family Bundle. The offline artifact:
+// the published schema as JSON files plus copied media, produced by
 // the same projection (and the same permanent record UUIDs) the CloudKit
 // publisher will use, so viewer code prototyped against bundles works
 // unchanged against zones. Deliberately does NOT touch published_state
@@ -85,7 +85,7 @@ nonisolated enum FamilyBundleExporter {
         }
 
         // Persist minted identities so the CloudKit publish (and every
-        // future export) reuses them — §4.1 permanence.
+        // future export) reuses them — permanence.
         try db.savePublishedIDs(identity.minted)
 
         return FamilyBundleSummary(

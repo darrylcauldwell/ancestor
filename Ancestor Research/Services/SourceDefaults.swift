@@ -1,7 +1,7 @@
 import Foundation
 
 /// Pure helper that picks a sensible default `SourceOrigin` for a manual
-/// entry based on the user's context (M16.5, DESIGN.md §7.5.9).
+/// entry based on the user's context (M16.5, the design).
 ///
 /// Without this, every manual entry defaults to `.manualMemory` regardless
 /// of how the data is actually being captured — which weakens the source

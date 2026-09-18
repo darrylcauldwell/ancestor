@@ -3,7 +3,7 @@ import Foundation
 import AncestorKit
 @testable import Ancestor_Research
 
-/// LOCATION_MODEL_SPEC Part II, Slice B(i) — the review-layer birth-conflict
+/// Location model Part II, Slice B(i) — the review-layer birth-conflict
 /// guard now resolves BOTH the subject's birthplace and the record's district
 /// to registration-district ids and compares by identity. A subject born in a
 /// hamlet (Hognaston → Ashbourne RD) accepts its RD's birth registration and

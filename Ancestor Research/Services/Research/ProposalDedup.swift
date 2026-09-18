@@ -4,7 +4,7 @@ import Foundation
 /// (`SiblingProposal`) and parent-inferred (`ProposedRelative`).
 /// Mirrors `MCPServer.SiblingDedup.decideDedup` (the `promote_lead`
 /// path) so all three accept-flows behave identically per
-/// ENGINE_FOUNDATION_SPEC §Change3:
+/// Engine foundation Change 3:
 /// surname + given-name + ±2-year window.
 ///
 /// Decision semantics:

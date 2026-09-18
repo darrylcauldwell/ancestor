@@ -2,7 +2,7 @@ import Foundation
 import os
 
 /// MLX-driven extraction of structured facts and narratives from a
-/// prose-corpus page. Spec §10.
+/// prose-corpus page. Spec.
 ///
 /// Given one `ProseCandidate` plus the markdown body of its page, the
 /// extractor builds a per-call prompt (subject + source + content),
@@ -34,7 +34,7 @@ nonisolated struct ProseCorpusExtractor {
 
     private static let logger = Logger(subsystem: "dev.dreamfold.Ancestor-Research", category: "ProseCorpusExtractor")
 
-    /// Hard cap on the CONTENT block sent to the model. Spec §10.1
+    /// Hard cap on the CONTENT block sent to the model. Spec
     /// calls 24 KB the v1 threshold based on DeepSeek-R1 7B's
     /// effective context plus prompt overhead. Above this the spec
     /// calls for section-boundary splitting; v1 takes the head-
@@ -104,7 +104,7 @@ nonisolated struct ProseCorpusExtractor {
 
     // MARK: - Prompt assembly
 
-    /// Build the user prompt block per spec §10.1. Subject + Source
+    /// Build the user prompt block per spec. Subject + Source
     /// + Content. The TASK section lives in the system prompt
     /// (loadSystemPrompt); the user prompt carries only the run-
     /// specific data so the model's instruction context stays
@@ -145,7 +145,7 @@ nonisolated struct ProseCorpusExtractor {
         // closely than character count.
         let truncated: String
         if body.utf8.count > maxContentBytes {
-            // Conservatively head-truncate. Spec §10.1's section-
+            // Conservatively head-truncate. Spec's section-
             // boundary splitter is future work — for v1 we log and
             // drop the tail. Most realistic genealogy pages fit
             // comfortably under 24 KB.
@@ -292,7 +292,7 @@ nonisolated struct ProseCorpusExtractor {
         )
     }
 
-    /// `kind` values the spec §10.1 explicitly enumerates. Anything
+    /// `kind` values the spec explicitly enumerates. Anything
     /// else from the model is dropped — keeps the pipeline's
     /// downstream field handling honest.
     nonisolated static let allowedFactKinds: Set<String> = [

@@ -1,7 +1,7 @@
 import Testing
 @testable import Ancestor_Research
 
-/// PROJECT_ONBOARDING_SPEC Part B — the Getting Started overview. It's a view,
+/// Project onboarding Part B — the Getting Started overview. It's a view,
 /// so the copy isn't unit-tested, but one contract is worth pinning: it must
 /// explain EVERY sidebar tab, so a tab added later can't ship without help
 /// copy. The tour hand-off is a pure AppState flag round-trip.

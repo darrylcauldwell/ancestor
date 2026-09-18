@@ -1,7 +1,7 @@
 import SwiftUI
 
 /// SwiftUI page view for a pedigree chart, sized to fill a `PaperSize`
-/// (DESIGN.md §7.9.2). 4 or 5 generations, ancestors fanning right from
+/// (by design). 4 or 5 generations, ancestors fanning right from
 /// the subject. Empty slots render as dotted "?" placeholders. Connector
 /// lines are drawn behind the cells via a `Path` overlay so they line up
 /// with the centre of each cell exactly.

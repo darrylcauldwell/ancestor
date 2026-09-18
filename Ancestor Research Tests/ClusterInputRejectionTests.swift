@@ -6,7 +6,7 @@ import Foundation
 /// on a later research run (the "namesakes keep coming back" gap: George Herbert
 /// Brooks's "George Brooks, Mar 1884" twin reappeared every run). The main pass
 /// now filters cluster input through the rejection memory it already loads,
-/// mirroring the §5.15.6 hunch-path rule.
+/// mirroring the hunch-path rule.
 @MainActor
 struct ClusterInputRejectionTests {
 

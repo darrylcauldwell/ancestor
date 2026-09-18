@@ -2,8 +2,8 @@ import Testing
 import Foundation
 @testable import Ancestor_Research
 
-/// Connector-audit T1-01 (CONNECTOR_AUDIT_2026-07.md §6.1, subsumes
-/// FT-22/FT-23 §2.4) — the search-outcome honesty envelope. Blocks, API
+/// Connector-audit T1-01 (the 2026-07 connector audit, subsumes
+/// FT-22/FT-23) — the search-outcome honesty envelope. Blocks, API
 /// errors, throttles, and page-1 truncation must never be recorded as
 /// "searched, found nothing": the envelope propagates through
 /// QueryCache and SearchDispatcher, the empty-then-broaden ladder must

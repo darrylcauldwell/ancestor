@@ -4,7 +4,7 @@ import GRDB
 import AncestorKit
 @testable import Ancestor_Research
 
-/// CAMPAIGN_REVIEW_SPEC Change 5 — DB-backed reconstruction of reviewable
+/// Campaign review Change 5 — DB-backed reconstruction of reviewable
 /// results. The overnight-campaign substrate (evidence_records +
 /// research_hypotheses + leads + run requests) must rebuild into the
 /// ResearchResult shape the review surfaces consume, deterministically,
@@ -236,7 +236,7 @@ struct ClusterApplyDiscardIntegrityTests {
     }
 }
 
-/// CAMPAIGN_REVIEW_SPEC Change 6 — per-finding badge data.
+/// Campaign review Change 6 — per-finding badge data.
 @MainActor
 struct CampaignReviewBadgeTests {
 
@@ -282,7 +282,7 @@ struct CampaignReviewBadgeTests {
     }
 }
 
-/// CAMPAIGN_REVIEW_SPEC Change 5 — the census-split year selection is now
+/// Campaign review Change 5 — the census-split year selection is now
 /// deterministic (was Dictionary.first(where:) hash order).
 struct ClusteringDeterminismTests {
 

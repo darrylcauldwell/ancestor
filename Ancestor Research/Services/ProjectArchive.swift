@@ -1,7 +1,7 @@
 import Foundation
 
 /// `.ancestor` project archive — a zip containing the project's SQLite file
-/// plus its `media/` and `thumbnails/` directories. Per DESIGN.md §5.15
+/// plus its `media/` and `thumbnails/` directories. By design
 /// this is the lossless export format: it preserves every attachment,
 /// thumbnail, and DB row in a single user-portable file.
 ///

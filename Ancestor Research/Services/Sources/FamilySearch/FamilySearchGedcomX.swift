@@ -3,7 +3,7 @@ import Foundation
 // GEDCOM X response model for the FamilySearch Platform API (Slice 2).
 //
 // Two envelope shapes, distinguished by media type (see
-// `AncestorApp/FAMILYSEARCH_CLIENT_SPEC.md`):
+// `AncestorApp/FamilySearch client`):
 //   • Tree person read / tree data (`application/x-fs-v1+json`) → the body IS
 //     an `FSGedcomx` with `persons[]` / `relationships[]` at the top level.
 //   • Search / matches feed (`application/x-gedcomx-atom+json`) → an Atom feed:
@@ -50,7 +50,7 @@ nonisolated struct FSSearchEntry: Decodable, Sendable, Equatable {
     var id: String?
     var title: String?
     /// Per-result relevance score (lead-ordering signal only — never a gate,
-    /// trust tier, or convergence input; spec §18).
+    /// trust tier, or convergence input; spec).
     var score: Double?
     var confidence: Double?
     var content: FSEntryContent?

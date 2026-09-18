@@ -26,7 +26,7 @@ struct ResearchState: Sendable {
     /// Count of consensus proposals (slice B subject-self-narrowing)
     /// written to `pending_facts` this run. Surfaced in the
     /// Research-Complete footer so the user notices new narrowing
-    /// proposals waiting in Triage (§6 of the spec).
+    /// proposals waiting in Triage ( of the spec).
     var consensusProposalCount: Int = 0
 
     // Computed partitions — single source of truth is scoredRecords + verdict
@@ -38,7 +38,7 @@ struct ResearchState: Sendable {
         self.subject = subject
         // When the caller set a focus, narrow to that focus's record
         // types instead of the full default set. See
-        // RESEARCH_PIPELINE_SPEC §11.4.
+        // Research pipeline.
         if let focus = subject.focus {
             self.activeRecordTypes = focus.recordTypes
         } else {
@@ -332,7 +332,7 @@ nonisolated struct ResearchResult: Sendable {
     /// outcomes" as "envelope unavailable", not "nothing searched"
     /// (see `GPSScorer.searchedSourceIDs`).
     let searchOutcomes: [SearchOutcomeEntry]
-    /// Pipeline-generated research hypotheses (V2 spec §4.1). Populated
+    /// Pipeline-generated research hypotheses (V2 spec). Populated
     /// by `HypothesisEngine` after the post-loop phase. T12 completed
     /// the migration: `.siblingExists`, `.parentInferred`, and
     /// `.parentMarriage` hypotheses are the sole sources of truth for
@@ -343,7 +343,7 @@ nonisolated struct ResearchResult: Sendable {
     /// `projectParentInferredToProposal` on demand for accept/reject.
     let hypotheses: [ResearchHypothesis]
     /// Per-run verdicts emitted by `VerdictEmitter` after the
-    /// post-loop phase (SWIFT_MCP_EVAL_BACKEND_SPEC #Change2). Each is
+    /// post-loop phase (MCP eval backend #Change2). Each is
     /// one of `"supported" | "contradicted" | "inconclusive"`, or
     /// `nil` for results that were never emitted (intermediate
     /// per-iteration `currentResults` snapshots, the static `.empty`).
@@ -356,19 +356,19 @@ nonisolated struct ResearchResult: Sendable {
     /// Record ids the run tagged as hypothesis-enrichment (excluded from
     /// candidate-life clustering). Threaded from `state.enrichmentRecordIDs`
     /// so persistence can flag the rows and a DB re-cluster can apply the
-    /// same exclusion (CAMPAIGN_REVIEW_SPEC Change 2; the set was previously
+    /// same exclusion (Campaign review Change 2; the set was previously
     /// memory-only and lost at persist).
     let enrichmentRecordIDs: Set<String>
 
     /// Per-gate attrition summary across `allScoredRecords` for this
     /// run. Populated on the final result; nil on intermediate
-    /// per-iteration snapshots (ENGINE_FOUNDATION_SPEC #Change4).
+    /// per-iteration snapshots (Engine foundation #Change4).
     let attrition: ScorerAttrition?
 
     /// Count of subject-self-narrowing proposals (slice B) written
     /// to `pending_facts` this run. Surfaced by the
     /// `ResearchProgressSheet` footer so the user notices new
-    /// narrowing proposals waiting in Triage. Per spec §6.
+    /// narrowing proposals waiting in Triage. Per spec.
     let consensusProposalCount: Int
 
     init(

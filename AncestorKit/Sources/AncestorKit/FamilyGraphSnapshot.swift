@@ -178,7 +178,7 @@ public nonisolated struct FamilyGraphSnapshot: Sendable {
 
     /// IDs of profiles in the focus set plus their immediate connections
     /// (parents, children, spouses). Used by the Tree's "Focus only" filter
-    /// (DESIGN.md §7.7.2). Omits soft-deleted and non-existent IDs.
+    /// (by design). Omits soft-deleted and non-existent IDs.
     public func focusFilteredIDs(focus profileIDs: [String]) -> Set<String> {
         var result: Set<String> = []
         for id in profileIDs where profiles[id] != nil {

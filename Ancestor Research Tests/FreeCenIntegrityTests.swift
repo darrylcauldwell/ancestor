@@ -4,7 +4,7 @@ import AncestorKit
 @testable import Ancestor_Research
 
 /// Pins the FreeCen integrity cluster from the July 2026 connector audit
-/// (FT-12, FT-10, FT-15 — shipped together per audit §3).
+/// (FT-12, FT-10, FT-15 — shipped together per audit).
 ///
 /// - FT-12: record IDs were neither unique nor stable — the search row used a
 ///   name composite (`freecen_<year>_<surname>_<given>`, colliding across

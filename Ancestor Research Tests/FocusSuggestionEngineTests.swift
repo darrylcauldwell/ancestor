@@ -2,7 +2,7 @@ import Testing
 import Foundation
 @testable import Ancestor_Research
 
-/// Tests for the recent-activity suggestion engine (M17.4, DESIGN.md §7.7.2).
+/// Tests for the recent-activity suggestion engine (M17.4, the design).
 /// Pure-function tests — no DB, no AppState, no view.
 struct FocusSuggestionEngineTests {
 

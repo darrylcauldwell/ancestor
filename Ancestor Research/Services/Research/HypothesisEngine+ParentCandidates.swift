@@ -2,10 +2,10 @@ import Foundation
 
 /// `.parentCandidates(fatherGiven, fatherSurname, motherGiven,
 /// motherMaidenSurname, marriageWindow)` kind — grader and expansiveness
-/// ladder for user-seeded parent hunches (RESEARCH_PIPELINE_SPEC §5.15,
+/// ladder for user-seeded parent hunches (Research pipeline,
 /// Slice 2).
 ///
-/// **No generator by design (§5.15.1, Decision E1).** The engine never
+/// **No generator by design (, Decision E1).** The engine never
 /// invents a hunch: rows of this kind carry `origin == .user` and are
 /// materialised from the v32 `user_hypothesis_seeds` staging table by
 /// `HypothesisSeedService`. The engine's regeneration cycle never
@@ -26,7 +26,7 @@ import Foundation
 /// attestation alone stays `.inconclusive` — no self-confirmation.
 nonisolated extension HypothesisEngine {
 
-    // MARK: - Nickname equivalence (§5.15.2 / §5.15.3 / AC 8)
+    // MARK: - Nickname equivalence ( / / AC 8)
 
     /// Agreement threshold on `ScoringRules.nameSimilarity`. 0.7 is the
     /// codebase-wide match bar (RecordScorer household checks,
@@ -34,7 +34,7 @@ nonisolated extension HypothesisEngine {
     /// 0.85, learned `name_equivalences` pairs 0.9, both clear it.
     static let parentCandidatesNameAgreementThreshold: Double = 0.7
 
-    /// §5.15.3 promises "Bob" matches "Robert" via the nickname
+    /// promises "Bob" matches "Robert" via the nickname
     /// machinery, and AC 8 pins it. The shipped
     /// `ScoringRules.nicknameEquivalents` table is a faithful port of
     /// `agent/rules.py` and carries NEITHER BOB↔ROBERT nor SUE↔SUSAN —
@@ -48,7 +48,7 @@ nonisolated extension HypothesisEngine {
         "SUE": ["SUSAN", "SUSANNAH"], "SUSIE": ["SUSAN", "SUSANNAH"],
     ]
 
-    /// "Given names agreeing via nickname equivalence" (§5.15.4).
+    /// "Given names agreeing via nickname equivalence".
     /// Compares full strings and first tokens (BMD index given names
     /// are often "Robert James") through `ScoringRules.nameSimilarity`
     /// (exact / learned equivalence / spelling normalisation / built-in
@@ -85,13 +85,13 @@ nonisolated extension HypothesisEngine {
         return ScoringRules.nameSimilarity(aU, bU) < parentCandidatesNameAgreementThreshold
     }
 
-    // MARK: - Grader (§5.15.4, Decision E5)
+    // MARK: - Grader (, Decision E5)
 
     /// Grade a `.parentCandidates` hunch against current evidence. Pure
     /// function — state + snapshot in, verdict out; deterministic, no
     /// MLX involvement, `isModelAssisted: false` always.
     ///
-    /// Verdict table (§5.15.4):
+    /// Verdict table:
     ///
     /// | Evidence state | Verdict |
     /// |---|---|
@@ -99,7 +99,7 @@ nonisolated extension HypothesisEngine {
     /// | Marriage `.unique`, no linkage yet | `.inconclusive` — couple attested; parental link unproven |
     /// | Identity-resolved birth MMN conflicts with a non-nil `motherMaidenSurname` hint | `.contradicted` |
     /// | Confirmed (field_sources-backed) tree parent given name conflicts with a hint beyond nickname equivalence | `.contradicted` |
-    /// | No marriage / no linkage found in window | `.inconclusive` — NEVER `.contradicted` (asymmetric verdict space, §4.1) |
+    /// | No marriage / no linkage found in window | `.inconclusive` — NEVER `.contradicted` (asymmetric verdict space,) |
     static func gradeParentCandidates(
         _ hypothesis: ResearchHypothesis,
         state: ResearchState,
@@ -235,7 +235,7 @@ nonisolated extension HypothesisEngine {
             )
         case .none:
             // Table row 5 — NEVER .contradicted on absence (asymmetric
-            // verdict space §4.1: the record may sit outside the
+            // verdict space: the record may sit outside the
             // searched window). Contrast gradeParentMarriage, whose
             // engine-origin kind does contradict on .none — a user
             // hunch must not be refuted by a bounded search coming back
@@ -250,16 +250,16 @@ nonisolated extension HypothesisEngine {
         }
     }
 
-    // MARK: - Ladder ceiling / exhaustion (§5.15.8)
+    // MARK: - Ladder ceiling / exhaustion
 
     /// Highest deficit level `.parentCandidates` dispatches — level 1
     /// (parent-marriage), 2 (MMN linkage), 3 (census household). Level
     /// ≥ 4 returns `[]` (exhausted). Single source of truth so the UX
-    /// layer's "exhausted hunch" test (§5.15.8) can't drift from the
+    /// layer's "exhausted hunch" test can't drift from the
     /// ladder in `deficitQueryParentCandidates`.
     static let parentCandidatesLadderCeiling = 3
 
-    /// A `.parentCandidates` hunch is exhausted (§5.15.8) once every
+    /// A `.parentCandidates` hunch is exhausted once every
     /// ladder level has been dispatched — i.e. the NEXT level
     /// (`attempts + 1`) would exceed the ceiling and `deficitQuery`
     /// returns `[]`. State-free: the ceiling is a fixed property of the
@@ -270,7 +270,7 @@ nonisolated extension HypothesisEngine {
         return hypothesis.attempts + 1 > parentCandidatesLadderCeiling
     }
 
-    // MARK: - Deficit ladder (§5.15.3)
+    // MARK: - Deficit ladder
 
     /// Per-kind expansiveness ladder for `.parentCandidates`:
     ///
@@ -286,19 +286,19 @@ nonisolated extension HypothesisEngine {
     ///             pairing. The given-name hint is deliberately NOT put
     ///             on the wire: a literal `fatherGiven=Bob` filter would
     ///             exclude the "Robert" registrations the nickname
-    ///             machinery is required to match (§5.15.3 / AC 8) —
+    ///             machinery is required to match ( / AC 8) —
     ///             expansion happens client-side at grading.
     ///   level 2 → MMN linkage probe: the subject's OWN birth-index
     ///             search with the mothers-maiden-name axis set to
     ///             `motherMaidenSurname ??` (bride maiden recovered at
-    ///             level 1). Rides the Part I §11.4 `.birth` focus
+    ///             level 1). Rides the Part I `.birth` focus
     ///             shape (FreeBMD motherSurname param). This is the
     ///             probe that turns "the couple existed" into "the
     ///             couple are the subject's parents."
     ///   level 3 → census household probe: census years where the
     ///             subject is aged 0–15, chapman-coded to the subject's
     ///             home county, tight birth-year range.
-    ///   level ≥ 4 → `[]`; ladder exhausted — archive per §5.11.
+    ///   level ≥ 4 → `[]`; ladder exhausted — archive per.
     static func deficitQueryParentCandidates(
         for hypothesis: ResearchHypothesis,
         atLevel level: Int,
@@ -401,13 +401,13 @@ nonisolated extension HypothesisEngine {
                 )
             }
         default:
-            return []   // Exhausted — archive per §5.11
+            return []   // Exhausted — archive per
         }
     }
 
     // MARK: - Shared evidence helpers
 
-    /// Effective groom-side surname (§5.15.1 payload semantics): the
+    /// Effective groom-side surname ( payload semantics): the
     /// hint records exactly what the user asserted; the effective value
     /// resolves at probe/grade time as `fatherSurname ?? subject.lastName`
     /// under the paternal-naming convention.
@@ -425,7 +425,7 @@ nonisolated extension HypothesisEngine {
     /// effective surname, applies the given-name hint filters through
     /// nickname equivalence (this is where "Bob" admits "Robert"), and
     /// reunites the sides via `MarriageEnrichmentEngine.match` on the
-    /// BMD reference tuple — exactly the `.parentMarriage` §6.2
+    /// BMD reference tuple — exactly the `.parentMarriage`
     /// machinery.
     ///
     /// When `motherMaidenSurname` is nil the bride's maiden surname is
@@ -483,7 +483,7 @@ nonisolated extension HypothesisEngine {
                     // Maiden surname unknown — admit bride-side entries
                     // whose spouse column points back at the groom
                     // surname; her given name is checked against the
-                    // motherGiven hint (§5.15.3 level 1).
+                    // motherGiven hint ( level 1).
                     if let mgHint,
                        !parentCandidatesGivenNamesAgree(mgHint, entry.givenName) {
                         continue
@@ -556,7 +556,7 @@ nonisolated extension HypothesisEngine {
     }
 
     /// Linkage leg (b): IDs of census records whose household contains
-    /// the subject as a child of the hinted couple (Part I §18.8 shape):
+    /// the subject as a child of the hinted couple (Part I shape):
     /// head given name ≈ fatherGiven, wife given name ≈ motherGiven
     /// (both nickname-expanded), surname = subject's. Requires the
     /// subject's given name (an anonymous child can't be linked) and at
@@ -597,7 +597,7 @@ nonisolated extension HypothesisEngine {
             guard subjectAsChild else { continue }
 
             // Head of household — surname must be the subject's
-            // (§5.15.3: "surname = subject's"), given name ≈ fatherGiven.
+            // (: "surname = subject's"), given name ≈ fatherGiven.
             guard let head = household.first(where: {
                 $0.relationship.lowercased().contains("head")
             }) else { continue }
@@ -626,7 +626,7 @@ nonisolated extension HypothesisEngine {
         return ids
     }
 
-    /// Confirmed-parent conflict (§5.15.4 table row 4). A parent edge
+    /// Confirmed-parent conflict ( table row 4). A parent edge
     /// whose profile carries a field_sources-backed given name that
     /// disagrees with the corresponding hint beyond nickname
     /// equivalence. "Confirmed" = the `firstName` field has at least

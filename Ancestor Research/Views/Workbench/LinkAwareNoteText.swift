@@ -1,7 +1,7 @@
 import SwiftUI
 
 /// Renders a note's Markdown-ish content, replacing `[[Profile Name]]`
-/// markers (DESIGN.md §7.7.5) with tappable hyperlink-style buttons.
+/// markers (by design) with tappable hyperlink-style buttons.
 ///
 /// Plain text segments use `Text`; link segments use a small `Button`
 /// styled blue + underlined. When a name resolves uniquely the tap fires

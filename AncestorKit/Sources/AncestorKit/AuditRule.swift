@@ -12,7 +12,7 @@ public nonisolated protocol AuditRuleDefinition: Sendable {
     var defaultSeverity: Severity { get }
     var category: AuditCategory { get }
 
-    /// Numeric thresholds the user can tune (M18, DESIGN.md §13). Rules
+    /// Numeric thresholds the user can tune (M18, the design). Rules
     /// that consume tunables read them via `AuditEngine`'s threshold
     /// resolution helpers, falling back to `defaultValue` when no
     /// override exists. Rules with no tunables return [].
@@ -2667,7 +2667,7 @@ public nonisolated struct EmptyProfileRule: AuditRuleDefinition {
     }
 }
 
-// MARK: - Conflict-layer wrappers (CONFLICT_LAYER_SPEC CL2)
+// MARK: - Conflict-layer wrappers (Conflict layer CL2)
 
 /// F4a as an audit rule — thin wrapper over
 /// `ConflictPredicates.duplicateBiologicalParentEdges` so the audit pass
@@ -2729,7 +2729,7 @@ public nonisolated struct RecordAfterDeathRule: AuditRuleDefinition {
 }
 
 
-/// IMPORT_DEDUPE_SPEC Change 1 — surfaces orphan-stub duplicates (a
+/// Import dedupe Change 1 — surfaces orphan-stub duplicates (a
 /// profile with no relationship edges whose name matches an edge-bearing
 /// profile). Complements `DuplicateDetectionRule`: that rule needs
 /// birth-year overlap to reach 0.7 and misses surname-only stubs entirely
@@ -2761,7 +2761,7 @@ public nonisolated struct OrphanStubRule: AuditRuleDefinition {
     }
 }
 
-/// IMPORT_DEDUPE_SPEC Change 4 — surfaces phantom-spouse stubs (a dateless,
+/// Import dedupe Change 4 — surfaces phantom-spouse stubs (a dateless,
 /// evidence-free profile whose ONLY edge is a single spouse-link to a real
 /// person). The one spouse-edge disqualifies these from `OrphanStubRule`'s
 /// zero-edge cleanse, yet they are the same duplicate debris — extra
@@ -2884,7 +2884,7 @@ public nonisolated struct CensusAgeBirthYearRule: AuditRuleDefinition {
     }
 }
 
-// MARK: - Rule: 1911 fertility statement vs tree (FREEREG_INTEGRATION_SPEC §5)
+// MARK: - Rule: 1911 fertility statement vs tree (FreeREG integration)
 
 /// The 1911 census asked each married woman, about her PRESENT marriage:
 /// years married, children born alive, children still living (and deceased,

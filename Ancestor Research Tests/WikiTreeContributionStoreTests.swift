@@ -4,7 +4,7 @@ import GRDB
 @testable import Ancestor_Research
 @testable import AncestorKit
 
-/// v54 contribution log (WT4 — WIKITREE_MERGEEDIT_SPEC §5): offers round-trip
+/// v54 contribution log (WT4 — WikiTree MergeEdit): offers round-trip
 /// newest-first, cascade with profile deletion, and record "offered" semantics
 /// (no saved/committed state exists — that truth only arrives via twin sync).
 struct WikiTreeContributionStoreTests {

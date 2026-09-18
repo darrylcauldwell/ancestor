@@ -1,7 +1,7 @@
 import SwiftUI
 import AppKit
 
-/// Grid of attachment thumbnails for a single profile. Per DESIGN.md §5.15.
+/// Grid of attachment thumbnails for a single profile. By design
 /// Tapping a tile opens a type-appropriate viewer (photo / PDF / transcription).
 struct AttachmentGalleryView: View {
     @Environment(AppState.self) private var appState

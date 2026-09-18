@@ -18,7 +18,7 @@ import Foundation
 /// `HypothesisEngine.swift`) walks supported `.parentMarriage`
 /// hypotheses post-grading and writes their marriage record IDs +
 /// given-name reasoning back onto the matching `.parentInferred`
-/// hypotheses — the V2 spec §5.2.1 cross-reference mechanic.
+/// hypotheses — the V2 spec cross-reference mechanic.
 nonisolated extension HypothesisEngine {
 
     /// Window default — mirrors `enrichParentsWithMarriage` today
@@ -28,7 +28,7 @@ nonisolated extension HypothesisEngine {
 
     /// Emit one `.parentMarriage` per (mother, father) parent-pair
     /// derived from the subject's BMD birth records, subject to the
-    /// search-storm gating policy (V2 spec §5.2.1 — same rules as the
+    /// search-storm gating policy (V2 spec — same rules as the
     /// legacy `enrichParentsWithMarriage`):
     ///
     ///   • Both parents already linked → only emit for pairs whose
@@ -161,7 +161,7 @@ nonisolated extension HypothesisEngine {
     ///                  reported the match).
     /// `.inconclusive`  when `.ambiguous` — `supportingEvidence` lists
     ///                  all candidate IDs so the user can disambiguate
-    ///                  via §5.11.
+    ///                  via.
     /// `.contradicted`  when `.none` — searched in the window, found
     ///                  no plausible marriage. Surfaces in the archive
     ///                  view; the parent inference still stands on its
@@ -238,7 +238,7 @@ nonisolated extension HypothesisEngine {
     }
 
     /// Expansiveness ladder for `.parentMarriage`. Levels mirror the
-    /// dispatch a T7 second pass (V2 spec §5.3) would re-issue:
+    /// dispatch a T7 second pass (V2 spec) would re-issue:
     ///
     ///   level 1 → original window from the hypothesis payload
     ///             (`subjectBirth − 30 ... +1`). Matches the first-pass
@@ -250,7 +250,7 @@ nonisolated extension HypothesisEngine {
     ///             outside the default window.
     ///   level ≥ 3 → nil. T31 retunes the ceiling once eval-harness
     ///               data is available (adjacent-county step is the
-    ///               natural next ladder rung per §5.3).
+    ///               natural next ladder rung per).
     ///
     /// The returned `RecordQuery` template has `districtCode: ""` —
     /// the orchestrator fans out across the scope's districts (same

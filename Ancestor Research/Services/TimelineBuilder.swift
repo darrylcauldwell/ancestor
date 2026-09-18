@@ -1,7 +1,7 @@
 import Foundation
 
 /// Pure transformation from a family graph snapshot + workbench data into
-/// a list of `TimelineEvent` rows for one profile (DESIGN.md §7.8).
+/// a list of `TimelineEvent` rows for one profile (by design).
 ///
 /// No I/O, no GRDB. The result is regenerated per build call so the caller
 /// (a SwiftUI view) re-derives whenever the underlying snapshot or workbench

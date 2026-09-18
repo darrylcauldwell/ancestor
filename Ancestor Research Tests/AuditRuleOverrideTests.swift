@@ -2,7 +2,7 @@ import Testing
 import Foundation
 @testable import Ancestor_Research
 
-/// M18 — Audit-rule overrides (DESIGN.md §13).
+/// M18 — Audit-rule overrides (by design).
 ///
 /// These tests cover the override system end-to-end:
 ///   - DB round-trip

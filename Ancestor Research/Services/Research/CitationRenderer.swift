@@ -288,7 +288,7 @@ nonisolated struct CitationRenderer {
             if !parts.isEmpty { reference = " (\(parts.joined(separator: ", ")))" }
         }
 
-        // Transcriber attribution (FREEREG_INTEGRATION_SPEC §2/§3.1):
+        // Transcriber attribution (FreeREG integration/):
         // FreeREG's value IS the volunteers' transcription work — credit
         // them on the citation whenever the record carries the credit.
         var attribution = ""

@@ -3,7 +3,7 @@ import Foundation
 import AncestorKit
 @testable import Ancestor_Research
 
-/// SUBJECT_PLACE_MODEL_SPEC Slice 2 — the one place shape.
+/// Subject place model Slice 2 — the one place shape.
 ///
 /// Slice 2's contract is narrow and worth stating plainly: `places` is
 /// POPULATED and nothing reads it, so behaviour change is zero by construction.

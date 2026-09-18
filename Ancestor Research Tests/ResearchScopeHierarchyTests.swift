@@ -2,7 +2,7 @@ import Testing
 import Foundation
 @testable import Ancestor_Research
 
-/// Acceptance tests for RESEARCH_AXES_SPEC.md Change 3 — ResearchScope hierarchy.
+/// Acceptance tests for Research axes Change 3 — ResearchScope hierarchy.
 @MainActor
 struct ResearchScopeHierarchyTests {
 

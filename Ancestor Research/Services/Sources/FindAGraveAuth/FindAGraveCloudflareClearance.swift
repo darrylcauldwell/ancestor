@@ -7,7 +7,7 @@ import os
 /// for Find a Grave. WKWebView executes the JS challenge that Cloudflare
 /// serves on memorial pages; once the challenge resolves, the
 /// `cf_clearance` cookie lands in WKHTTPCookieStore and we extract it for
-/// URLSession reuse. Spec §22.
+/// URLSession reuse. Spec.
 ///
 /// Usage:
 ///     let cookies = try await FindAGraveCloudflareClearance.acquire()

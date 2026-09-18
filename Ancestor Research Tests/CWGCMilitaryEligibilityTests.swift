@@ -191,7 +191,7 @@ struct CWGCMilitaryEligibilityTests {
     }
 
     @Test func femaleIsExcludedEvenWithWarYearsDeath() {
-        // The male-only scope is unchanged (spec-pinned; §7 widening is
+        // The male-only scope is unchanged (spec-pinned; widening is
         // out of T1-08's scope). A positive female signal excludes even a
         // war-years death.
         #expect(!CWGCSource.isMilitaryEligible(

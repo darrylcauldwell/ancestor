@@ -2,7 +2,7 @@ import Testing
 import Foundation
 @testable import Ancestor_Research
 
-/// Acceptance tests for RESEARCH_AXES_SPEC.md Change 4 —
+/// Acceptance tests for Research axes Change 4 —
 /// SearchStrictness type + RecordQuery field. No behaviour change.
 struct SearchStrictnessTests {
 

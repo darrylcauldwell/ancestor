@@ -7,8 +7,8 @@ import AncestorKit
 /// event it was derived from.
 ///
 /// `projectToLifeEvents` fans a record out into a primary event plus the typed
-/// events its fields imply (EVIDENCE_ABSORPTION_SPEC Change 2 / Change 3,
-/// PARISH_ABSORPTION_SPEC §6). The primary was built with `sources:`; all three
+/// events its fields imply (Evidence absorption Change 2 / Change 3,
+/// Parish absorption). The primary was built with `sources:`; all three
 /// derived builders — `censusDerivedEvents`, `parishDerivedEvents`,
 /// `probateDerivedEvents` — omitted the argument entirely, so it defaulted to
 /// `[]` and the derived rows rendered with no citation badge beside a fully

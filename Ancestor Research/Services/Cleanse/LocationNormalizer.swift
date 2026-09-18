@@ -1,7 +1,7 @@
 import Foundation
 import AncestorKit
 
-/// Slice E (LOCATION_MODEL_SPEC Part II) — the "un-muddle": a one-pass normaliser
+/// Slice E (Location model Part II) — the "un-muddle": a one-pass normaliser
 /// that proposes structured location codes for profiles whose birth/death place
 /// is freeform text carrying no code yet, so the whole tree converges on the one
 /// place authority the picker (Slice D) now writes for new input.

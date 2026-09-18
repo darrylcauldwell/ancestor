@@ -2,7 +2,7 @@ import Foundation
 import GRDB
 import AncestorKit
 
-/// PROFILE_SOURCES_LEDGER_SPEC Changes 1+3+4 — remove an applied evidence
+/// Profile sources ledger Changes 1+3+4 — remove an applied evidence
 /// record from a profile, reversing its absorption directionally and
 /// remembering the rejection so future research runs don't re-add it.
 ///

@@ -8,7 +8,7 @@ nonisolated enum BranchDirection: Sendable {
 
 /// Pure helper that selects the IDs of every profile reachable from a root
 /// in a given direction (parents-only or children-only). Used by the tree's
-/// "Remove person and ancestors / descendants" affordance (DESIGN.md §7.5.6)
+/// "Remove person and ancestors / descendants" affordance (by design)
 /// so the confirmation alert can show an accurate count and the actual
 /// soft-delete is a single transaction.
 ///
@@ -72,7 +72,7 @@ nonisolated enum BranchSelector {
 
 nonisolated extension FamilyGraphSnapshot {
     /// Number of distinct parent edges pointing at `profileID`.
-    /// Drives the third-parent disambiguation prompt (DESIGN.md §7.5.7) —
+    /// Drives the third-parent disambiguation prompt (by design) —
     /// when adding a relationship would push the count to 3+, the UI surfaces
     /// a "What's the relationship?" picker rather than silently defaulting.
     func parentCount(for profileID: String) -> Int {

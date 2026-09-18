@@ -1,7 +1,7 @@
 import SwiftUI
 import AncestorKit
 
-/// IMPORT_DEDUPE_SPEC — post-import review of duplicate records left by a
+/// Import dedupe — post-import review of duplicate records left by a
 /// GEDCOM export (e.g. Ancestry merges). Two shapes:
 /// - Orphan stubs (zero edges): empty ones offer a one-click removal.
 /// - Phantom spouses (one spouse-edge, dateless): a plain-language guided

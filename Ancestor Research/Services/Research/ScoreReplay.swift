@@ -1,7 +1,7 @@
 import Foundation
 import AncestorKit
 
-/// SUBJECT_PLACE_MODEL_SPEC Slice 1.5 — the corpus replay diff.
+/// Subject place model Slice 1.5 — the corpus replay diff.
 ///
 /// Re-scores every record already stored in a project and emits a stable
 /// fingerprint of what the decision core decided. Capture one before a change

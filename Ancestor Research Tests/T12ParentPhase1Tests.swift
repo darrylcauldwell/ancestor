@@ -2,7 +2,7 @@ import Testing
 import Foundation
 @testable import Ancestor_Research
 
-/// T12-parent Phase 1 invariants (V2 spec §5.2 / §5.2.1): the legacy
+/// T12-parent Phase 1 invariants (V2 spec /): the legacy
 /// `ParentInferenceEngine.infer` + `enrichParentsWithMarriage` paths
 /// and the new `.parentInferred` + `.parentMarriage` framework path
 /// produce projection-equal surfaces — same parent surnames per
@@ -402,7 +402,7 @@ struct T12ParentPhase1Tests {
     // MARK: - Phase 1 invariant: legacy + framework agree
 
     @Test func phase1_legacyProposalsAndHypotheses_carryIdenticalSurnames() {
-        // V2 spec §5.2 Phase 1 cross-phase regression: per-profile
+        // V2 spec Phase 1 cross-phase regression: per-profile
         // output exhibits projection-equality on the legacy field's
         // shape. Same MMN + subject-surname pair → legacy emits two
         // ProposedRelatives (mother + father), framework emits two

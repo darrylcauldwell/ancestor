@@ -49,7 +49,7 @@ nonisolated struct EvidenceRecord: Sendable, Identifiable {
     /// status without writing anything.
     let appliedAt: Date?
 
-    // CAMPAIGN_REVIEW_SPEC Change 2 — the persisted evidence chain carries
+    // Campaign review Change 2 — the persisted evidence chain carries
     // the FULL scorer output, so a DB reconstruction is a complete
     // ScoredRecord, not a gates-less shadow. Legacy (pre-v44) rows decode
     // as gates=[] / summary="" / isEnrichment=false.

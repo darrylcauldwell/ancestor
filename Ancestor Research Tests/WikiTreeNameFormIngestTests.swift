@@ -3,7 +3,7 @@ import Foundation
 @testable import AncestorKit
 @testable import Ancestor_Research
 
-/// Pins the E2 WikiTree name-variant capture (MODEL_EVOLUTION_SPEC §Change2
+/// Pins the E2 WikiTree name-variant capture (Model evolution Change 2
 /// AC 2): a WikiTree profile carrying `LastNameOther` / `LastNameCurrent`
 /// ingests those as typed name forms — the motivating data-loss fix — while the
 /// flat name fields (the search keys) are unchanged.

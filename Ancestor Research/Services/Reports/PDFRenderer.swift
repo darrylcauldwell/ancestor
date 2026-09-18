@@ -24,7 +24,7 @@ enum PDFRenderer {
                     height: paperSize.sizeInPoints.height
                 )
         )
-        // 300dpi — print-ready per DESIGN.md §7.9.2.
+        // 300dpi — print-ready by design
         renderer.scale = 300.0 / 72.0
 
         renderer.render { size, renderContext in

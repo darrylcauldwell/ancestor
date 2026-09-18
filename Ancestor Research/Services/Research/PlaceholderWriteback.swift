@@ -2,7 +2,7 @@ import Foundation
 
 /// Promotes a thin `@FR_*@` placeholder profile to a richer one when
 /// its own research results converge strongly on a single given name.
-/// Implements ENGINE_FOUNDATION_SPEC #Change2 (the "thin → rich"
+/// Implements Engine foundation #Change2 (the "thin → rich"
 /// pipeline).
 ///
 /// Pure consensus logic in `propose(from:)`; side-effects (UPDATE
@@ -154,7 +154,7 @@ nonisolated struct PlaceholderWriteback {
 
         // Re-check density: if the profile is no longer thin (another
         // pass or a manual edit already enriched it), refuse to
-        // overwrite. Memory: feedback_check_before_overwrite.md.
+        // overwrite. Memory: the Check Before Overwrite rule.
         let currentSubject = ResearchSubject(
             surname: profile.lastName,
             givenName: profile.firstName,

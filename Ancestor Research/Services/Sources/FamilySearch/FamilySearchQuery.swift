@@ -7,7 +7,7 @@ import Foundation
 /// guessed (which the live API rejects with 400). The axes are grounded in the
 /// official *Record Persona Search* resource (records search) and the
 /// FamilySearch Bruno example collection (tree search); both consume the same
-/// `q.*` term grammar. See `AncestorApp/FAMILYSEARCH_CLIENT_SPEC.md`.
+/// `q.*` term grammar. See `AncestorApp/FamilySearch client`.
 ///
 /// Pure and `Sendable`; the URL builders in `FamilySearchEndpoints` consume
 /// `queryItems()`. Date ranges emit an inclusive `.from`/`.to` pair of

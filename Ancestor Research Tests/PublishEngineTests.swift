@@ -5,7 +5,7 @@ import GRDB
 import AncestorKit
 @testable import Ancestor_Research
 
-// PUBLISHER_SPEC Change 4 — offline engine tests. The CloudKit seams are
+// Publisher Change 4 — offline engine tests. The CloudKit seams are
 // injected, so everything here runs hermetically: store diffing
 // (update-in-place, presence deletes, checksum skip), the second-Mac
 // generation guard, and the full orchestration against a fake cloud.

@@ -2,7 +2,7 @@ import Foundation
 
 /// Parses `[[Profile Name]]` intra-tree link markers in note content.
 ///
-/// Per DESIGN.md §7.7.5: a `[[Thomas Land]]` marker becomes a clickable
+/// By design: a `[[Thomas Land]]` marker becomes a clickable
 /// reference to that profile. Ambiguous matches (multiple profiles sharing
 /// the same display name) emit the link with a `nil` profileID so the
 /// caller can present a disambiguation picker.

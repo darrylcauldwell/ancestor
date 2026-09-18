@@ -1,6 +1,6 @@
 import SwiftUI
 
-/// SwiftUI page view for a fan-chart pedigree (DESIGN.md §7.9.2).
+/// SwiftUI page view for a fan-chart pedigree (by design).
 ///
 /// Layout: subject sits at the centre near the bottom of the page; ancestor
 /// generations radiate upward as concentric semicircular arcs. Generation 1

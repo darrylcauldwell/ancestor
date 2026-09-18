@@ -2,7 +2,7 @@ import Testing
 import Foundation
 @testable import Ancestor_Research
 
-/// Batch Family Group Sheet export — DESIGN.md §7.9.3.
+/// Batch Family Group Sheet export — the design
 ///
 /// Covers `FamilyGroupSheetReport.enumerateFamilies(snapshot:)` and the
 /// multi-page `renderAllFamiliesPDF(...)` integration:

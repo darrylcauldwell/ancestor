@@ -3,7 +3,7 @@ import Foundation
 import AncestorKit
 @testable import Ancestor_Research
 
-/// LOCATION_MODEL_SPEC Part III, Slice A deferred item — administrative
+/// Location model Part III, Slice A deferred item — administrative
 /// co-occurrence.
 ///
 /// The spec listed this as a scoring signal. Building it showed it must not be

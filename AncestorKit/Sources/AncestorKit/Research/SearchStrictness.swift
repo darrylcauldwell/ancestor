@@ -3,14 +3,14 @@ import Foundation
 /// How strictly a source should match the subject's name when querying.
 ///
 /// Internal to the dispatcher — not exposed in `ResearchConfigSheet`.
-/// Derived from `ResearchMode` at dispatch time per the §3 mapping:
+/// Derived from `ResearchMode` at dispatch time per the mapping:
 ///
 ///   - verify   → strict only, never broaden
 ///   - extend   → strict first, broaden once on empty
 ///   - discover → loose first, escalate to variant on empty
 ///   - all      → run every tier in parallel and dedupe
 ///
-/// §7's per-source table is the authoritative spec for which sources support
+///'s per-source table is the authoritative spec for which sources support
 /// which tiers. Sources without a meaningful broader mode treat any value as
 /// `.strict`; the dispatcher's empty-then-broaden logic (Change 6) skips them
 /// rather than issuing redundant identical queries.

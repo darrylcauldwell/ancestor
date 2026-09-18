@@ -4,7 +4,7 @@ import GRDB
 import AncestorKit
 @testable import Ancestor_Research
 
-/// SOURCE_WEIGHTING_SPEC Change 8 — per-field evidence-chain verdicts from
+/// Source weighting Change 8 — per-field evidence-chain verdicts from
 /// persisted state. The verdict ladder: contradicted > corroborated >
 /// cited > uncorroborated(searched:), with empty fields excluded (gaps are
 /// the Research tab's job).

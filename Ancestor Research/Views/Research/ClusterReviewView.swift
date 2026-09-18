@@ -66,7 +66,7 @@ struct ClusterReviewView: View {
                         // leaving the screen to look them up.
                         subjectContextPanel
 
-                        // SubjectSpouseMarriage status banner (§5.14.6).
+                        // SubjectSpouseMarriage status banner.
                         // Surfaces when subject was thin entering the run —
                         // either reports recovered name, no-match, ambiguous
                         // candidates, conflict, or the "can't fire" copy.
@@ -519,7 +519,7 @@ struct ClusterReviewView: View {
                     Text(cluster.displayName)
                         .font(AppTypography.cardTitle)
                     HStack(spacing: 8) {
-                        // RESEARCH_CONFIDENCE_SPEC §4.2 Change 3 — cluster
+                        // Research confidence Change 3 — cluster
                         // cards adopt the three-axis badge. Proposed-relative
                         // cards (line below) keep the legacy tier badge until
                         // Change 4 migrates them.
@@ -566,7 +566,7 @@ struct ClusterReviewView: View {
                                 .help("Applying will open a dispute for each conflict-grade disagreement with the tree")
                         }
 
-                        // CONFLICT_LAYER_SPEC CL2 AC3 — T-D same-year-census split badge.
+                        // Conflict layer CL2 AC3 — T-D same-year-census split badge.
                         if let reason = cluster.splitReason {
                             clusterStatusBadge("Split: contradiction", tint: .red)
                                 .help(reason)
@@ -814,7 +814,7 @@ struct ClusterReviewView: View {
                     && (vm.selectedProfile.map { RecordScorer.conflictsWithConfirmedBirth(scored, subject: $0) } ?? false)
                 let effectiveWillApply = recordDecision == .accepted
                     || (recordDecision != .rejected && RecordScorer.wouldApply(scored, subject: vm.selectedProfile))
-                // PROFILE_LIFECYCLE_SPEC Change 2 — applied vs selected, legible
+                // Profile lifecycle Change 2 — applied vs selected, legible
                 // WITHOUT hovering, and green reserved for "done/on the profile".
                 // Previously both states were `.iconOnly` green checkmarks
                 // (seal vs circle) with the words hidden in a tooltip, so
@@ -1045,7 +1045,7 @@ struct ClusterReviewView: View {
                         .help("Fetches this record's register entry — one page from FreeREG — naming the family it mentions (parents on a baptism, both fathers on a marriage). Changes nothing on the tree.")
                     }
 
-                    // EVIDENCE_ABSORPTION_SPEC Change 5 — show every off-agenda
+                    // Evidence absorption Change 5 — show every off-agenda
                     // fact this record will land on the profile BEFORE the user
                     // accepts it, so a lead's nuggets (birthplace, occupation,
                     // residence, corroborating dates) are never silently lost.
@@ -1297,7 +1297,7 @@ struct ClusterReviewView: View {
             .map { (key: $0.key, value: $0.value) }
     }
 
-    /// A compact, text-bearing status pill (PROFILE_LIFECYCLE_SPEC Change 2) —
+    /// A compact, text-bearing status pill (Profile lifecycle Change 2) —
     /// the words are always visible, and the tint distinguishes states at a
     /// glance (green = applied/done, blue = pending selection, grey = skipped).
     /// Both sides of a "Different birth" conflict with the values NAMED —
@@ -2067,7 +2067,7 @@ struct ClusterReviewView: View {
         default: ""
         }
         let subjectName = vm.selectedProfile?.displayName ?? "subject"
-        // CONFLICT_LAYER_SPEC §6 Change 1 AC3 — pre-computed occupied-role
+        // Conflict layer Change 1 AC3 — pre-computed occupied-role
         // warning ("Subject already has a mother: BOWN"), shared predicate
         // with the accept-time F4a dispute hook so UI and producer can
         // never disagree. Shown only while the accept is still offered.
@@ -2087,7 +2087,7 @@ struct ClusterReviewView: View {
                     HStack(spacing: 8) {
                         Text("\(roleLabel): \(surnameLabel)")
                             .font(AppTypography.cardBody)
-                        // RESEARCH_CONFIDENCE_SPEC §4.2 Change 4 — proposed-
+                        // Research confidence Change 4 — proposed-
                         // relative cards adopt the three-axis badge. A parent
                         // inferred from a single FreeBMD fact record renders
                         // as: ✓ Confirmed · 1 source · Inferred — 1 step.
@@ -2423,7 +2423,7 @@ struct ClusterReviewView: View {
         .opacity(decision == .rejected ? 0.5 : 1.0)
     }
 
-    // MARK: - SubjectSpouseMarriage banner (§5.14.6)
+    // MARK: - SubjectSpouseMarriage banner
 
     /// Categorical state of the `.subjectSpouseMarriage` strategy for
     /// the current run. Drives one of five banner copy strings.
@@ -2435,7 +2435,7 @@ struct ClusterReviewView: View {
         /// carried them.
         case recovered(name: String, pair: String, year: Int?, quarter: String?, district: String?)
         /// Strategy fired but multiple supported rows recovered
-        /// different given names — write-back blocked by §5.14.4
+        /// different given names — write-back blocked by
         /// reconciliation. User must choose.
         case conflict(names: [String], pair: String)
         /// Strategy fired with no supported rows; at least one is
@@ -2463,7 +2463,7 @@ struct ClusterReviewView: View {
         }
         guard !rows.isEmpty else { return .cantFire }
 
-        // Partition by verdict and apply §5.14.4 reconciliation across
+        // Partition by verdict and apply reconciliation across
         // the supported set.
         let supportedRows = rows.filter { $0.isDeterministicallySupported }
         if !supportedRows.isEmpty {

@@ -4,7 +4,7 @@ import AncestorKit
 import os
 
 /// #CPC-Change2 — the post-run cross-profile corroboration sweep
-/// (`AncestorApp/CROSS_PROFILE_CORROBORATION_SPEC.md` §4, Change 2).
+/// (`AncestorApp/Cross-profile corroboration`, Change 2).
 ///
 /// Iterates spouse edges, loads BOTH ends' persisted marriage evidence, runs
 /// the pure `SpousePairCorroborator`, and emits findings through the
@@ -25,7 +25,7 @@ nonisolated struct CorroborationSweep {
 
     /// The `agent_id` stamped on every emitted pending fact — the key the
     /// `PendingFactsProcessor` exemption, the review-card routing, and the
-    /// future §14 carve-out (Change 5) all match on.
+    /// future carve-out (Change 5) all match on.
     static let agentID = "cross-profile-corroboration"
 
     /// Diagnostic logger. Keeps the "why didn't this pair corroborate"
@@ -226,7 +226,7 @@ nonisolated struct CorroborationSweep {
         return (outcome, factRecordIDs)
     }
 
-    /// Surname set (spec §1): recorded surname + explicit married surname +
+    /// Surname set (spec): recorded surname + explicit married surname +
     /// the father-derived maiden axis. Birth window is PROFILE-RECORDED
     /// only — never relative-derived fallbacks (anchor-vacuity guard).
     /// Internal (not private): the in-run `CrossProfileAnnotator` builds

@@ -3,7 +3,7 @@ import Foundation
 @testable import Ancestor_Research
 import AncestorKit
 
-/// CENSUS_PARENT_UNLOCK_SPEC Change 2 — the audit that surfaces a parentless
+/// Census parent unlock Change 2 — the audit that surfaces a parentless
 /// ancestor's already-found childhood census as a parent-unlock.
 struct CensusParentUnlockAuditTests {
 

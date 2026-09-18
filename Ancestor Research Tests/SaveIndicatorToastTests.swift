@@ -2,7 +2,7 @@ import Testing
 import Foundation
 @testable import Ancestor_Research
 
-/// Tests for the manual-save toast trigger (M17.5, DESIGN.md §7.5.15).
+/// Tests for the manual-save toast trigger (M17.5, the design).
 struct SaveIndicatorToastTests {
 
     @Test func triggerFiresAtThreeManualTransactions() {

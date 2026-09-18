@@ -2,7 +2,7 @@ import Testing
 import Foundation
 @testable import Ancestor_Research
 
-/// Connector-audit T1-04 (CONNECTOR_AUDIT_2026-07.md §6.1 / §5.2) — the
+/// Connector-audit T1-04 (the 2026-07 connector audit /) — the
 /// CROSS-RUN persistent negative-search reader. The honesty envelope
 /// (a6e9c6d) made `negative_searches` a genuine WRITER; T1-04 adds the
 /// READER: before re-firing a query on a later run, skip it if a prior

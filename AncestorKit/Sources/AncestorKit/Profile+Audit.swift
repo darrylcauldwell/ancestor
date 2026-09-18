@@ -3,7 +3,7 @@ import Foundation
 /// Audit-time field accessors that respect disputes (M16.3). When a field is
 /// disputed, audit rules use the union range across all competing sources —
 /// `min(earliest)` to `max(latest)`. This is the conservative-bound promise
-/// from DESIGN.md §5.7: false positives are worse than missed positives.
+/// from the design: false positives are worse than missed positives.
 nonisolated extension Profile {
 
     /// Effective date for an audit rule. Returns the stored field value when

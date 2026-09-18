@@ -3,7 +3,7 @@ import Foundation
 import AncestorKit
 @testable import Ancestor_Research
 
-/// LOCATION_MODEL_SPEC Part III, Slice A deferred item — recording the reason
+/// Location model Part III, Slice A deferred item — recording the reason
 /// with the choice, and the user-built layer over the bundled gazetteer.
 @MainActor
 struct PlaceDecisionTests {

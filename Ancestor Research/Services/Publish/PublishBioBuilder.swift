@@ -1,13 +1,13 @@
 import Foundation
 
-// PUBLISHER_SPEC Change 6 — publish-time biography synthesis.
+// Publisher Change 6 — publish-time biography synthesis.
 //
 // Deterministic prose from COMMITTED facts only: profile vitals, stored
 // life_events rows, and relationship edges — never research results,
 // never a model. The sentence engine is the shared
 // `NarrativeAssembler.templateNarrative` (retained in Phase 0 for exactly
 // this); this builder is the LifeEvent→NarrativeLifeEvent adapter plus
-// the §Change 6 relative-redaction rules:
+// the Change 6 relative-redaction rules:
 //   * a relative resolving to `nameOnly` appears by displayName only —
 //     no dates or places attach to them (the marriage year is a fact
 //     about both parties, so it is stripped when the spouse is redacted);

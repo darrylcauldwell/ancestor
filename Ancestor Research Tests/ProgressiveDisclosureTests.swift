@@ -2,7 +2,7 @@ import Testing
 import Foundation
 @testable import Ancestor_Research
 
-/// Tests for the progressive-disclosure helpers on `AppState` (DESIGN.md §7.16).
+/// Tests for the progressive-disclosure helpers on `AppState` (by design).
 ///
 /// We inject state directly rather than going through `openProject` — these
 /// are unit tests of pure computed properties that don't need a real DB.

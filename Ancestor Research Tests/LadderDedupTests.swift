@@ -2,7 +2,7 @@ import Testing
 import Foundation
 @testable import Ancestor_Research
 
-/// Connector-audit T1-03 (CONNECTOR_AUDIT_2026-07.md §6.1): the strictness
+/// Connector-audit T1-03 (the 2026-07 connector audit): the strictness
 /// ladder re-fires WIRE-IDENTICAL queries at `.loose`/`.variant` for sources
 /// whose outbound request doesn't vary by strictness (FindAGrave, Probate,
 /// Wirksworth). They read `query.strictness` only to label activity-bus

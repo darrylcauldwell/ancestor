@@ -1,7 +1,7 @@
 import Testing
 @testable import Ancestor_Research
 
-/// PROFILE_LIFECYCLE_SPEC Change 3 — the derived stage function.
+/// Profile lifecycle Change 3 — the derived stage function.
 struct ProfileLifecycleTests {
 
     @Test func gedcomOnlyProfileIsImported() {

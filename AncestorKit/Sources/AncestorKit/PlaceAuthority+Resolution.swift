@@ -1,7 +1,7 @@
 import Foundation
 
 /// Hierarchy and temporal-validity resolution over a `[PlaceAuthority]`
-/// (MODEL_EVOLUTION_SPEC §Change3 / ADR-004 E3).
+/// (Model evolution Change 3 / ADR-004 E3).
 ///
 /// Kept as free functions on `Array` — exactly as E1's
 /// `Array where Element == ExternalIdentifier` — so the resolution rules are

@@ -2,7 +2,7 @@ import Foundation
 import AncestorKit
 
 /// `.deathYearCandidate(profileID, year)` — generator, grader, and deficit
-/// ladder (CONFLICT_LAYER_SPEC CL5 §4.7). The death-year twin of the
+/// ladder (Conflict layer CL5). The death-year twin of the
 /// proven `.birthYearCandidate` recipe.
 ///
 /// Generator: fires when ≥ 2 distinct precise (span-0) death-year values

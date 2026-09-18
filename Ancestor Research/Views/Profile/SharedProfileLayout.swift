@@ -144,7 +144,7 @@ nonisolated enum EvidenceBucketDisplay {
 /// notes, attachment importer) since they're part of the layout's internal
 /// interactions, not of any particular consumer.
 ///
-/// Steps 1–2 of `AncestorApp/PROFILE_VIEW_UNIFY_SPEC.md`: extracted from
+/// Steps 1–2 of `AncestorApp/Profile view unification`: extracted from
 /// `ProfileDetailView`, then taught to render an editable variant of the
 /// name / date / gender / bio blocks when the consumer passes `editable: true`
 /// + bindings. Persistent leading labels above each input fix the placeholder-
@@ -411,7 +411,7 @@ struct SharedProfileLayout: View {
     let snapshot: FamilyGraphSnapshot
     var editable: Bool = false
     var bindings: ProfileEditBindings? = nil
-    /// RETIRE_POPOVER_SPEC Change 2 — when set, relationship rows become
+    /// Popover retirement Change 2 — when set, relationship rows become
     /// tappable navigation (jump the tree to that relative), replacing the
     /// popover's off-canvas relatives list. Nil (plain-text rows) in
     /// contexts with no tree to navigate (EditPersonView sheets).
@@ -435,7 +435,7 @@ struct SharedProfileLayout: View {
     @State private var showingLifeEventEditor: Bool = false
     @State private var editingLifeEvent: LifeEvent?
     @State private var showingAttachmentImporter: Bool = false
-    /// CONFLICT_LAYER_SPEC §4.8.1 — the dispute the user is resolving.
+    /// Conflict layer — the dispute the user is resolving.
     /// `.sheet(item:)` with an Identifiable wrapper (never
     /// `.sheet(isPresented:) + if let` — the EmptyView-rectangle race).
     @State private var resolvingDispute: DisputeSheetItem?
@@ -456,7 +456,7 @@ struct SharedProfileLayout: View {
     /// enriches only the top hit) or absorbed into parents/siblings.
     @State private var censusHousehold: AppState.CensusHouseholdProposal?
     /// An applied parish record (marriage / baptism / burial) naming spouse or
-    /// parents not yet on the tree (PARISH_ABSORPTION_SPEC §7).
+    /// parents not yet on the tree (Parish absorption).
     @State private var parishFamily: AppState.ParishFamilyProposal?
     @State private var healthStripExpanded = false
 
@@ -571,7 +571,7 @@ struct SharedProfileLayout: View {
             // the same day; the per-gap "Missing facts"/"Explore" sections too.)
             searchFreeREGRow
 
-            // DOSSIER_SPEC #T9-Change1 surface (a) — the profile-page door
+            // Dossier #T9-Change1 surface (a) — the profile-page door
             // to the investigation dossier.
             DossierEntryRow(profileID: profile.id)
 
@@ -635,7 +635,7 @@ struct SharedProfileLayout: View {
             // unapplied records that would otherwise have nowhere to appear.
             unplacedCensusEvidenceRow
 
-            // Disputes — live from CONFLICT_LAYER_SPEC Change 1: the apply
+            // Disputes — live from Conflict layer Change 1: the apply
             // path now produces rows, and each open dispute offers the
             // resolution flow (ConflictResolutionView → AppState.resolveDispute).
             if !profile.disputes.isEmpty {
@@ -707,7 +707,7 @@ struct SharedProfileLayout: View {
                 }
             }
 
-            // Conflicts (CONFLICT_LAYER_SPEC CL2) — structural dispute
+            // Conflicts (Conflict layer CL2) — structural dispute
             // kinds (timeline / parentRole / spouseIdentity) whose field
             // keys deliberately do not parse as ProfileField, so they
             // never appear in profile.disputes. Loaded live from the
@@ -1133,7 +1133,7 @@ struct SharedProfileLayout: View {
         }
     }
 
-    // MARK: - Editable blocks (step 2 of PROFILE_VIEW_UNIFY_SPEC)
+    // MARK: - Editable blocks (step 2 of Profile view unification)
 
     /// Editable name + gender block. Renders only when the consumer is in
     /// edit mode. Each `TextField` sits below a persistent caption label so
@@ -1322,7 +1322,7 @@ struct SharedProfileLayout: View {
     }
 
     /// Render any active `.fieldValue` hypotheses targeting this profile for
-    /// the given field as italic + muted text. Per DESIGN.md §7.7.7 line
+    /// the given field as italic + muted text. By design line
     /// "Hypothetical field value → italic, muted text in inspector."
     @ViewBuilder
     private func hypotheticalLine(for field: ProfileField) -> some View {
@@ -2468,7 +2468,7 @@ struct SharedProfileLayout: View {
     }
 
     /// The life events a timeline dispute references (evidence_json
-    /// carries lifeEventIDs by reference — §5).
+    /// carries lifeEventIDs by reference —).
     private func disputedLifeEvents(for row: DisputeRow) -> [LifeEvent] {
         guard let json = row.evidenceJSON,
               let data = json.data(using: .utf8),

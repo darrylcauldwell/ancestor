@@ -19,7 +19,7 @@ import os
 /// header): a `cf_clearance` cookie captured by WKWebView doesn't reliably
 /// carry over to URLSession because Cloudflare re-fingerprints TLS on each
 /// request. So **all FAG fetches go through this fetcher** — search AJAX,
-/// detail HTML, anything else FAG-related. Spec §22.
+/// detail HTML, anything else FAG-related. Spec.
 ///
 /// **Performance tradeoff.** Each fetch creates a fresh WKWebView, loads
 /// the URL, waits for any post-load JS settling, extracts content, tears

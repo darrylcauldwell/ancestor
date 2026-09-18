@@ -6,7 +6,7 @@ import AncestorKit
 /// (ENGINE_FOUNDATION #Change5). The pure accounting lives in AncestorKit's
 /// `SourceBudgetWindow` / `SourceBudgetPolicy`; this actor holds the live
 /// windows, persists them so a spent budget survives a process restart
-/// (§Change6), and answers the dispatcher's two questions:
+/// (Change 6), and answers the dispatcher's two questions:
 ///
 ///   1. `isPaused(sourceID:)` — should this source be skipped right now
 ///      because its daily quota is spent? (Checked before dispatch.)

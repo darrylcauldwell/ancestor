@@ -2,7 +2,7 @@ import Testing
 import Foundation
 @testable import Ancestor_Research
 
-/// MergeEdit launcher form rendering (WT2 — WIKITREE_MERGEEDIT_SPEC §1/§5):
+/// MergeEdit launcher form rendering (WT2 — WikiTree MergeEdit/):
 /// the Bio↔mergeBio invariant, field encoding, escaping, and the
 /// human-in-the-loop shape (visible submit button, WikiTree endpoint).
 struct WikiTreeMergeEditLauncherTests {

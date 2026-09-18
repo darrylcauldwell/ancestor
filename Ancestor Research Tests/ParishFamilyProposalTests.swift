@@ -3,7 +3,7 @@ import Foundation
 import AncestorKit
 @testable import Ancestor_Research
 
-/// PARISH_ABSORPTION_SPEC Change D — the relatives-offer half. A parish record
+/// Parish absorption Change D — the relatives-offer half. A parish record
 /// names family (a marriage's spouse + the subject's parents, a baptism's two
 /// parents, a burial's "son of"/"dau of" parent); `parishFamilyLinks` lifts
 /// exactly the subject's kin (never the other party's), and inherits an absent

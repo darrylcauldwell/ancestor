@@ -1,6 +1,6 @@
 import Foundation
 
-/// PUBLISHER_SPEC §5 — per-person publish policy.
+/// Publisher — per-person publish policy.
 ///
 /// Stored in `publish_policy` (migration v30). `auto` is the default for
 /// every person; the pre-publish review screen writes explicit overrides.
@@ -18,7 +18,7 @@ nonisolated enum ResolvedPublishPolicy: String, Sendable {
     case omit
 }
 
-/// The redaction decision, as a pure function (PUBLISHER_SPEC §5).
+/// The redaction decision, as a pure function (Publisher).
 ///
 /// `auto` resolves via the existing `ProfileCompleteness.potentiallyLiving`
 /// heuristic (FamilyGraphSnapshot — no death date ⇒ living unless born

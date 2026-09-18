@@ -5,7 +5,7 @@ import Foundation
 /// Pins the apply-path string-overwrite policy (#15).
 ///
 /// Strings have no precision axis like dates, so the directional
-/// "Check Before Overwrite" rule (`feedback_check_before_overwrite.md`)
+/// "Check Before Overwrite" rule (`the Check Before Overwrite rule`)
 /// is implemented via provenance tiers (`SourceOrigin.tier`):
 ///
 ///     initialImport (gedcom, wikitree)

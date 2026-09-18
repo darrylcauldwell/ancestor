@@ -17,7 +17,7 @@ import AncestorKit
 /// 2. **The subject changed.** A profile edited since it was researched
 ///    legitimately re-scores. That is the tree improving, not drifting.
 /// 3. **The rules changed.** Gates have been repaired repeatedly (the 14 gate
-///    repairs of SANDWICH_AUDIT_2026-07, the geography and exclusivity work).
+///    repairs of the 2026-07 sandwich audit, the geography and exclusivity work).
 ///    Rows scored under older rules keep their old verdict until re-researched.
 /// 4. **The exclusivity pass.** A stored fact contested by a rival — which is
 ///    what `ContradictoryFactsAudit` already surfaces, per profile.

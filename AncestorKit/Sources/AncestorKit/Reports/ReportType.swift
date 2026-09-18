@@ -1,6 +1,6 @@
 import Foundation
 
-/// One of the four report shapes per DESIGN.md §7.9.
+/// One of the four report shapes by design
 public nonisolated enum ReportType: String, CaseIterable, Identifiable, Sendable {
     case pedigree           // Pedigree chart — ancestors of the subject
     case familyGroupSheet   // One family unit per page
@@ -67,7 +67,7 @@ public nonisolated enum PedigreeGenerations: Int, CaseIterable, Sendable {
 
 /// Pedigree layout style. The rectangular layout (default) puts the subject
 /// on the left and ancestors fanning right in columns. The fan layout per
-/// DESIGN.md §7.9.2 places the subject at the bottom centre with generations
+/// the design places the subject at the bottom centre with generations
 /// as concentric semicircular arcs above — compact and visually appealing
 /// for sharing. The hourglass layout puts the subject in the centre, with
 /// ancestors flowing upward and descendants flowing downward — useful for
@@ -153,7 +153,7 @@ public nonisolated struct ReportOptions: Sendable {
     /// containing `profileID`.
     public var familyID: UUID?
 
-    /// Family-group-sheet batch mode (DESIGN.md §7.9.3): when true,
+    /// Family-group-sheet batch mode (by design): when true,
     /// `ReportGenerator` produces a single multi-page PDF containing every
     /// distinct family in the snapshot, ignoring `profileID`. Default false
     /// so existing callers keep the per-family path.

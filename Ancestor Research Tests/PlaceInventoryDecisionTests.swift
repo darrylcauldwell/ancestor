@@ -3,7 +3,7 @@ import Foundation
 import AncestorKit
 @testable import Ancestor_Research
 
-/// LOCATION_MODEL_SPEC Part III, Slice A — what happens when the human decides.
+/// Location model Part III, Slice A — what happens when the human decides.
 ///
 /// A row leaves the queue exactly two ways: someone binds a district, or someone
 /// says the text names no place. Nothing leaves silently, and nothing already

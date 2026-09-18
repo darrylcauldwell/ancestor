@@ -136,7 +136,7 @@ enum HealthTriage {
         severity == .correction || severity == .conflict
     }
 
-    /// Fields §14.3 will ever auto-approve — mirror of
+    /// Fields will ever auto-approve — mirror of
     /// `MCPServer.autoApprovableFields` (that is the source of truth; names,
     /// gender and bio are excluded by design). A `fieldValue` dispute outside
     /// this set changes nothing, because such facts are refused earlier
@@ -148,7 +148,7 @@ enum HealthTriage {
         "occupation", "address",
     ]
 
-    /// Mirrors BOTH conjuncts of the §14.3 refusal (`MCPServer`): the row must
+    /// Mirrors BOTH conjuncts of the refusal (`MCPServer`): the row must
     /// be unresolved (`resolution IS NULL`) AND either be a `fieldValue`
     /// dispute on a field the gate could otherwise commit, or one of the
     /// structural kinds, which block everything on the profile.

@@ -1,10 +1,10 @@
 import Foundation
 
-// FamilySearch User Tree write methods (WL1 — FAMILYSEARCH_TREES_WRITE_SPEC).
+// FamilySearch User Tree write methods (WL1 — FamilySearch tree write).
 //
 // Thin typed wrappers over `execute`: every method takes a pre-encoded JSON
 // body (the WL2 encoder owns body shapes) and returns the created entity's ID
-// where one is minted. Media types and paths follow FS_WRITE_WIRE_CONTRACTS.md
+// where one is minted. Media types and paths follow the FamilySearch write wire contracts
 // verbatim. Creates REQUIRE an entity ID (upload bookkeeping is built on it);
 // attaches tolerate a missing ID (the reference was still created).
 

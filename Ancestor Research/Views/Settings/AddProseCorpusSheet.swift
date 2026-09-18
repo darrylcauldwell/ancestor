@@ -69,7 +69,7 @@ struct AddProseCorpusSheet: View {
 
     /// Existing corpus row whose seed URL matches what the user has
     /// typed, if any. Drives the duplicate-warning label in the
-    /// verification panel. Spec §3.3 deliberately allows multiple
+    /// verification panel. Spec deliberately allows multiple
     /// corpora per URL (collision suffixes), so we don't block —
     /// just warn loudly enough that the user can't triple-click
     /// the Add button by mistake.

@@ -2,18 +2,18 @@ import Testing
 import Foundation
 @testable import Ancestor_Research
 
-/// Transport-layer half of the CONNECTOR_AUDIT_2026-07 findings that live in
+/// Transport-layer half of the the 2026-07 connector audit findings that live in
 /// shared HTTP code rather than a connector:
 ///
-///   * **FT-29** (§2.4) — `postForm` percent-encoded values with
+///   * **FT-29** — `postForm` percent-encoded values with
 ///     `.urlQueryAllowed`, which permits `&`, `+`, and `=` *inside* a value, so
 ///     `"Clifton & Compton"` split the pair on the wire and `+` decoded to a
 ///     space. The body must use form-safe encoding.
-///   * **FT-25** (§2.4) — `[String: String]` cannot encode the Rails
+///   * **FT-25** — `[String: String]` cannot encode the Rails
 ///     `search_query[chapman_codes][]` repeated-key idiom; the ordered-pairs
 ///     primitive must preserve duplicate keys on the wire. (The dispatcher-side
 ///     batching that *consumes* this primitive is out of transport scope.)
-///   * **T1-C4** (§8, transport half) — apostrophes and diacritics (O'Brien,
+///   * **T1-C4** (, transport half) — apostrophes and diacritics (O'Brien,
 ///     Müller) must round-trip through the encoder.
 ///
 /// These exercise the pure serialisation surface (`formEncode` /

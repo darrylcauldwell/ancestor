@@ -5,7 +5,7 @@ import Foundation
 // Disambiguate from Swift Testing's own `Attachment` type.
 private typealias Attachment = Ancestor_Research.Attachment
 
-/// M14 §7.15.2 — sensitive flag round-trip + GEDCOM export filter.
+/// M14 — sensitive flag round-trip + GEDCOM export filter.
 struct SensitiveFlagTests {
 
     private func makeTempDB() throws -> ProjectDatabase {

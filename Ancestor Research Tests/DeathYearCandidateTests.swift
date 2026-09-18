@@ -4,7 +4,7 @@ import GRDB
 @testable import Ancestor_Research
 import AncestorKit
 
-/// CONFLICT_LAYER_SPEC CL5 (Half B) — `.deathYearCandidate`: generator,
+/// Conflict layer CL5 (Half B) — `.deathYearCandidate`: generator,
 /// F3-predicate grader (AC4), atomic choose-one contradiction (AC5 core),
 /// and accept-resolves-linked-dispute.
 @MainActor

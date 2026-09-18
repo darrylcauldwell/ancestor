@@ -1,6 +1,6 @@
 import SwiftUI
 
-/// PROJECT_ONBOARDING_SPEC Part A — the project SETUP wizard (distinct from
+/// Project onboarding Part A — the project SETUP wizard (distinct from
 /// the family-entry `OnboardingWizardView`). A short, skippable flow shown once
 /// per project at create / GEDCOM import / WikiTree connect, surfacing the
 /// settings that materially change research quality but are otherwise

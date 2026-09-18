@@ -4,7 +4,7 @@ import Foundation
 /// structure can be unit-tested without spinning up SwiftUI/PDFKit. The
 /// renderer (PDF page or Markdown writer) consumes this verbatim.
 ///
-/// Section ordering follows DESIGN.md §7.9.5: Scope, Questions, Hypotheses,
+/// Section ordering follows the design: Scope, Questions, Hypotheses,
 /// Findings, Still open, Sources consulted.
 nonisolated struct ResearchReportDocument: Sendable {
     let scopeSummary: String

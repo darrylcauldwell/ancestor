@@ -2,7 +2,7 @@ import SwiftUI
 
 // MARK: - Unified Task Model
 //
-// Per DESIGN.md §7.13: a single sortable, filterable list that aggregates
+// By design: a single sortable, filterable list that aggregates
 // everything the user might want to act on next. Four input streams:
 //   1. Audit issues (errors / warnings / info)
 //   2. Gap items (profiles with missing fields)
@@ -305,7 +305,7 @@ nonisolated enum UnifiedTaskGrouping {
 
 // MARK: - View
 
-/// Unified Tasks screen — DESIGN.md §7.7.10. Replaces the standalone Audit
+/// Unified Tasks screen — the design Replaces the standalone Audit
 /// tab. Audit issues, gaps, questions, and tentative facts share one list
 /// with category filters.
 struct UnifiedTasksView: View {
@@ -760,7 +760,7 @@ private struct TaskRow: View {
                 .help("Open this person's profile to edit the details")
                 .accessibilityHint("Open this person's profile to edit the details")
 
-                // PROFILE_SOURCES_LEDGER_SPEC Change 5 — muddle/conflict
+                // Profile sources ledger Change 5 — muddle/conflict
                 // findings that a bad APPLIED RECORD caused (a patronymic
                 // date muddle, or alive-evidence after death) deep-link to
                 // the Sources & Records ledger, where the offending record is

@@ -3,7 +3,7 @@ import Foundation
 import AncestorKit
 @testable import Ancestor_Research
 
-/// SUBJECT_PLACE_MODEL_SPEC Slice 1.5 — the corpus replay diff.
+/// Subject place model Slice 1.5 — the corpus replay diff.
 ///
 /// The spec's central invariant could not be written as an assertion:
 ///

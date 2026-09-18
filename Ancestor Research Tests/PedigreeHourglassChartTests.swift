@@ -2,7 +2,7 @@ import Testing
 import Foundation
 @testable import Ancestor_Research
 
-/// Tests for the hourglass pedigree chart variant (DESIGN.md §7.9.2).
+/// Tests for the hourglass pedigree chart variant (by design).
 ///
 /// `PedigreeChartReport.renderHourglassPDF` runs through `PDFRenderer`,
 /// which uses `ImageRenderer` and therefore needs MainActor. We mark the

@@ -3,7 +3,7 @@ import CloudKit
 import GRDB
 import SQLiteData
 
-// PUBLISHER_SPEC Change 5 — share lifecycle + unpublish.
+// Publisher Change 5 — share lifecycle + unpublish.
 //
 // The share is a hierarchy CKShare rooted at the manifest row (Change 3);
 // SQLiteData's share() is idempotent (reuses the existing share from sync
@@ -11,7 +11,7 @@ import SQLiteData
 // Unpublish deletes the project's zone server-side — that evicts every
 // participant, kills the share, and removes all published records — then
 // clears the local store. `published_ids` and `publish_meta.generation`
-// survive (spec §4.1: identity and monotonicity persist through unpublish,
+// survive (spec: identity and monotonicity persist through unpublish,
 // proven by the republish-after-unpublish E2E).
 
 nonisolated enum PublishSharingError: Error, LocalizedError, Equatable {
@@ -78,7 +78,7 @@ nonisolated enum PublishSharing {
                     share[CKShare.SystemFieldKey.title] =
                         "\(projectName) Family Tree" as CKRecordValue
                     // Invite-only. NEVER touch publicPermission after
-                    // participants exist — reverting evicts everyone (§Change 5).
+                    // participants exist — reverting evicts everyone (Change 5).
                 }
                 return (shared.share, CKContainer(identifier: PublishEngine.containerID))
             } catch let error as CKError where error.code == .unknownItem && attempt < 5 {

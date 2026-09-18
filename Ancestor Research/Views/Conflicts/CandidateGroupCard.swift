@@ -1,7 +1,7 @@
 import SwiftUI
 import AncestorKit
 
-/// CONFLICT_LAYER_SPEC ⟨G5⟩ — the choose-one candidate card. All rivals in
+/// Conflict layer ⟨G5⟩ — the choose-one candidate card. All rivals in
 /// one `candidateGroupID` render as a SINGLE card with radio selection and
 /// exactly ONE action control; accepting marks every rival `.contradicted`
 /// in the same user action (the atomic core shipped with CL5/CL6 — this is

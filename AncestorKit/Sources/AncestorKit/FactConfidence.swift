@@ -1,6 +1,6 @@
 import Foundation
 
-/// User-asserted confidence on a committed fact (DESIGN.md §5.14). Distinct
+/// User-asserted confidence on a committed fact (by design). Distinct
 /// from `EvidenceQuality` (which rates the source) and from `FieldDispute`
 /// (which is between sources). This is the user saying "I committed this
 /// but I'm watching it."

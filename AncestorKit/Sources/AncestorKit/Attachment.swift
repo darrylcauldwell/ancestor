@@ -1,7 +1,7 @@
 import Foundation
 
 /// A file (photo, document, transcription) attached to a profile, life event,
-/// or specific field source. Per DESIGN.md §5.15.
+/// or specific field source. By design
 ///
 /// The actual file lives on disk in the project's media directory; this struct
 /// holds metadata + a relative path. Bundle the SQLite + media dir into a

@@ -15,7 +15,7 @@ struct SourceParserTests {
             gender: .male, region: .englandAndWales, mode: .extend, familyContext: nil
         )
         // The record's district ("Bakewell") is in DBY. The struct
-        // default is "" now per feedback_no_hardcoded_regions; the test
+        // default is "" now per the no-hardcoded-regions rule; the test
         // anchors on DBY explicitly so the geography gate passes.
         subject.homeChapmanCode = "DBY"
         let record = SourceRecord.birth(BirthRecord(

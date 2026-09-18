@@ -1,15 +1,15 @@
 import Foundation
 import CryptoKit
 
-// PUBLISHER_SPEC Change 1 — the pure projection from canonical data to
-// published schema v1 (spec §4). No CloudKit imports, no database access:
+// Publisher Change 1 — the pure projection from canonical data to
+// published schema v1 (spec). No CloudKit imports, no database access:
 // inputs and outputs are value types, so every redaction rule is
 // unit-testable. The bundle exporter (Change 2) and PublishEngine
 // (Change 4) both consume exactly this.
 
 // MARK: - Published value types (schema v1)
 
-/// The full five-field `GenealogicalDate` encoding (spec §4.2): dates
+/// The full five-field `GenealogicalDate` encoding (spec): dates
 /// built via the component init aren't reparseable from `original` alone,
 /// so bounds/qualifier/approximation publish explicitly.
 nonisolated struct PublishedDate: Codable, Sendable, Equatable {
@@ -34,7 +34,7 @@ nonisolated struct PublishedCitation: Codable, Sendable, Equatable {
     let url: String?
     /// `SourceTrustTier.rawValue` via `SourceTierRegistry.lookup(url:)` —
     /// never `SourceOrigin.tier`, which is overwrite-policy provenance,
-    /// not evidence trust (spec §4.2). Omitted when there is no URL.
+    /// not evidence trust (spec). Omitted when there is no URL.
     let trustTier: Int?
 }
 
@@ -45,7 +45,7 @@ nonisolated struct PublishedBadges: Codable, Sendable, Equatable {
 }
 
 nonisolated struct PublishedPerson: Codable, Sendable, Equatable {
-    let id: String                    // publisher-minted record UUID (§4.1)
+    let id: String                    // publisher-minted record UUID
     let schemaVersion: Int
     let displayName: String
     let givenName: String?
@@ -70,7 +70,7 @@ nonisolated struct PublishedRelationship: Codable, Sendable, Equatable {
     let typeRaw: String
     let roleRaw: String?
     let subtypeRaw: String
-    let marriage: PublishedDate?      // stripped when either party is nameOnly (§5)
+    let marriage: PublishedDate?      // stripped when either party is nameOnly
     let marriageLocation: String?
     let divorce: PublishedDate?
 }
@@ -82,7 +82,7 @@ nonisolated struct PublishedLifeEvent: Codable, Sendable, Equatable {
     let kindRaw: String
     let date: PublishedDate?
     let location: String?
-    let detailsJSON: String?          // household rule applied (§5)
+    let detailsJSON: String?          // household rule applied
     let sourceURL: String?
 }
 
@@ -114,7 +114,7 @@ nonisolated struct PublishedTree: Sendable {
     let media: [PublishedMedia]
 }
 
-// MARK: - Identity (§4.1)
+// MARK: - Identity
 
 /// Publisher-minted permanent record UUIDs. Rows never die: deleted,
 /// omitted, or re-added entities keep their UUID so viewer caches never
@@ -179,7 +179,7 @@ nonisolated extension PublishedTree {
         let publishedAtISO: String
     }
 
-    /// Pure projection. Resolves policy per person, applies every §5
+    /// Pure projection. Resolves policy per person, applies every
     /// redaction rule, and mints/reuses record UUIDs via `identity`.
     static func project(_ inputs: Inputs, identity: inout PublishedIdentity) -> PublishedTree {
         let snapshot = inputs.snapshot
@@ -201,7 +201,7 @@ nonisolated extension PublishedTree {
                   let policy = resolved[canonicalID], policy != .omit else { continue }
             let uuid = identity.uuid(kind: "person", canonicalID: canonicalID)
             // Change 6 — deterministic bio from committed facts, full
-            // persons only (nameOnly bios stay empty by §5 zero-leakage).
+            // persons only (nameOnly bios stay empty by zero-leakage).
             let bioText = policy == .full
                 ? PublishBioBuilder.bio(
                     for: profile, lifeEvents: inputs.lifeEvents,
@@ -215,7 +215,7 @@ nonisolated extension PublishedTree {
             ))
         }
 
-        // Relationships — edge rules (§5): any edge touching an omitted or
+        // Relationships — edge rules: any edge touching an omitted or
         // absent person is dropped; an edge touching a nameOnly person
         // publishes bare (marriage/divorce/location stripped).
         var relationships: [PublishedRelationship] = []
@@ -238,7 +238,7 @@ nonisolated extension PublishedTree {
             ))
         }
 
-        // Life events — full persons only, never sensitive (§5).
+        // Life events — full persons only, never sensitive.
         var events: [PublishedLifeEvent] = []
         let sortedEvents = inputs.lifeEvents.sorted { $0.id.uuidString < $1.id.uuidString }
         for event in sortedEvents {
@@ -255,7 +255,7 @@ nonisolated extension PublishedTree {
             ))
         }
 
-        // Media — profile-targeted, opted-in, full persons, no transcriptions (§4.2).
+        // Media — profile-targeted, opted-in, full persons, no transcriptions.
         var media: [PublishedMedia] = []
         let sortedAttachments = inputs.attachments.sorted { $0.id.uuidString < $1.id.uuidString }
         for attachment in sortedAttachments {
@@ -324,7 +324,7 @@ nonisolated extension PublishedTree {
         bioText: String
     ) -> PublishedPerson {
         if policy == .nameOnly {
-            // §5: displayName + relationship edges only. Zero leakage:
+            //: displayName + relationship edges only. Zero leakage:
             // no dates, places, gender, citations, badges, bio, media.
             return PublishedPerson(
                 id: uuid, schemaVersion: schemaVersion,
@@ -358,7 +358,7 @@ nonisolated extension PublishedTree {
         )
     }
 
-    // MARK: Field derivations (§4.2)
+    // MARK: Field derivations
 
     private static func sortedKeysEncoder() -> JSONEncoder {
         let encoder = JSONEncoder()
@@ -400,7 +400,7 @@ nonisolated extension PublishedTree {
         return String(decoding: data, as: UTF8.self)
     }
 
-    /// Household-member rule (§5): `HouseholdMember` entries are free text
+    /// Household-member rule: `HouseholdMember` entries are free text
     /// with no profile linkage, so per-person policy cannot apply. Members
     /// publish only when the event year is known AND ≤ currentYear − 100;
     /// otherwise the household roster is stripped (empty). With current

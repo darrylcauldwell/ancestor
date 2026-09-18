@@ -2,12 +2,12 @@ import Testing
 import Foundation
 @testable import Ancestor_Research
 
-/// Acceptance tests for RESEARCH_AXES_SPEC.md Change 6 —
+/// Acceptance tests for Research axes Change 6 —
 /// dispatcher empty-then-broaden flow + activity bus strictness.
 @MainActor
 struct EmptyThenBroadenTests {
 
-    // MARK: - Strictness ladder per mode (§3.1)
+    // MARK: - Strictness ladder per mode
 
     @Test func ladderVerifyIsStrictOnly() {
         #expect(SearchDispatcher.strictnessLadder(for: .verify) == [.strict])

@@ -3,7 +3,7 @@ import os
 import AncestorKit
 
 // FamilySearch User Tree upload orchestrator (WL4 —
-// FAMILYSEARCH_TREES_WRITE_SPEC §2/§6). Executes the documented call sequence
+// FamilySearch tree write/). Executes the documented call sequence
 // (group → tree → context → persons → relationships → sources → finalize →
 // restore GLOBAL) over a WL2 plan, with D7 resume: every created entity is
 // recorded in the v52 tables BEFORE the next call, and a re-run skips

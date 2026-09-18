@@ -2,7 +2,7 @@ import Testing
 import Foundation
 @testable import Ancestor_Research
 
-/// T7 — Hypothesis-guided second pass invariants (V2 spec §5.3). The
+/// T7 — Hypothesis-guided second pass invariants (V2 spec). The
 /// pipeline runs a second pass at most once when there's at least one
 /// `.inconclusive` hypothesis whose per-kind deficit-query ladder
 /// still has headroom (`deficitQuery(for:atLevel: attempts + 1, …)`
@@ -120,7 +120,7 @@ struct T7SecondPassTests {
 
     @Test func ladder_parentInferred_alwaysReturnsNil() {
         // .parentInferred has no per-kind ladder — falls through to
-        // T8's MLX fallback (§5.4) instead. T7 never retries it.
+        // T8's MLX fallback instead. T7 never retries it.
         let kind = HypothesisKind.parentInferred(gender: .female, surname: "Holmes")
         let h = makeHypothesis(kind: kind, attempts: 1)
         let state = makeState()

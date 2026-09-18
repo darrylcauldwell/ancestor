@@ -1,7 +1,7 @@
 import Foundation
 import AncestorKit
 
-/// IMPORT_DEDUPE_SPEC Change 3 — whole-profile merge execution (distinct
+/// Import dedupe Change 3 — whole-profile merge execution (distinct
 /// from `MergeEngine`, which is field-level *value* policy). Redirects a
 /// loser profile's edges onto a winner, moves its provenance, and
 /// hard-deletes it — one operation, undo-compatible via the delete

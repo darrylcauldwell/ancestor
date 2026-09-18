@@ -1,7 +1,7 @@
 import Foundation
 
 /// Long-term research objective grouping workbench items. Higher level than
-/// open questions — goals organise work over months and years. Per DESIGN.md §5.16.
+/// open questions — goals organise work over months and years. By design
 public nonisolated struct ResearchGoal: Codable, Identifiable, Sendable, Hashable {
     public let id: UUID
     public var title: String                       // "Trace maternal line to the 1700s"

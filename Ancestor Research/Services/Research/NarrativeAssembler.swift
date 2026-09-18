@@ -6,8 +6,8 @@ import Foundation
 /// NOTE: currently has no production callers — retained deliberately
 /// (Phase 0 step 5 dead-code sweep, 2026-07). `templateNarrative` is the
 /// planned deterministic bio generator for publish-time viewer bios in
-/// the CloudKit publisher work (ARCHITECTURE_REVIEW_2026-07.md Phase 3)
-/// and PROSE_CORPUS_SPEC bio synthesis. Delete only if that direction
+/// the CloudKit publisher work (the 2026-07 architecture review Phase 3)
+/// and Prose corpus bio synthesis. Delete only if that direction
 /// is abandoned.
 nonisolated struct NarrativeAssembler {
 
@@ -20,7 +20,7 @@ nonisolated struct NarrativeAssembler {
         var events: [NarrativeLifeEvent] = []
 
         // Extract events from clusters that have at least one confirmed
-        // match (RESEARCH_CONFIDENCE_SPEC §4 — pre-Change-5 ≥.moderate roughly
+        // match (Research confidence — pre-Change-5 ≥.moderate roughly
         // meant "has facts and is corroborated"; the post-Change-5 equivalent
         // is matchQuality == .confirmed, which by definition requires a
         // .fact record. The inner `where scored.verdict == .fact` filter

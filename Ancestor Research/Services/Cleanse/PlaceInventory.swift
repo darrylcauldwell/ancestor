@@ -1,7 +1,7 @@
 import Foundation
 import AncestorKit
 
-/// LOCATION_MODEL_SPEC Part III, Slice A — every distinct location string the
+/// Location model Part III, Slice A — every distinct location string the
 /// tree uses, each scored for how confidently it resolves to a registration
 /// district, so a human can settle the ones the data cannot.
 ///

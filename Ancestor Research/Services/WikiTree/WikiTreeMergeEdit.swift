@@ -1,7 +1,7 @@
 import Foundation
 import AncestorKit
 
-// WikiTree MergeEdit payload builder (WT1 — WIKITREE_MERGEEDIT_SPEC §3/§4).
+// WikiTree MergeEdit payload builder (WT1 — WikiTree MergeEdit/).
 //
 // Pure projection from an evidence-backed local profile onto the documented
 // Special:MergeEdit JSON-path fields. All contribution policy lives here so
@@ -27,7 +27,7 @@ nonisolated struct WikiTreeMergeEditPayload: Sendable, Equatable {
     /// Empty string when the twin held nothing — a populated live value then
     /// correctly skips on WikiTree's side.
     let expectedFields: [String: String]
-    /// Rendered §4 research-notes block, or nil when there is nothing to cite.
+    /// Rendered research-notes block, or nil when there is nothing to cite.
     let bioAppend: String?
     /// Change-summary text (honest provenance in WikiTree's change log).
     let summary: String
@@ -110,7 +110,7 @@ nonisolated enum WikiTreeMergeEdit {
             manualNotes: manualNotes)
     }
 
-    // MARK: - §4 research-notes block
+    // MARK: - research-notes block
 
     /// The appended bio block: per-field fact lines with their first citation
     /// as a `<ref>`, then remaining distinct citations as bullets. Citations

@@ -16,7 +16,7 @@ nonisolated struct WikiTreeContributionRecord: Sendable, Equatable {
 }
 
 /// Persistence for the WikiTree contribution log (WT4,
-/// WIKITREE_MERGEEDIT_SPEC §5).
+/// WikiTree MergeEdit).
 nonisolated extension ProjectDatabase {
 
     func recordWikiTreeContribution(

@@ -2,7 +2,7 @@ import Testing
 import Foundation
 @testable import Ancestor_Research
 
-/// Connector-audit findings FT-24 + T1-21 (CONNECTOR_AUDIT_2026-07.md §2.4 / §6):
+/// Connector-audit findings FT-24 + T1-21 (the 2026-07 connector audit /):
 /// the cache key must cover every wire-affecting `sourceParams` field.
 /// Two queries with identical keys must produce identical HTTP requests —
 /// FreeCen's chapmanCode / censusYear / birthYearRange, FreeREG's

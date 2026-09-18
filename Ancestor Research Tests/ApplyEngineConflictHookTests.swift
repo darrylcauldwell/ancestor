@@ -3,7 +3,7 @@ import Foundation
 import GRDB
 @testable import Ancestor_Research
 
-/// CONFLICT_LAYER_SPEC §4.4 T-A — the apply-time producer, wired through
+/// Conflict layer T-A — the apply-time producer, wired through
 /// `ApplyEngine`. Kills the audit scenarios CL1 owns:
 ///
 /// - DS-13/DS-08: a second same-span conflicting date was preserved as

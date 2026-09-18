@@ -4,7 +4,7 @@ import Foundation
 
 /// Pins the dispatcher-side family-context axis plumbing for FreeBMD and
 /// FindAGrave, plus FreeBMD's source-side `s_surname` overload for births
-/// (MMN) vs marriages (spouse). Spec §23 — every known fact reaches every
+/// (MMN) vs marriages (spouse). Spec — every known fact reaches every
 /// source that can use it.
 @MainActor
 struct FamilyContextAxisDispatchTests {
@@ -712,7 +712,7 @@ struct FamilyContextAxisDispatchTests {
     // The FamilySearch records-source axis test (`familySearchAnyPlaceFalls…`)
     // was removed 2026-08-07 when FamilySearch was dropped as a record source
     // (it's a Family Tree read/write integration now — see
-    // project_familysearch_beta_program): there is no `familysearch` source in
+    // the FamilySearch beta-programme finding): there is no `familysearch` source in
     // the registry to build record queries. The pure home-nation helper it
     // leaned on stays covered by `homeCountryFromChapmanCodeDerivesNation` below.
 

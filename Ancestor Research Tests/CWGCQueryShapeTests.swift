@@ -3,7 +3,7 @@ import Foundation
 @testable import Ancestor_Research
 
 /// Connector-audit T1-07 + T1-12 + T1-14 + T1-06 (query side) + T1-13
-/// (search level) — CWGC's wire shape (CONNECTOR_AUDIT_2026-07.md §6.2).
+/// (search level) — CWGC's wire shape (the 2026-07 connector audit).
 @MainActor
 struct CWGCQueryShapeTests {
 

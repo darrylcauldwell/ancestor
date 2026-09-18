@@ -6,7 +6,7 @@ import os
 /// index has — every external surface (P5 retrieval, future MLX
 /// extraction) is read-only.
 ///
-/// The refresh path is idempotent (spec §8.3) — running `refresh()`
+/// The refresh path is idempotent (spec) — running `refresh()`
 /// twice against unchanged data produces zero index mutations because
 /// content_hash matches are skipped. Pages whose markdown is gone are
 /// deleted from the index; pages whose hash differs are atomically
@@ -135,7 +135,7 @@ nonisolated struct ProseCorpusIndexer {
 /// Pure-function tokeniser used by the indexer. Exposed as a separate
 /// type so the rules can be unit-tested without spinning up an index.
 ///
-/// Spec §8.1:
+/// Spec:
 /// - **Surnames** — capitalised tokens of length ≥ 3, trailing `'s`
 ///   stripped, uppercased, stop-word filtered. Mention counts are raw
 ///   integers.
@@ -148,7 +148,7 @@ nonisolated enum ProseCorpusTokeniser {
 
     // MARK: - Stop words
 
-    /// Stop list for surname tokenisation. Per spec §14.3 this is an
+    /// Stop list for surname tokenisation. Per spec this is an
     /// open question — the empirically-grounded list (tokens
     /// appearing in >40% of pages) is future work. For v1 we hard-
     /// code the obvious offenders: month/day names, common
@@ -217,7 +217,7 @@ nonisolated enum ProseCorpusTokeniser {
 
     /// Extract four-digit years in the inclusive range 1500-1999.
     /// Two-digit dates ("in 76") are deliberately not recognised in
-    /// v1 — spec §8.1 calls them out as a v1.x refinement target.
+    /// v1 — spec calls them out as a v1.x refinement target.
     static func years(in body: String) -> [Int: Int] {
         var counts: [Int: Int] = [:]
         // \b on either side so "11500" doesn't yield "1500".

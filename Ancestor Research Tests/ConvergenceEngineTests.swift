@@ -92,7 +92,7 @@ struct ConvergenceEngineTests {
         #expect(upgraded.severity >= base.severity)
     }
 
-    // MARK: - Per-source discrepancy tolerances (§10.3)
+    // MARK: - Per-source discrepancy tolerances
 
     @Test func cwgcAnyDisagreementIsCorrection() {
         // CWGC ±0 — a one-year gap is a correction, not the refinement the
@@ -121,7 +121,7 @@ struct ConvergenceEngineTests {
     }
 
     @Test func unknownSourceFallsBackToTierBand() {
-        // A source without a §10.3 entry uses the trust-tier band unchanged.
+        // A source without a entry uses the trust-tier band unchanged.
         #expect(sev("freereg", .parish, 1, tier: .transcription) == DiscrepancySeverity.none)
         #expect(sev("freereg", .parish, 5, tier: .transcription) == .conflict)
     }

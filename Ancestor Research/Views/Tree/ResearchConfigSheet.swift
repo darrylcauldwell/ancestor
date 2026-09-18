@@ -11,7 +11,7 @@ struct ResearchConfigSheet: View {
     /// Optional pre-selected focus from the caller — set when the user
     /// triggered the sheet from a per-gap "Research parents / siblings /
     /// …" button. The mode default flips to `.discover` when focus is
-    /// non-nil. See RESEARCH_PIPELINE_SPEC §11.4.
+    /// non-nil. See Research pipeline.
     let focus: ResearchFocus?
     /// Project-level home-county fallback (the last step of the
     /// derivation chain) — needed to tell whether this subject has ANY
@@ -208,7 +208,7 @@ struct ResearchConfigSheet: View {
         return .extend
     }
 
-    /// Default scope derived from depth alone — RESEARCH_AXES_SPEC §4.
+    /// Default scope derived from depth alone — Research axes.
     /// Profile completeness doesn't factor in (single-input precedence rule
     /// avoids the failure modes of a depth × completeness matrix). The user
     /// can override per-run from the sheet.
@@ -249,7 +249,7 @@ struct ResearchConfigSheet: View {
     /// 500ms inter-request throttle and serial dispatch per source — accurate to
     /// within ~50% for typical profiles, depending on how many record types apply.
     /// Shown in the sheet so the user understands the trade-off before clicking Run.
-    /// See RESEARCH_AXES_SPEC §4 for the locked 5×4 table.
+    /// See Research axes for the locked 5×4 table.
     static func estimatedDuration(mode: ResearchMode, scope: ResearchScope) -> String {
         // Parish and district produce EXACTLY county's wire traffic on every
         // source, so they take exactly as long. Quoting "5–15 sec" against

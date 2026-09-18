@@ -2,7 +2,7 @@ import Testing
 import Foundation
 @testable import Ancestor_Research
 
-/// CENSUS_PARENT_UNLOCK_SPEC Change 1 — the childhood-census disambiguation that
+/// Census parent unlock Change 1 — the childhood-census disambiguation that
 /// promotes a frontier ancestor's parental-home census without a family match.
 struct ChildhoodCensusRankerTests {
 

@@ -4,7 +4,7 @@ import GRDB
 @testable import Ancestor_Research
 import AncestorKit
 
-/// CONFLICT_LAYER_SPEC CL4 — witness identity: DS-03's transcription-
+/// Conflict layer CL4 — witness identity: DS-03's transcription-
 /// inflation fix, F5 same-witness disagreement, R0 auto-resolution, the
 /// witness-gated reopen, and the never-persisted key guarantee.
 struct WitnessIdentityTests {

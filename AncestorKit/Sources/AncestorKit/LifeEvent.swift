@@ -1,7 +1,7 @@
 import Foundation
 
 /// A first-class life event with date range, location, sources, and
-/// confidence. Per DESIGN.md §5.13: "the most common kind of fact in
+/// confidence. By design: "the most common kind of fact in
 /// genealogy after birth/marriage/death" — occupation, residence, census,
 /// baptism, burial, military service, etc.
 ///
@@ -26,7 +26,7 @@ public nonisolated struct LifeEvent: Codable, Identifiable, Sendable, Hashable {
     public var sources: [FieldSource]          // FieldSource carries citation + quality + confidence
     public var confidence: FactConfidence
     public let createdByTransactionID: UUID?   // nil for life events created outside the transaction system
-    public var sensitive: Bool = false         // M14 §7.15.2 — exclude from shared exports when set
+    public var sensitive: Bool = false         // M14 — exclude from shared exports when set
 
     /// Best-guess single year for sorting on the timeline.
     public var sortYear: Int? {
@@ -63,7 +63,7 @@ public nonisolated struct LifeEvent: Codable, Identifiable, Sendable, Hashable {
 
 /// Categories of life event. Birth/death/marriage are NOT in this enum —
 /// they live on Profile and Relationship. Other categories enumerated per
-/// DESIGN.md §5.13.
+/// the design
 public nonisolated enum LifeEventType: String, Codable, CaseIterable, Sendable {
     // Lifecycle (point-in-time)
     case baptism, burial, probate

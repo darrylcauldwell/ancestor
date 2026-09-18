@@ -2,8 +2,8 @@ import Testing
 import Foundation
 @testable import Ancestor_Research
 
-/// Connector-audit §6.3 response-side parsing fixes —
-/// CONNECTOR_AUDIT_2026-07.md:
+/// Connector-audit response-side parsing fixes —
+/// the 2026-07 connector audit:
 ///
 /// - T1-23 (response side): structured name keys (firstName /
 ///   middleName / lastName / maidenName) beat the last-token

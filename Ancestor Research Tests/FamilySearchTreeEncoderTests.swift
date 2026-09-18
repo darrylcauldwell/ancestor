@@ -3,7 +3,7 @@ import Foundation
 @testable import Ancestor_Research
 @testable import AncestorKit
 
-/// User Tree encoder (WL2 — FAMILYSEARCH_TREES_WRITE_SPEC §3/§4). Pins the
+/// User Tree encoder (WL2 — FamilySearch tree write/). Pins the
 /// inclusion policy (deceased/stub/living), the person/couple/child-and-parents
 /// projections against the documented body shapes, formal-date rendering, and
 /// citation dedup with run-stable keys.

@@ -1,6 +1,6 @@
 import Foundation
 
-// MARK: - Parish-absorption helpers (PARISH_ABSORPTION_SPEC §3)
+// MARK: - Parish-absorption helpers (Parish absorption)
 //
 // Pure resolvers over the typed FreeREG payload used by the absorption layer
 // to decide WHICH block of a multi-person register entry is the subject, and
@@ -80,7 +80,7 @@ public nonisolated extension FreeREGPerson {
 }
 
 public nonisolated extension ParishRecord {
-    /// PARISH_ABSORPTION_SPEC §5 — a BMD-shaped `MarriageRecord` synthesized
+    /// Parish absorption — a BMD-shaped `MarriageRecord` synthesized
     /// from a parish MARRIAGE entry, so the existing subject-side spouse-edge
     /// fill runs for a FreeREG marriage exactly as it does for a FreeBMD one:
     /// the marriage date/place lands on the linked spouse edge (nil columns

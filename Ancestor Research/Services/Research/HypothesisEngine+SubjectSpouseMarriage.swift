@@ -2,7 +2,7 @@ import Foundation
 
 /// `.subjectSpouseMarriage(subjectSurname, spouseSurname, childYearWindow)`
 /// kind — generator, grader, and expansiveness ladder. The pre-iteration
-/// strategy from RESEARCH_PIPELINE_SPEC §5.14: when the subject is a thin
+/// strategy from Research pipeline: when the subject is a thin
 /// placeholder (surname only, no given name) and at least one linked child
 /// carries an MMN anchor, the marriage index — not the birth index — is
 /// the way back to the given name. Reuses `MarriageEnrichmentEngine.match`
@@ -14,7 +14,7 @@ import Foundation
 /// the recoverable name in `reasoning` but does not mutate state.
 nonisolated extension HypothesisEngine {
 
-    // MARK: - Window defaults (§5.14.3)
+    // MARK: - Window defaults
 
     /// Window default — mirrors `.parentMarriage`. The earliest child's
     /// birth year minus 30 (parents typically marry within 30 years of
@@ -23,7 +23,7 @@ nonisolated extension HypothesisEngine {
     private static let subjectSpouseMarriageWindowLowerOffset = -30
     private static let subjectSpouseMarriageWindowUpperOffset = 1
 
-    // MARK: - Gender resolution (§5.14.4 ladder)
+    // MARK: - Gender resolution ( ladder)
 
     /// Outcome of the four-rule precedence ladder. Carries the resolved
     /// gender (when one was reached) and the rule that fired so the
@@ -57,7 +57,7 @@ nonisolated extension HypothesisEngine {
         }
     }
 
-    /// Resolve the subject's gender per §5.14.4 precedence ladder:
+    /// Resolve the subject's gender per precedence ladder:
     /// explicit > surname-pattern > topology > unresolved.
     /// Pure function over snapshot + the resolved per-child MMN map.
     static func resolveSubjectSpouseGender(
@@ -82,7 +82,7 @@ nonisolated extension HypothesisEngine {
         // distinguishes father (surname matches but MMN doesn't) from
         // mother (MMN matches but surname doesn't); without an MMN we
         // can't tell, so fall through to rule 3 instead of guessing.
-        // Mixed signals across children also fall through (§5.14.10
+        // Mixed signals across children also fall through (
         // child-derived-signal-disagreement row).
         var surnameSignals: Set<Gender> = []
         for child in children {
@@ -137,7 +137,7 @@ nonisolated extension HypothesisEngine {
         return .unresolved
     }
 
-    // MARK: - Generator (§5.14.1 + §5.14.3)
+    // MARK: - Generator ( +)
 
     /// Emit one `.subjectSpouseMarriage` per distinct uppercased MMN
     /// across the subject's linked children (Q3 — same-MMN children
@@ -156,7 +156,7 @@ nonisolated extension HypothesisEngine {
         snapshot: FamilyGraphSnapshot,
         childMMNs: [String: String] = [:]
     ) -> [ResearchHypothesis] {
-        // Trigger conditions (§5.14.1).
+        // Trigger conditions.
         guard let subjectID = state.subject.profileID else { return [] }
         let subjectSurname = state.subject.surname?
             .trimmingCharacters(in: .whitespaces) ?? ""
@@ -275,7 +275,7 @@ nonisolated extension HypothesisEngine {
         return hypotheses
     }
 
-    // MARK: - Grader (§5.14.4)
+    // MARK: - Grader
 
     /// Grade a `.subjectSpouseMarriage` by reading marriage records from
     /// state, splitting into groom-side (BMD entries indexed under
@@ -288,7 +288,7 @@ nonisolated extension HypothesisEngine {
     ///                  attests the pair. `supportingEvidence` lists the
     ///                  one or two marriage record IDs.
     /// `.inconclusive`  when `.ambiguous` — `supportingEvidence` lists
-    ///                  all candidate marriage IDs for §5.11 disambiguation.
+    ///                  all candidate marriage IDs for disambiguation.
     /// `.contradicted`  when `.none` — searched in the window, found
     ///                  no plausible marriage.
     static func gradeSubjectSpouseMarriage(
@@ -359,7 +359,7 @@ nonisolated extension HypothesisEngine {
         }
     }
 
-    // MARK: - Write-back recovery (§5.14.4 — slice 2 support)
+    // MARK: - Write-back recovery ( — slice 2 support)
 
     /// The (groom-side, bride-side) given names recovered from a
     /// `.supported` `.subjectSpouseMarriage` hypothesis, plus enough
@@ -467,7 +467,7 @@ nonisolated extension HypothesisEngine {
     }
 
     /// Pick the gender-appropriate given name from a recovery, per the
-    /// §5.14.4 routing table. Returns nil when the recovery has no
+    /// routing table. Returns nil when the recovery has no
     /// usable name on the side gender-routing selects (e.g. female
     /// subject but bride-side wasn't matched).
     static func pickSubjectGivenName(
@@ -481,7 +481,7 @@ nonisolated extension HypothesisEngine {
         }
     }
 
-    /// Cross-hypothesis reconciliation result per §5.14.4. Pure
+    /// Cross-hypothesis reconciliation result per. Pure
     /// function output: the pipeline applies the side effects
     /// (state.subject mutation, pending-fact emission); this struct
     /// just says what they should be.
@@ -508,7 +508,7 @@ nonisolated extension HypothesisEngine {
 
     /// Reconcile across `.supported` `.subjectSpouseMarriage` hypotheses
     /// to decide write-back. Implements the four-case rule from
-    /// §5.14.4:
+    ///:
     ///   - zero supported → `.noWriteback`
     ///   - one supported, gender-routed name extractable → `.applyName`
     ///   - multi supported, agree on name → `.applyName` citing all
@@ -594,7 +594,7 @@ nonisolated extension HypothesisEngine {
         )
     }
 
-    // MARK: - Expansiveness ladder (§5.14.9)
+    // MARK: - Expansiveness ladder
 
     /// Expansiveness ladder for `.subjectSpouseMarriage`.
     ///
@@ -604,7 +604,7 @@ nonisolated extension HypothesisEngine {
     ///   level 2 → widen window by ±10 years (mirrors `.parentMarriage`
     ///             level 2 — picks up marriages outside the typical
     ///             parent-age range).
-    ///   level ≥ 3 → nil. T31 (§5.7) revisits the ceiling once the eval
+    ///   level ≥ 3 → nil. T31 revisits the ceiling once the eval
     ///               harness gives a unique-match-rate baseline.
     static func deficitQuerySubjectSpouseMarriage(
         for hypothesis: ResearchHypothesis,

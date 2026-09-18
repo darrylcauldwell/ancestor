@@ -3,11 +3,11 @@ import Foundation
 /// Parses prose-form citations out of GEDCOM biography NOTE blocks and
 /// decides whether two cited identifiers refer to the same source record.
 ///
-/// Per `RESEARCH_PIPELINE_SPEC.md` §5.8.5: the §5.8 eval harness needs a
+/// Per Research pipeline: the eval harness needs a
 /// matcher to compute *evidence reproduction rate* — the fraction of a
 /// certified profile's existing GEDCOM citations that the pipeline
 /// surfaces. The twin-export GEDCOM stores citations as semi-structured
-/// prose inside `1 NOTE` blocks (memory `gedcom_prose_citations.md`),
+/// prose inside `1 NOTE` blocks (memory `the NOTE-block prose citation shape`),
 /// not as standard GEDCOM `SOUR`/`CITN` tags — so this matcher is a
 /// tolerant pattern parser, not a tag walker.
 ///

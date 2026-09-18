@@ -15,7 +15,7 @@ nonisolated struct PersistedAuditFinding: Sendable, Equatable {
     let computedAt: Date
 }
 
-/// Persistence for Health audit findings (v55, MCP_CONSUMER_SURFACE_SPEC MC4).
+/// Persistence for Health audit findings (v55, MCP consumer surface MC4).
 ///
 /// `AuditEngine.audit(snapshot:)` recomputes everything from scratch on every
 /// pass, so the table holds exactly one snapshot: replace semantics, never

@@ -3,7 +3,7 @@ import Foundation
 import AncestorKit
 @testable import Ancestor_Research
 
-/// EVIDENCE_ABSORPTION_SPEC Change 5 — the review preview lists every off-agenda
+/// Evidence absorption Change 5 — the review preview lists every off-agenda
 /// fact a record will land, read from the same `absorptionPlan` the write path
 /// executes (so it can't over-promise), with the record's own primary event
 /// excluded (the review row already names the record itself).

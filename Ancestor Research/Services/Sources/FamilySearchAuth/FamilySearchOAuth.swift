@@ -6,7 +6,7 @@ import AppKit
 import os
 
 /// FamilySearch official-API OAuth 2.0 (FAMILYSEARCH_READ_LEG_PLAN
-/// #Change4; spec §15.2). Authorization-code + PKCE (S256) through the
+/// #Change4; spec). Authorization-code + PKCE (S256) through the
 /// system default browser and a loopback redirect — the flow FamilySearch
 /// mandates for native apps (Unauthenticated Session and Client
 /// Credentials are explicitly not available to our key).
@@ -30,7 +30,7 @@ import os
 
 // MARK: - Environments
 
-/// Spec §15.1 — environment is plugin config, not compile-time. Beta hosts
+/// Spec — environment is plugin config, not compile-time. Beta hosts
 /// confirmed live 2026-07-14 (identbeta serves the OAuth error/login page;
 /// apibeta routes /platform/records/personas to the search service).
 /// Integration is omitted until its ident host is verified.
@@ -108,7 +108,7 @@ nonisolated struct FamilySearchTokenSet: Codable, Sendable, Equatable {
     /// the usual case on this key — we previously FABRICATED a one-hour
     /// lifetime and discarded the token client-side, which forced an
     /// interactive re-sign-in every hour even though FS reportedly
-    /// issues ~24h tokens (§15.2, lifetime unverified). Nobody but the
+    /// issues ~24h tokens (, lifetime unverified). Nobody but the
     /// server knows the truth, and `FamilySearchClient.execute` already
     /// arbitrates it: a stale token costs one 401 → refresh (nil on
     /// this key) → `.notAuthenticated`, the same UX as a client-side

@@ -3,7 +3,7 @@ import Foundation
 import AncestorKit
 @testable import Ancestor_Research
 
-/// SUBJECT_PLACE_MODEL_SPEC Slice 1 — characterization.
+/// Subject place model Slice 1 — characterization.
 ///
 /// `ResearchSubject` flattens one uniform storage shape (`text` + `code`, on
 /// every location the model holds) into five ad-hoc ones: `region`,

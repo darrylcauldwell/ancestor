@@ -1,6 +1,6 @@
 import Foundation
 
-// PUBLISHER_SPEC Change 4 — one assembly point for projection inputs,
+// Publisher Change 4 — one assembly point for projection inputs,
 // shared by the bundle exporter (Change 2) and the PublishEngine
 // (Change 4) so the two surfaces can never drift.
 nonisolated enum PublishInputs {
@@ -23,7 +23,7 @@ nonisolated enum PublishInputs {
             attachments: try db.loadAttachments(),
             policies: try db.loadPublishPolicies(),
             mediaOptIns: try db.loadPublishMediaOptIns(),
-            convergenceByProfile: [:],   // run envelopes don't carry convergence yet (spec §4.2: absent ⇒ omitted)
+            convergenceByProfile: [:],   // run envelopes don't carry convergence yet (spec: absent ⇒ omitted)
             rootProfileID: try db.loadProjectMeta()?.homePersonID,
             currentYear: calendar.component(.year, from: now),
             generation: generation,

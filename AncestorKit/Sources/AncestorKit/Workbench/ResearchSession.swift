@@ -49,7 +49,7 @@ public nonisolated struct ResearchSession: Codable, Identifiable, Sendable, Hash
         (endedAt ?? Date()).timeIntervalSince(startedAt)
     }
 
-    /// Plain-English summary, computed at display time. Mirrors DESIGN.md §5.11.
+    /// Plain-English summary, computed at display time. Mirrors the design
     public var summary: String {
         let dur = formatDuration(duration)
         var parts: [String] = [dur]

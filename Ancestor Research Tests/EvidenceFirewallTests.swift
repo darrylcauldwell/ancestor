@@ -132,7 +132,7 @@ struct EvidenceFirewallTests {
         #expect(result == nil) // nil = passed
     }
 
-    // MARK: - §13: Idempotency
+    // MARK: -: Idempotency
 
     @Test func idempotencyKeyIsDeterministic() {
         let key1 = EvidenceFirewall.idempotencyKey(

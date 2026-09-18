@@ -3,7 +3,7 @@ import Foundation
 import AncestorKit
 @testable import Ancestor_Research
 
-/// EVIDENCE_ABSORPTION_SPEC Change 4 — `absorptionPlan` is the single
+/// Evidence absorption Change 4 — `absorptionPlan` is the single
 /// enumeration of what a record absorbs. The write path executes it and
 /// (Change 5) the review preview displays it, so these tests pin the contract
 /// both sides depend on. Behaviour parity with the old switch is covered by

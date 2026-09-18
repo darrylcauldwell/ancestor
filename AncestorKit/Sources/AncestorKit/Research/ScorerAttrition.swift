@@ -1,7 +1,7 @@
 import Foundation
 
 /// Per-research-run aggregate of how candidate records flowed through
-/// the 4-gate scorer (ENGINE_FOUNDATION_SPEC #Change4). Surfaces
+/// the 4-gate scorer (Engine foundation #Change4). Surfaces
 /// whether the natural brake is engaged at the periphery — for a
 /// rich subject we expect strong attrition at name + date gates; for
 /// a thin subject we expect almost everything to pass the (now

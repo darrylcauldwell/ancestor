@@ -2,7 +2,7 @@ import Foundation
 
 /// Bounds Discovery expansion so the engine stops burning budget on
 /// peripheral kin (5th cousins, sibling-of-sibling branches) while the
-/// core tree still has gaps. ENGINE_FOUNDATION_SPEC §Change7.
+/// core tree still has gaps. Engine foundation Change 7.
 ///
 /// A policy answers one question: *given a lead that would attach a new
 /// node to an existing generator profile, is that generator close enough

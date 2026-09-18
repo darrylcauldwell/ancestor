@@ -328,7 +328,7 @@ struct RecordScorerProbateTests {
         // Tests assume a Derbyshire-home subject (Manchester registry
         // catchment includes DBY, Bristol doesn't, etc.). Set explicitly
         // — the struct's default is "" now per
-        // feedback_no_hardcoded_regions.
+        // the no-hardcoded-regions rule.
         s.homeChapmanCode = "DBY"
         return s
     }

@@ -6,7 +6,7 @@ import SQLiteData
 import Dependencies
 @testable import Ancestor_Research
 
-// PUBLISHER_SPEC Change 3 — runtime spike (decision-gate proof).
+// Publisher Change 3 — runtime spike (decision-gate proof).
 //
 // NOT part of the normal gate: enabled only when RUN_PUBLISH_SPIKE=1
 // (pass via `xcodebuild test ... TEST_RUNNER_RUN_PUBLISH_SPIKE=1`).

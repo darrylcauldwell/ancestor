@@ -88,7 +88,7 @@ nonisolated enum ChapmanCodeResolver {
     /// the two halves of one question, and every caller asks both. Keeping the
     /// parse private to `ResearchSubject` is what let the FreeBMD arm end up
     /// re-parsing a death county from text five lines from where the burial
-    /// county arrived pre-derived (SUBJECT_PLACE_MODEL_SPEC).
+    /// county arrived pre-derived (Subject place model).
     static func chapmanCode(forLocationCode code: String?) -> String? {
         guard let code = code?.trimmingCharacters(in: .whitespaces), !code.isEmpty
         else { return nil }

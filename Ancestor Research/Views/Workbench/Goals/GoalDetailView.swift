@@ -3,7 +3,7 @@ import SwiftUI
 /// Read-only detail of a research goal. Resolves attached question and
 /// hypothesis IDs against the AppState caches, lets the user attach more
 /// (or detach existing) via simple checkbox pickers, and exposes Edit /
-/// Delete buttons. Per DESIGN.md §5.16.
+/// Delete buttons. By design
 struct GoalDetailView: View {
     @Environment(AppState.self) private var appState
     @Environment(\.dismiss) private var dismiss

@@ -3,7 +3,7 @@ import Foundation
 /// A candidate life — a group of records believed to be about the same person.
 /// The pipeline outputs clusters, not raw records.
 ///
-/// Confidence is no longer a stored single-tier enum — RESEARCH_CONFIDENCE_SPEC
+/// Confidence is no longer a stored single-tier enum — Research confidence
 /// Change 5 removed `ClusterConfidence` in favour of the three-axis
 /// `EvidenceConfidence` model. Callers derive confidence on demand via
 /// `matchQuality` (pure) or `evidenceConfidence(sourceInfoMap:)` (full).
@@ -13,7 +13,7 @@ nonisolated struct LifeCluster: Identifiable, Sendable {
     var lifespanStart: Int
     var lifespanEnd: Int
     var mergeCandidate: String?  // ID of another cluster that might be the same person
-    /// CONFLICT_LAYER_SPEC CL2 T-D ⟨G13⟩ — set when this cluster was split
+    /// Conflict layer CL2 T-D ⟨G13⟩ — set when this cluster was split
     /// off by a contradiction rule (e.g. same-enumeration-year census);
     /// rendered as a badge in ClusterReviewView.
     var splitReason: String? = nil
@@ -111,7 +111,7 @@ nonisolated struct LifeCluster: Identifiable, Sendable {
     }
 
     /// Aggregate match quality across the cluster's records — strongest wins.
-    /// nil only when the cluster is empty. See `RESEARCH_CONFIDENCE_SPEC` §3.1.
+    /// nil only when the cluster is empty. See Research confidence.
     /// Match quality is computable from records alone — no `sourceInfoMap`
     /// dependency — so it lives on the cluster as a pure property.
     var matchQuality: MatchQuality? {
@@ -136,7 +136,7 @@ nonisolated struct LifeCluster: Identifiable, Sendable {
     /// to compute the sourcing axis (lineage independence + top trust tier).
     /// Cluster records are direct evidence; inference depth is always
     /// `.direct` here — `ProposedRelative` carries depth on its own field for
-    /// inferred entities. See `RESEARCH_CONFIDENCE_SPEC` §3.
+    /// inferred entities. See Research confidence.
     func evidenceConfidence(sourceInfoMap: [String: SourceInfo]) -> EvidenceConfidence {
         let sourcing = ConvergenceEngine.sourcingStrength(for: self, sourceInfoMap: sourceInfoMap)
         return EvidenceConfidence(

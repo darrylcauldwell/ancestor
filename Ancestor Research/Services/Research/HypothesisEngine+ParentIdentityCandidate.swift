@@ -2,7 +2,7 @@ import Foundation
 import AncestorKit
 
 /// `.parentIdentityCandidate` ⟨G10⟩ — engine-origin identity candidates
-/// seeded from F4a parentRole disputes (CONFLICT_LAYER_SPEC CL6).
+/// seeded from F4a parentRole disputes (Conflict layer CL6).
 ///
 /// Seeding happens at dispute-production time (ConflictSweep), not in the
 /// pipeline generator — disputes live in the store, not the snapshot. The

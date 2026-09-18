@@ -1,6 +1,6 @@
 import SwiftUI
 
-/// PROJECT_ONBOARDING_SPEC Part B — the re-openable "Getting Started" overview.
+/// Project onboarding Part B — the re-openable "Getting Started" overview.
 /// A single, low-maintenance explainer: how the pieces fit, then one concise
 /// blurb per major view answering "what is this for". Deliberately NOT
 /// coordinate-glued coach marks (those go stale every time the UI moves) — this

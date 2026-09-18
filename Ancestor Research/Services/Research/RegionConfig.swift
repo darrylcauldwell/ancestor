@@ -159,7 +159,7 @@ nonisolated struct RegionConfig: Codable, Sendable {
         return nil
     }
 
-    // MARK: - Per-subject factories (RESEARCH_AXES_SPEC Change 1)
+    // MARK: - Per-subject factories (Research axes Change 1)
 
     /// District map for a given Chapman code. Returns the hand-curated
     /// Derbyshire map for "DBY" (12 verified entries with parish lists);
@@ -328,7 +328,7 @@ nonisolated struct RegionConfig: Codable, Sendable {
     /// bordering the given county; empty array for island chains, sea-bounded
     /// codes, or unknown inputs. Symmetric — `A in adjacentCounties(B)` iff
     /// `B in adjacentCounties(A)`, enforced by tests. Backed by
-    /// `Resources/Regions/county-adjacency.json` (RESEARCH_AXES_SPEC Change 2).
+    /// `Resources/Regions/county-adjacency.json` (Research axes Change 2).
     static func adjacentCounties(_ code: String) -> [String] {
         CountyAdjacency.shared.neighbours(of: code)
     }
@@ -344,7 +344,7 @@ nonisolated struct RegionConfig: Codable, Sendable {
         }
     }
 
-    // MARK: - E3 place-authority backing (MODEL_EVOLUTION_SPEC §Change3)
+    // MARK: - E3 place-authority backing (Model evolution Change 3)
 
     /// AC4 — match a `districtHint` string (the free-text hint that lived only
     /// inside `.subjectIdentity` hypothesis payloads, `ResearchHypothesis.swift`)

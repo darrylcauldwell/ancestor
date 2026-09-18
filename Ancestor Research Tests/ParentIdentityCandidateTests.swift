@@ -4,7 +4,7 @@ import GRDB
 @testable import Ancestor_Research
 import AncestorKit
 
-/// CONFLICT_LAYER_SPEC CL6 — engine-origin `.parentIdentityCandidate`:
+/// Conflict layer CL6 — engine-origin `.parentIdentityCandidate`:
 /// F4a disputes seed choose-one groups including the incumbent edge ⟨G11⟩,
 /// user-seeded `.parentCandidates` stay untouched (AC1), and supported
 /// requires linkage back to the subject (AC2, no self-confirmation).

@@ -2,12 +2,12 @@ import Foundation
 
 /// The kind of name a `NameForm` records. Mirrors the typed-name vocabularies
 /// every mature genealogy system converged on (GEDCOM X, FamilySearch,
-/// WikiTree, RootsMagic, Legacy — `r2-conclusions.md` §3 E2).
+/// WikiTree, RootsMagic, Legacy — `r2-conclusions.md` E2).
 ///
 /// This is *classification only*: it never changes what the flat search-key
 /// fields (`firstName`/`lastName`/`marriedSurname`/`nickName`) resolve to. A
 /// `.married` form and the flat `marriedSurname` coexist — the flat field keeps
-/// the single search-key "winner" (MODEL_EVOLUTION_SPEC §Change2 AC1); the form
+/// the single search-key "winner" (Model evolution Change 2 AC1); the form
 /// list is the lossless landing zone for *every* variant, including the ones
 /// the flat model cannot express (a second marriage, a deed-poll change, an
 /// alias, a non-Western structure).
@@ -35,9 +35,9 @@ public nonisolated enum NameFormType: String, Codable, Hashable, Sendable, CaseI
 }
 
 /// One typed, repeatable name a person is or was known by
-/// (MODEL_EVOLUTION_SPEC §Change2 / ADR-004 E2).
+/// (Model evolution Change 2 / ADR-004 E2).
 ///
-/// A **sidecar, not a rebuild** (`r2-mapping-analysis.md` §7.3): the flat
+/// A **sidecar, not a rebuild** (`r2-mapping-analysis.md`): the flat
 /// `firstName`/`middleName`/`lastName`/`marriedSurname`/`nickName`/
 /// `mothersMaidenName` fields on `Profile` stay the canonical search keys with
 /// their engine semantics untouched. `NameForm` is the additive record that

@@ -171,7 +171,7 @@ actor FreeCenSource: RecordSource, DetailFetchingSource {
         do {
             try await ensureSession()
 
-            // RESEARCH_AXES_SPEC Change 5/6: FreeCen exposes a soundex toggle
+            // Research axes Change 5/6: FreeCen exposes a soundex toggle
             // (the form's "Name Soundex" checkbox). .loose flips it on for
             // server-side fuzzy matching. .variant is the dispatcher tier
             // marker — the surname has already been substituted to a variant
@@ -181,7 +181,7 @@ actor FreeCenSource: RecordSource, DetailFetchingSource {
             // Sex filter: FreeCen's select takes "M"/"F"/"" — narrows
             // common-name results (Smith, Jones) by ~50%. Unknown/other
             // genders fall through to empty so we don't accidentally
-            // erase legitimate hits. Spec §23.
+            // erase legitimate hits. Spec.
             let sexValue: String = {
                 switch query.gender {
                 case .male: return "M"

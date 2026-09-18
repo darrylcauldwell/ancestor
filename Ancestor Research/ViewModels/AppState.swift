@@ -49,7 +49,7 @@ final class AppState {
         return false
     }
 
-    /// IMPORT_DEDUPE_SPEC — orphan-stub duplicates found by the last import,
+    /// Import dedupe — orphan-stub duplicates found by the last import,
     /// awaiting the user's one-click cleanse decision. nil = nothing to
     /// review (or already handled).
     var importCleanseReview: ImportCleanseReview?
@@ -134,10 +134,10 @@ final class AppState {
     /// "Research parents / siblings / …" button. Cleared together with
     /// `researchConfigProfile` when the sheet dismisses. Nil for the
     /// generic whole-profile Research entry point. See
-    /// RESEARCH_PIPELINE_SPEC §11.4.
+    /// Research pipeline.
     var researchConfigFocus: ResearchFocus?
 
-    /// TRIAGE_UX_DATA_QUALITY_SPEC Change 3b — request to research a LEAD
+    /// Triage UX data quality Change 3b — request to research a LEAD
     /// (a candidate not yet on the tree). Sibling of `researchRequest`: set by
     /// the Triage "Research" action on a lead, observed centrally by
     /// ContentView which drives `ResearchViewModel.startResearch(lead:)` and
@@ -169,7 +169,7 @@ final class AppState {
     /// Sibling pattern to `requestOpenProfileDetail`.
     var requestSidebarTab: SidebarTab?
 
-    /// PROFILE_SOURCES_LEDGER_SPEC Change 5 — a muddle/conflict audit finding
+    /// Profile sources ledger Change 5 — a muddle/conflict audit finding
     /// raising "Review records": open the flagged profile's Full Detail with
     /// the Sources & Records ledger expanded and scrolled into view, so the
     /// flag and its remedy (remove the offending record) are one click apart.
@@ -177,7 +177,7 @@ final class AppState {
     /// it for its own profile and clears it.
     var requestLedgerReviewProfileID: String?
 
-    /// PROFILE_LIFECYCLE_SPEC Change 1 — one canonical profile-action set,
+    /// Profile lifecycle Change 1 — one canonical profile-action set,
     /// surfaced identically in the tree right-click menu AND the profile card.
     /// The card-owned sheet actions (Edit / Timeline / Relationship / Cleanse)
     /// are reached from the context menu by raising this intent (paired with
@@ -190,7 +190,7 @@ final class AppState {
     /// `TreeGraphView` observes and opens the compare picker for this id.
     var requestCompareProfileID: String?
 
-    /// RETIRE_POPOVER_SPEC Change 1 — Full Detail raising add-relative /
+    /// Popover retirement Change 1 — Full Detail raising add-relative /
     /// connect-to-existing. The tree owns the add sheets, so the card sets these
     /// intents and `TreeGraphView` observes and presents, mirroring
     /// `requestCompareProfileID`.
@@ -201,7 +201,7 @@ final class AppState {
     var requestAddRelative: AddRelativeRequest?
     var requestConnectExisting: String?
 
-    /// RETIRE_POPOVER_SPEC Change 2 — Full Detail raising branch removal.
+    /// Popover retirement Change 2 — Full Detail raising branch removal.
     /// The tree owns the staged confirmation dialog (`BranchSelector` +
     /// PendingBranchDelete), so the card raises this and `TreeGraphView`
     /// observes and stages it.
@@ -228,14 +228,14 @@ final class AppState {
     /// Briefly populated after the wizard commits — drives the completion toast.
     var onboardingCompletionMessage: String?
 
-    /// PROJECT_ONBOARDING_SPEC Part A — the project SETUP wizard (home region
+    /// Project onboarding Part A — the project SETUP wizard (home region
     /// + local-AI), distinct from the manual family-entry wizard above (which
     /// owns `showOnboardingWizard`). Offered once per project at
     /// create/import/connect via `offerSetupIfNeeded()`; ContentView presents
     /// it as a sheet. Re-runnable from Settings for any project type.
     var showSetupWizard: Bool = false
 
-    /// PROJECT_ONBOARDING_SPEC Part B — the re-openable "Getting Started"
+    /// Project onboarding Part B — the re-openable "Getting Started"
     /// overview (how the pieces fit + what each view is for). Opened from the
     /// toolbar "?", from Settings, and offered at the end of setup. Presented
     /// as a sheet by ContentView, scrolled to the current tab.
@@ -317,7 +317,7 @@ final class AppState {
     var resumableSession: ResearchSession?
 
     /// Drives sidebar visibility — Workbench tab appears once the user has
-    /// any workbench content. Mirrors §7.7's "Workbench appears on first
+    /// any workbench content. Mirrors's "Workbench appears on first
     /// note/question/hypothesis creation."
     var workbenchHasContent: Bool {
         !notes.isEmpty || !questions.isEmpty || !focusSets.isEmpty || !hypotheses.isEmpty
@@ -325,7 +325,7 @@ final class AppState {
 
     // MARK: - Progressive Disclosure (M14)
 
-    /// Per DESIGN.md §7.16. Profile count threshold for the "Tasks" sidebar
+    /// By design Profile count threshold for the "Tasks" sidebar
     /// item to appear. Below this, manual-entry users see only Tree + Settings.
     static let tasksTabAppearsAtProfileCount: Int = 5
 
@@ -1248,7 +1248,7 @@ final class AppState {
             )
 
             snapshot = try db.buildSnapshot()
-            // CONFLICT_LAYER_SPEC CL2 (T-C trigger): one-shot v41 backfill,
+            // Conflict layer CL2 (T-C trigger): one-shot v41 backfill,
             // then the standing sweep (high-water-skippable). Both are
             // idempotent; latent DS-15/DS-26-shaped damage in existing
             // trees becomes visible on first launch after the migration.
@@ -1304,7 +1304,7 @@ final class AppState {
         loadingMessage = nil
     }
 
-    /// CONFLICT_LAYER_SPEC CL2 — run the standing conflict sweep.
+    /// Conflict layer CL2 — run the standing conflict sweep.
     /// `force` bypasses the unchanged-project skip (manual scan,
     /// post-apply batches). Rebuilds the snapshot when disputes changed so
     /// the profile dispute sections and audit count refresh.
@@ -1330,7 +1330,7 @@ final class AppState {
     }
 
     /// #CPC-Change2 — run the cross-profile corroboration sweep
-    /// (`CROSS_PROFILE_CORROBORATION_SPEC.md` Change 2). Detection only:
+    /// (`Cross-profile corroboration` Change 2). Detection only:
     /// emits pending facts for human review; never writes tree data.
     /// Best-effort like the conflict sweep — failure logs, never blocks.
     func runCorroborationSweep(limitToProfileID: String? = nil) {
@@ -1374,7 +1374,7 @@ final class AppState {
     /// Called when opening a project. If the most-recent session is still
     /// within the idle threshold, continue using it. Otherwise: surface the
     /// resumable summary (if it has activity and is within 7 days) and start
-    /// a fresh session. Per DESIGN.md §7.7.6.
+    /// a fresh session. By design
     private func ensureSession() {
         guard let db = currentDatabase else { return }
         do {
@@ -2079,7 +2079,7 @@ final class AppState {
         }
     }
 
-    /// Dismiss with a preserved reason — DESIGN.md §5.11 says "the reason is
+    /// Dismiss with a preserved reason — the design says "the reason is
     /// preserved so the same claim isn't re-hypothesised in a future session."
     func dismissHypothesis(id: UUID, reason: String) {
         guard var h = hypotheses.first(where: { $0.id == id }) else { return }
@@ -2098,7 +2098,7 @@ final class AppState {
         case failed(String)
     }
 
-    /// Promote a hypothesis to a fact in the tree. Per DESIGN.md §5.11:
+    /// Promote a hypothesis to a fact in the tree. By design:
     ///  - `.relationship` → addRelationship
     ///  - `.fieldValue` → editProfile
     ///  - `.identityMatch` → not yet supported (merge flow is future work)
@@ -2185,7 +2185,7 @@ final class AppState {
     /// Cross-entity workbench search. Notes go through the SQLite FTS index
     /// for relevance ranking when the DB is available; questions, hypotheses,
     /// and focus sets use the pure-Swift `WorkbenchSearch` substring path.
-    /// Empty query returns []. Per DESIGN.md §7.7.5.
+    /// Empty query returns []. By design
     func searchWorkbench(query: String) -> [WorkbenchSearchResult] {
         let trimmed = query.trimmingCharacters(in: .whitespaces)
         guard !trimmed.isEmpty else { return [] }
@@ -2246,7 +2246,7 @@ final class AppState {
             switch source {
             case .gedcom(let path):
                 try importGEDCOM(path: path, db: db)
-                // PROJECT_ONBOARDING_SPEC Part A — offer setup after a GEDCOM
+                // Project onboarding Part A — offer setup after a GEDCOM
                 // import. No-ops if the import raised a cleanse review (they
                 // must not both present); that project reaches setup via
                 // Settings → Re-run setup.
@@ -2277,7 +2277,7 @@ final class AppState {
         let parseResult = try GEDCOMParser.parse(fileAt: path)
 
         // Guard: GEDCOM import into a non-empty project would silently
-        // duplicate profiles. The spec (DESIGN.md §7.5.11) calls for an
+        // duplicate profiles. The spec (by design) calls for an
         // ImportMergeView duplicate-detection flow; that's deferred. Until
         // then, refuse the import rather than corrupt the tree. New projects
         // (the only path that reaches here today) have an empty snapshot
@@ -2292,7 +2292,7 @@ final class AppState {
 
         loadingMessage = "Saving \(parseResult.individualCount) profiles..."
         let transaction = try db.importSnapshot(parseResult.snapshot, source: path)
-        // CONFLICT_LAYER_SPEC CL2 (T-C trigger): post-import sweep —
+        // Conflict layer CL2 (T-C trigger): post-import sweep —
         // imported trees surface their latent contradictions immediately.
         _ = try? ConflictSweep.run(db: db, snapshot: try db.buildSnapshot(), force: true)
 
@@ -2302,7 +2302,7 @@ final class AppState {
         loadingMessage = "Running audit..."
         runPostLoadAudit()
 
-        // IMPORT_DEDUPE_SPEC — flag orphan-stub duplicates left by the
+        // Import dedupe — flag orphan-stub duplicates left by the
         // export (Ancestry's merge tool strips a duplicate's family links
         // but leaves the record). Surfaced for one-click review; empty
         // stubs are safe to remove (they carry no data), non-empty ones
@@ -2427,7 +2427,7 @@ final class AppState {
     /// directly; profiles that match an existing person produce
     /// `.fieldValue` hypotheses on the workbench instead of overwriting
     /// the existing tree. Used by the picker's "Import GEDCOM as
-    /// suggestions" entry point — see DESIGN.md §13 "Collaboration
+    /// suggestions" entry point — see the design "Collaboration
     /// Extensions: Import corrections as suggestions."
     func importGEDCOMAsCorrections(from url: URL) {
         guard let db = currentDatabase else {
@@ -2610,7 +2610,7 @@ final class AppState {
 
             let auditCount = auditSummary?.actionableTotal ?? 0
             successMessage = "Imported \(profiles.count) profiles, \(relationships.count) relationships. Audit found \(auditCount) items."
-            // PROJECT_ONBOARDING_SPEC Part A — offer setup once the WikiTree
+            // Project onboarding Part A — offer setup once the WikiTree
             // tree has landed.
             offerSetupIfNeeded()
         } catch {
@@ -2751,7 +2751,7 @@ final class AppState {
 
     /// Export current project to GEDCOM file. Pulls in attachments from
     /// the open database so OBJE blocks reference each profile's media.
-    /// - Parameter excludeSensitive: M14 §7.15.2. When true, OBJE blocks
+    /// - Parameter excludeSensitive: M14. When true, OBJE blocks
     ///   for attachments tied to sensitive life events are dropped.
     func exportGEDCOM(to path: String, excludeSensitive: Bool = false) {
         guard !snapshot.profiles.isEmpty else {
@@ -2783,7 +2783,7 @@ final class AppState {
 
     /// Export the current project as a folder of static HTML files. The
     /// recipient opens `index.html` in any browser and clicks through the
-    /// tree — no JavaScript or app required. Per DESIGN.md §13.
+    /// tree — no JavaScript or app required. By design
     func exportHTML(to directoryURL: URL, excludeLiving: Bool, excludeSensitive: Bool) {
         guard !snapshot.profiles.isEmpty else {
             errorMessage = "No data to export."
@@ -2999,7 +2999,7 @@ final class AppState {
     }
 
     /// Remove an applied evidence record from a profile — the ledger's
-    /// per-record removal (PROFILE_SOURCES_LEDGER_SPEC Change 3). Reverts the
+    /// per-record removal (Profile sources ledger Change 3). Reverts the
     /// record's absorption directionally, feeds rejection memory, then
     /// rebuilds the snapshot and force-sweeps so any dispute still justified
     /// by surviving evidence is re-derived (and dissolved ones stay gone).
@@ -3051,7 +3051,7 @@ final class AppState {
 
     /// Attach (or update) a structured citation and evidence-quality rating
     /// on the most-recent `field_sources` row matching (profileID, field,
-    /// origin). Per DESIGN.md §5.12, citations layer onto an existing source
+    /// origin). By design, citations layer onto an existing source
     /// rather than replacing it — the raw value stays untouched. Called by
     /// AddPersonView/EditPersonView after save when the user has filled in
     /// the optional citation form.
@@ -3296,7 +3296,7 @@ final class AppState {
             parents.append((p.id, r)); added += 1
             if r == .mother { marriedInMotherID = p.id; marriedInMotherNewIndex = profiles.count - 1 }
         }
-        // 1b. Marry the parents to EACH OTHER. §1 wires the Head as father and
+        // 1b. Marry the parents to EACH OTHER. wires the Head as father and
         // the Wife as mother of a child subject, but nothing links the couple —
         // so they surface forever as `unlinkedSpouseForFemaleSubject` (the mother
         // carries a married surname + co-parented children yet no spouse edge;
@@ -3774,7 +3774,7 @@ final class AppState {
         return touched
     }
 
-    // MARK: - Parish family proposal (PARISH_ABSORPTION_SPEC §7)
+    // MARK: - Parish family proposal (Parish absorption)
 
     /// Which parish event a family proposal came from (drives the strip copy).
     nonisolated enum ParishKind: Sendable, Equatable { case marriage, baptism, burial }
@@ -3901,8 +3901,8 @@ final class AppState {
             : FreeREGPerson(forename: tokens[0], surname: nil)
     }
 
-    /// Lift the family a parish entry names, per event kind (PARISH_ABSORPTION_SPEC
-    /// §7.1). Marriage → the subject's spouse + the SUBJECT's parents (never the
+    /// Lift the family a parish entry names, per event kind (Parish absorption
+    ///). Marriage → the subject's spouse + the SUBJECT's parents (never the
     /// other party's — they are the spouse's kin). Baptism → both parents.
     /// Burial → the named relative when the relationship marks them a parent.
     /// A relative's absent surname inherits the subject's (a father shares his
@@ -4648,7 +4648,7 @@ final class AppState {
         }
     }
 
-    // MARK: - PROJECT_ONBOARDING_SPEC Part A — setup wizard lifecycle
+    // MARK: - Project onboarding Part A — setup wizard lifecycle
 
     /// Set the project's home Chapman anchor (Step 1). Mutates a copy of the
     /// current project so every other field is preserved, then persists via
@@ -4913,7 +4913,7 @@ final class AppState {
         return sources
     }
 
-    /// FREEBMD_CITATION_BACKFILL_SPEC Change 2 — applied FreeBMD evidence that
+    /// FreeBMD citation backfill Change 2 — applied FreeBMD evidence that
     /// predates the detail-link capture: records with no entry link (all types)
     /// and births missing the mother's maiden name. One info-gap finding per
     /// profile. DB-derived, so computed on demand (Health `onAppear`) rather
@@ -4988,7 +4988,7 @@ final class AppState {
         }
     }
 
-    // MARK: - Census parent unlock (CENSUS_PARENT_UNLOCK_SPEC Change 2/3)
+    // MARK: - Census parent unlock (Census parent unlock Change 2/3)
 
     /// Parentless ancestors whose childhood census is already among their leads —
     /// the pre-1911 twin of the FreeBMD/MMN unlock. DB-derived (reads each
@@ -5396,7 +5396,7 @@ final class AppState {
         successResearchProfileID = finding.profileID
     }
 
-    // MARK: - Investigation dossier (DOSSIER_SPEC #T9-Change1)
+    // MARK: - Investigation dossier (Dossier #T9-Change1)
 
     /// Assemble the deterministic dossier skeleton for a profile from stored
     /// rows. A pure read — `DossierAssembler` takes plain values and holds no
@@ -5441,7 +5441,7 @@ nonisolated struct DeathAgeBackfillProposal: Identifiable, Sendable, Equatable {
 }
 
 /// Errors raised by `AppState.importGEDCOM`. Currently just one case —
-/// future ImportMergeView (DESIGN.md §7.5.11) will replace this with a
+/// future ImportMergeView (by design) will replace this with a
 /// merge dialog rather than throwing.
 nonisolated enum GEDCOMImportError: LocalizedError {
     case targetNotEmpty(existingCount: Int, incomingCount: Int)
@@ -5466,7 +5466,7 @@ nonisolated enum PendingPersonAction: Equatable, Sendable {
     case editSelected(profileID: String)
 }
 
-/// PROFILE_LIFECYCLE_SPEC Change 1 — the profile-card-owned actions that the
+/// Profile lifecycle Change 1 — the profile-card-owned actions that the
 /// tree context menu raises via `AppState.pendingCardAction`. Kept minimal:
 /// only the actions whose UI lives inside `ProfileDetailView` (its sheets /
 /// edit mode). Research, Compare, Focus, and Set-as-Home route through their

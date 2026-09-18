@@ -55,7 +55,7 @@ struct ResearchProgressSheet: View {
                 } else if let result = vm.currentResult, result.consensusProposalCount > 0 {
                     // Slice B3 — surface subject-self-narrowing proposals so
                     // the user notices them. Per
-                    // `SUBJECT_SELF_NARROWING_SPEC.md` §6: footer-only,
+                    // `Subject self-narrowing`: footer-only,
                     // no accept/reject here — the real decision happens in
                     // the record review where the supporting evidence
                     // renders (SC-3: the detached review window, not the

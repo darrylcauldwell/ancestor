@@ -1,8 +1,8 @@
 import Foundation
 import os
 
-/// Orchestrator for the user-facing "add a prose corpus" flow (spec §6.2
-/// site verification + §3.3 registry write + §3.1 initial manifest).
+/// Orchestrator for the user-facing "add a prose corpus" flow (spec
+/// site verification + registry write + initial manifest).
 ///
 /// The flow is two-stage on purpose: `verify(seedURL:)` does the
 /// network probe and returns a `SiteVerification` the UI presents to
@@ -26,7 +26,7 @@ nonisolated struct ProseCorpusAdder {
     /// are deterministic; production passes `Date.init`.
     let now: @Sendable () -> Date
     /// User-Agent for the verification probe AND for the crawl that
-    /// `sync` triggers — kept aligned with the spec §6.1 default so
+    /// `sync` triggers — kept aligned with the spec default so
     /// the host sees one identity across add-time and ongoing syncs.
     let userAgent: String
 
@@ -216,7 +216,7 @@ nonisolated struct ProseCorpusAdder {
 
         // Index refresh — runs over every markdown file the crawler
         // just wrote, content-hash-skipping unchanged pages. Spec
-        // §8.2 idempotency means re-running sync against a clean
+        // idempotency means re-running sync against a clean
         // corpus does zero index writes. Failure here is non-fatal:
         // the crawler's pages are on disk; the next sync can retry
         // indexing without re-crawling.
@@ -368,7 +368,7 @@ nonisolated struct ProseCorpusAdder {
 /// failure mode is captured in fields rather than thrown, so the UI
 /// has one consistent surface to render.
 ///
-/// Spec §6.2 verification: reachability, robots.txt fetch + seed
+/// Spec verification: reachability, robots.txt fetch + seed
 /// disallow check, outbound-link count estimate, plus human-readable
 /// warnings the UI surfaces alongside the Add button.
 nonisolated struct SiteVerification: Sendable, Equatable {

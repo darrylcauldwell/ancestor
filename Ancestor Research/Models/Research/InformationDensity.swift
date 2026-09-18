@@ -2,7 +2,7 @@ import Foundation
 
 /// Classifies a research subject by how much identifying information
 /// the engine has for them at scoring time. Drives the scorer's
-/// verdict-cap per ENGINE_FOUNDATION_SPEC #Change1: when density is
+/// verdict-cap per Engine foundation #Change1: when density is
 /// `.thin`, no record from a scoring pass can land `.fact` — the
 /// scorer caps at `.lead`. Hard fails still emit `.impossible`.
 /// ONE exemption, amended by CROSS_PROFILE_CORROBORATION #CPC-Change4:

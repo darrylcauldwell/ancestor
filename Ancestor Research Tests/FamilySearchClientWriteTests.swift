@@ -2,7 +2,7 @@ import Testing
 import Foundation
 @testable import Ancestor_Research
 
-/// User Tree write methods (WL1 — FAMILYSEARCH_TREES_WRITE_SPEC). Exercises
+/// User Tree write methods (WL1 — FamilySearch tree write). Exercises
 /// paths, media types, POST bodies (via the mock's body-stream drain), entity-ID
 /// extraction (X-entity-id + Location fallback), and write-rejection surfacing.
 /// Serialized: the mock uses process-global state.

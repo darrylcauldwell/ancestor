@@ -4,7 +4,7 @@ import GRDB
 import AncestorKit
 @testable import Ancestor_Research
 
-/// LOCATION_MODEL_SPEC Part II, Slice C — `Profile.birthRegistrationDistrict` is a
+/// Location model Part II, Slice C — `Profile.birthRegistrationDistrict` is a
 /// first-class, structured GRO registration-district id ("DBY:Ashbourne-RD"),
 /// derived metadata populated by BMD-birth apply (no FieldSource; provenance is
 /// the birth citation). Distinct from `birthLocation` (the *place*), which is

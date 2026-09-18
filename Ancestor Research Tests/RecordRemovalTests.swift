@@ -4,7 +4,7 @@ import GRDB
 import AncestorKit
 @testable import Ancestor_Research
 
-/// PROFILE_SOURCES_LEDGER_SPEC Changes 1+3+4 — per-record removal. Each test
+/// Profile sources ledger Changes 1+3+4 — per-record removal. Each test
 /// applies a record through the REAL apply path (ApplyEngine + the caller's
 /// life-event loop, mirroring applyRecord), then removes it and asserts the
 /// directional inversion: sole-source values revert, corroborations drop

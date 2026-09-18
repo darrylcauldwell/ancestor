@@ -1,6 +1,6 @@
 import SwiftUI
 
-/// Settings → Statistics. M20 (DESIGN.md §13 platform extensions).
+/// Settings → Statistics. M20 (the design platform extensions).
 ///
 /// Read-only dashboard derived from the current snapshot, the project's home
 /// person, and the persisted session log. All metric work is delegated to the

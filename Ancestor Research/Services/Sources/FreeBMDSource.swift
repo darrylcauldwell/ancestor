@@ -47,7 +47,7 @@ actor FreeBMDSource: RecordSource {
     ///
     /// FreeBMD publishes NO per-day search allowance (an earlier `200/day`
     /// here was wrongly presented as a documented quota and was removed for
-    /// that reason — SOURCE_ACCESS_COMPLIANCE_2026-07.md). What replaced it,
+    /// that reason — the source-access compliance review). What replaced it,
     /// `.unlimited`, meant the ONLY brake was the live 429 breaker: the
     /// source had to be throttled before anything slowed down, and the
     /// server's push-back point is low and variable (observed ~50–60
@@ -215,7 +215,7 @@ actor FreeBMDSource: RecordSource {
             // server-side soundex matching. .variant is the dispatcher's
             // tier marker — the surname has already been substituted to a
             // variant before arriving here, so the variant probe itself is
-            // exact-match (no phonetic). See RESEARCH_AXES_SPEC §7.
+            // exact-match (no phonetic). See Research axes.
             //
             // FT-06 + probe finding (2026-07-11, FreeBMDPhoneticProbeTests):
             // the soundex checkbox is `sndx=on` — NOT `Phonetic`. The old

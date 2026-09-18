@@ -1,7 +1,7 @@
 import Foundation
 
 /// #CPC-Change1 — the pure joiner for cross-profile corroboration
-/// (`AncestorApp/CROSS_PROFILE_CORROBORATION_SPEC.md`).
+/// (`AncestorApp/Cross-profile corroboration`).
 ///
 /// Two tree-linked spouses each independently hold a marriage-index record
 /// citing the same GRO reference. This corroborator answers, deterministically
@@ -32,11 +32,11 @@ nonisolated enum SpousePairCorroborator {
         /// Recorded surname PLUS derived maiden surname(s) — marriage indexes
         /// file a bride under her pre-marriage surname while this tree often
         /// stores wives under married surname, so every surname comparison in
-        /// the ladder tests against the set (spec §1). Uppercased by `init`.
+        /// the ladder tests against the set (spec). Uppercased by `init`.
         let surnames: Set<String>
         /// PROFILE-RECORDED birth window only — never relative-derived
         /// fallbacks (a 27-year child-derived window would validate almost
-        /// any marriage year and make the strong anchor vacuous; spec §1).
+        /// any marriage year and make the strong anchor vacuous; spec).
         let recordedBirthYearRange: ClosedRange<Int>?
         let deathYear: Int?
         /// Human-readable name for trace/card text (a raw profile id on a
@@ -118,7 +118,7 @@ nonisolated enum SpousePairCorroborator {
         let partnerCollapsedRecordIDs: [String]
         /// Year-granularity event span. GRO quarterly indexes include late
         /// clergy returns, so `earliest` is widened by one quarter — a MAR
-        /// quarter opens into the prior year (spec §1).
+        /// quarter opens into the prior year (spec).
         let proposedEarliestYear: Int
         let proposedLatestYear: Int
         /// Epistemic label for the citation: "registered Dec quarter 1915".
@@ -223,7 +223,7 @@ nonisolated enum SpousePairCorroborator {
         }
         trace.append("year sanity passed for both members")
 
-        // Guard 5 — tier assignment (spec §1, Question 1).
+        // Guard 5 — tier assignment (spec, Question 1).
         let tier: Tier
         switch assessTier(
             subjectRecord: subjectEntry.record, partnerRecord: partnerEntry.record,
@@ -235,7 +235,7 @@ nonisolated enum SpousePairCorroborator {
             tier = t
         }
 
-        // Guard 6 — anchor assessment (spec §1, Question 2).
+        // Guard 6 — anchor assessment (spec, Question 2).
         let anchor = assessAnchor(
             marriageYear: marriageYear, subject: subject, partner: partner,
             childMMNAnchors: childMMNAnchors, trace: &trace

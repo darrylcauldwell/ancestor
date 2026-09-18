@@ -2,7 +2,7 @@ import Testing
 import Foundation
 @testable import Ancestor_Research
 
-/// Acceptance tests for RESEARCH_CONFIDENCE_SPEC.md Change 6 — spec
+/// Acceptance tests for Research confidence Change 6 — spec
 /// amendments. The actual edits live in `.md` files which aren't accessible
 /// from the test bundle's working directory at runtime, so we verify the
 /// migration at the code-boundary level: the legacy `ClusterConfidence`
@@ -23,13 +23,13 @@ struct ConfidenceSpecAmendmentsTests {
     }
 
     // MARK: - AC6.2 — every confidence-bearing surface now uses the
-    //                 three-axis types from RESEARCH_CONFIDENCE_SPEC
+    //                 three-axis types from Research confidence
 
     @Test func ac6_2_threeAxisModelIsCallable() {
         // Every surface that previously read off ClusterConfidence now
         // composes EvidenceConfidence from MatchQuality, SourcingStrength,
         // and InferenceDepth. Smoke-test that the canonical compose path
-        // builds and the public API is what RESEARCH_CONFIDENCE_SPEC §3
+        // builds and the public API is what Research confidence
         // describes.
         let confidence = EvidenceConfidence(
             matchQuality: .confirmed,

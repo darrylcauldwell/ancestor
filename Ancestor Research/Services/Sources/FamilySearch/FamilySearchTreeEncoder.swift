@@ -1,10 +1,10 @@
 import Foundation
 import AncestorKit
 
-// FamilySearch User Tree encoder (WL2 — FAMILYSEARCH_TREES_WRITE_SPEC §3/§4).
+// FamilySearch User Tree encoder (WL2 — FamilySearch tree write/).
 //
 // Pure projection from the local model onto the documented write-body shapes
-// (FS_WRITE_WIRE_CONTRACTS.md). Persons encode fully at plan time; relationship
+// (the FamilySearch write wire contracts). Persons encode fully at plan time; relationship
 // and source-reference bodies are SPECS rendered later, once FamilySearch has
 // minted the pids they reference. All inclusion/mapping policy lives here so
 // the orchestrator (WL4) is dumb plumbing and the whole policy is unit-tested.

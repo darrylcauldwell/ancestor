@@ -161,7 +161,7 @@ struct SettingsPlaceholderView: View {
                 FamilySearchBetaSettingsView()
             }
 
-            // PROJECT_ONBOARDING_SPEC Part A — re-run the project setup wizard
+            // Project onboarding Part A — re-run the project setup wizard
             // (home region etc.), available for ANY project type. Distinct from
             // the manual-only family-entry wizard below.
             Section("Project setup") {
@@ -173,7 +173,7 @@ struct SettingsPlaceholderView: View {
                     .font(AppTypography.badge)
                     .foregroundStyle(.tertiary)
 
-                // PROJECT_ONBOARDING_SPEC Part B — re-open the Getting Started
+                // Project onboarding Part B — re-open the Getting Started
                 // overview (also on the toolbar "?").
                 Button("Getting Started") {
                     appState.showGettingStarted = true

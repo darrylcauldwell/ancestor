@@ -49,7 +49,7 @@ nonisolated enum AutoSuggestService {
         }
     }
 
-    /// Suggest surnames likely to be maiden names. Per DESIGN.md §7.5.8 the
+    /// Suggest surnames likely to be maiden names. By design the
     /// wizard's maternal-grandmother slot benefits from this — `Profile.lastName`
     /// is "last name at birth", so a married woman's stored surname is her
     /// maiden name. Heuristic: surnames of female profiles, ranked by frequency.
@@ -83,7 +83,7 @@ nonisolated enum AutoSuggestService {
             .map(\.key)
     }
 
-    /// Soft-warning threshold (per DESIGN.md §7.5.3) — names beyond this are
+    /// Soft-warning threshold (by design) — names beyond this are
     /// likely a paste accident or pasted bio. Save still proceeds.
     static let nameSoftWarningLength = 100
     /// Hard limit — anything beyond this is rejected on save.

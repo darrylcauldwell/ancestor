@@ -2,7 +2,7 @@ import Testing
 import Foundation
 @testable import Ancestor_Research
 
-/// PROJECT_ONBOARDING_SPEC Part A Step 2 (enable local AI). Step 2 is mostly a
+/// Project onboarding Part A Step 2 (enable local AI). Step 2 is mostly a
 /// consent UI + download wiring (not unit-tested per project convention), but
 /// two things are load-bearing and testable: the embedder's on-disk folder
 /// convention (if it's wrong, "auto-use once downloaded" silently never fires

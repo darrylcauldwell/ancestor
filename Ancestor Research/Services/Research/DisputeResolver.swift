@@ -1,6 +1,6 @@
 import Foundation
 
-/// CONFLICT_LAYER_SPEC §4.6 — C6, the deterministic resolution ladder.
+/// Conflict layer — C6, the deterministic resolution ladder.
 /// Runs at detection time, before a dispute is persisted. A conflict is
 /// auto-resolved ONLY if a rule fires; everything else stays open
 /// (decision log #4 — default disposition = open + surfaced).
@@ -10,7 +10,7 @@ import Foundation
 /// element 4 requires and the verbatim-groundable input the T9 dossier
 /// consumes.
 ///
-/// CL1 state (spec §6 Change 1): R3 (user-authoritative shield) and R1
+/// CL1 state (spec Change 1): R3 (user-authoritative shield) and R1
 /// (precision subsumption, filtered at detection) are live; **R0 is inert
 /// until CL4** (needs WitnessIdentity) and **R2 until CL5** (quality
 /// dominance is the programme's first write-behaviour change). Because no
@@ -44,7 +44,7 @@ nonisolated struct DisputeResolver {
     static func adjudicate(_ conflict: DetectedConflict) -> Adjudication {
         var trace: [RungEvaluation] = []
 
-        // R3 — user-authoritative shield, evaluated first (§4.6). Any
+        // R3 — user-authoritative shield, evaluated first. Any
         // competing attestation with a user-manual origin blocks
         // auto-resolution in BOTH directions; the dispute stays open for
         // the human (check-before-overwrite).

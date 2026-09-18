@@ -2,7 +2,7 @@ import SwiftUI
 
 /// Sheet for creating or editing a `ResearchGoal`. Add mode starts blank;
 /// edit mode hydrates from the supplied goal and offers a Delete button.
-/// Per DESIGN.md §5.16.
+/// By design
 struct GoalEditorView: View {
     @Environment(AppState.self) private var appState
     @Environment(\.dismiss) private var dismiss

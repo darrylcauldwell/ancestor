@@ -4,7 +4,7 @@ import SwiftUI
 // the friction routing is a tested policy seam (GPSConflictReportingTests),
 // not view code, and per-profile surfaces may reuse it for row severity.
 
-/// Review friction per §20.6 — how much user effort is needed to process a finding.
+/// Review friction per — how much user effort is needed to process a finding.
 /// Higher friction = more attention required. Sorted highest-first in bulk review.
 nonisolated enum ReviewFriction: Int, CaseIterable, Sendable {
     case autoStage = 0          // Refinements — applied with undo, user glances

@@ -9,8 +9,8 @@ import Foundation
 /// ceiling is hit, the source returns HTTP 429 and the circuit breaker
 /// ladders 60s/300s/900s waits — burning ~21 minutes of wall-clock with zero
 /// progress before giving up for the process (memory:
-/// `reference_freebmd_circuit_breaker.md`,
-/// `feedback_volunteer_sources_rate_limits.md`).
+/// `the FreeBMD circuit-breaker ladder`,
+/// `the volunteer-source rate-limit rule`).
 ///
 /// This type makes the daily ceiling EXPLICIT so the engine can distinguish
 /// a spent daily budget (park until tomorrow, no laddering) from a transient

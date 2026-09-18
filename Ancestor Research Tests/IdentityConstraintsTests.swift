@@ -2,7 +2,7 @@ import Testing
 import Foundation
 @testable import Ancestor_Research
 
-/// Phase 5 — the shared identity-constraint core (LEAD_DISCOVERY_SPEC §7).
+/// Phase 5 — the shared identity-constraint core (Lead discovery).
 /// One rule set for both clustering roles; these tests pin each rule and the
 /// deliberate relationships between the constants.
 struct IdentityConstraintsTests {

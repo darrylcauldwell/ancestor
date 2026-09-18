@@ -43,7 +43,7 @@ public nonisolated enum Severity: String, Codable, Sendable {
     case error, warning, info
 }
 
-/// Audit results fall into three categories (HEALTH_RECATEGORISATION_SPEC):
+/// Audit results fall into three categories (Health recategorisation):
 /// - Issues: data consistency problems (birth before death, impossible ages)
 /// - Gaps: evidence is in the project but incompletely applied
 ///   (unabsorbed census household, marriage applied without a spouse edge)

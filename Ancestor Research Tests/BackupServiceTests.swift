@@ -2,7 +2,7 @@ import Testing
 import Foundation
 @testable import Ancestor_Research
 
-/// Tests for `BackupService` (M14 / DESIGN.md §7.15.3).
+/// Tests for `BackupService` (M14 / the design).
 ///
 /// These tests pollute `ProjectStore.projectsDirectory` (Application Support)
 /// with throwaway projects. Each test cleans up the project IDs it creates.

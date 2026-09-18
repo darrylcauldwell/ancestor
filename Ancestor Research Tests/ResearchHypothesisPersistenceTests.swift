@@ -2,7 +2,7 @@ import Testing
 import Foundation
 @testable import Ancestor_Research
 
-/// Tests for the V2 spec §4.1 ResearchHypothesis type + the v26 migration's
+/// Tests for the V2 spec ResearchHypothesis type + the v26 migration's
 /// research_hypotheses table. Covers:
 ///   • Round-trip persistence for every HypothesisKind case (JSON payload
 ///     survives serialise → store → load → decode).

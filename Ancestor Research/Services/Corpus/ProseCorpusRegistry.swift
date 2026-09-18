@@ -8,7 +8,7 @@ import Foundation
 /// per-corpus `manifest.json` (see `ProseCorpusManifest`) carries the
 /// full detail.
 ///
-/// Spec §3.3 — the registry is the only data structure the rest of the
+/// Spec — the registry is the only data structure the rest of the
 /// app needs to consult to enumerate corpora. Adding a corpus appends
 /// an entry; removing deletes the entire `<source_id>/` directory and
 /// the registry row.
@@ -141,7 +141,7 @@ nonisolated struct ProseCorpusRegistry {
 
     // MARK: - source_id derivation
 
-    /// Derive a `source_id` from a seed URL per spec §3.3:
+    /// Derive a `source_id` from a seed URL per spec:
     /// hostname-with-dots-replaced-by-hyphens, plus the first path
     /// segment if non-empty, lowercased. Stripped of `www.` prefix
     /// because every volunteer site that uses `www` also serves at the
@@ -188,7 +188,7 @@ nonisolated struct ProseCorpusRegistry {
     }
 
     /// Resolve a candidate `source_id` against the live registry,
-    /// returning the first non-colliding form. Spec §3.3 — collisions
+    /// returning the first non-colliding form. Spec — collisions
     /// get a numeric suffix (`-2`, `-3`, …).
     ///
     /// Returns the base id unchanged when it doesn't collide.
@@ -230,7 +230,7 @@ nonisolated struct ProseCorpusRegistry {
 
 // MARK: - Registry document shape
 
-/// On-disk shape of `corpora/registry.json` (spec §3.3). Decoded with
+/// On-disk shape of `corpora/registry.json` (spec). Decoded with
 /// snake_case JSON keys to match the spec's literal schema.
 nonisolated struct ProseCorpusRegistryDocument: Codable, Equatable {
     let schemaVersion: Int
@@ -261,7 +261,7 @@ nonisolated struct ProseCorpusRegistryEntry: Codable, Equatable, Identifiable, S
 
 // MARK: - Per-corpus manifest
 
-/// Per-corpus `manifest.json` shape (spec §3.1). Written by the crawler
+/// Per-corpus `manifest.json` shape (spec). Written by the crawler
 /// at the end of every successful run, read on app boot to surface
 /// corpus state in the Settings UI.
 ///

@@ -4,7 +4,7 @@ import os
 /// Reconstructs a reviewable `ResearchResult` from PERSISTED state — the
 /// substrate an overnight watcher campaign (or any past run) leaves in the
 /// database — so ClusterReviewView can review it without a
-/// live pipeline session (CAMPAIGN_REVIEW_SPEC Change 5).
+/// live pipeline session (Campaign review Change 5).
 ///
 /// Sources of truth (all persisted):
 ///   evidence_records       → ScoredRecords (full fidelity post-v44: gates,
@@ -100,7 +100,7 @@ enum CampaignReviewService {
     // MARK: - Convergence badge matching
 
     /// The strongest PERSISTED convergence level among the fact values this
-    /// cluster asserts — the per-finding badge datum (CAMPAIGN_REVIEW_SPEC
+    /// cluster asserts — the per-finding badge datum (Campaign review
     /// Change 6). Matches the cluster's fact-verdict records' value keys
     /// (ConvergenceEngine.valueKey) against the profile's persisted
     /// evidence_convergence rows. nil when the cluster asserts no

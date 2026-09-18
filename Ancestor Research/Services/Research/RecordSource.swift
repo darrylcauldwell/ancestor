@@ -18,11 +18,11 @@ nonisolated enum SourceKind: String, Codable, Sendable {
     case localPlugin
 }
 
-/// How a source responds to the user's Scope picker (SOURCE_WEIGHTING_SPEC
+/// How a source responds to the user's Scope picker (Source weighting
 /// Change 1). Scope-ignoring must be DECLARED, never inherited: there is no
 /// protocol default, so every source (and test double) chooses explicitly at
 /// compile time — a new source cannot silently fall into the dispatcher's
-/// generic branch the way FamilySearch did (SCOPE_AUDIT_2026-07 finding 5).
+/// generic branch the way FamilySearch did (the 2026-07 scope audit finding 5).
 nonisolated enum ScopeHandling: Sendable, Equatable {
     /// Geographic fan-out follows the scope parameter — the dispatcher has
     /// a dedicated scope-aware branch for this source (FreeBMD/FreeCen/

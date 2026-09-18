@@ -3,7 +3,7 @@ import Foundation
 import AncestorKit
 @testable import Ancestor_Research
 
-/// TEMPLATED_NARRATIVE_SOURCE_SPEC Stage 2 — the live MI RecordSource, driven with
+/// Templated narrative source Stage 2 — the live MI RecordSource, driven with
 /// a fixture page (no network) so the full search → template → parse → burial-map
 /// path is exercised end-to-end. `@MainActor` because the actor's init is
 /// MainActor-isolated under this project's default-isolation setting.

@@ -2,7 +2,7 @@ import Testing
 import Foundation
 @testable import Ancestor_Research
 
-/// CONFLICT_LAYER_SPEC §4.2 — C2 detection rules shipped in CL1:
+/// Conflict layer — C2 detection rules shipped in CL1:
 /// F1 (date fields), F2 (string/location fields), F4a (parent role),
 /// F4b (spouse identity). Pure-function coverage; the apply-path wiring
 /// is exercised in ApplyEngineConflictHookTests.
@@ -125,7 +125,7 @@ struct ConflictDetectorTests {
     @Test func severityComesFromDiscrepancySeverityTable() {
         // Transcription tier, delta 1 → the table grades .none — the
         // dispute still opens (detection is range-based; severity is
-        // grading, spec §4.2 note on DiscrepancySeverityTable).
+        // grading, spec note on DiscrepancySeverityTable).
         let delta1 = ConflictDetector.dateFieldConflict(
             field: .deathDate,
             existing: GenealogicalDate(parsing: "1901"),

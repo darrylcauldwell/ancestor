@@ -2,14 +2,14 @@ import Foundation
 import AppKit
 import AncestorKit
 
-// WikiTree MergeEdit launcher (WT2 — WIKITREE_MERGEEDIT_SPEC §1/§5).
+// WikiTree MergeEdit launcher (WT2 — WikiTree MergeEdit/).
 //
 // Turns a WT1 payload into a temp self-submitting HTML form and opens it in
 // the DEFAULT BROWSER, where the member's WikiTree session lives. WikiTree
 // renders its MergeEdit review page (checkbox per change) and the member
 // saves there — the app never holds credentials, never talks to wikitree.com
 // itself, and never commits anything. Field encoding (form fields with
-// JSON-encoded values) is the spec §7.1 best-guess, adjusted at live verify
+// JSON-encoded values) is the spec best-guess, adjusted at live verify
 // if the demo app shows otherwise.
 
 nonisolated enum WikiTreeMergeEditLauncher {

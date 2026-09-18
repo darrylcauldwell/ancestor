@@ -33,7 +33,7 @@ actor FreeREGSource: RecordSource, DetailFetchingSource {
     // from FreeREG must not be reproduced in any form." Level stays `.restricted`
     // — the terms genuinely restrict automated access — identical to FreeBMD/
     // FreeCEN (same charity, same wording). Owner decision 2026-07-29: FreeREG
-    // operates under the ADR-008 §Decision-2 ask-first, respectful-interim
+    // operates under the ADR-008 Decision 2 ask-first, respectful-interim
     // posture (like its two siblings) — active for personal research at tiny
     // volume, conservative pacing + daily cap, records linked back to source,
     // permission request pending — NOT retired to a link-out.
@@ -142,11 +142,11 @@ actor FreeREGSource: RecordSource, DetailFetchingSource {
             regParams = nil
         }
         // MyopicVicar (the live engine) caps a query at 3 counties — Channel
-        // Islands quartet exempt (FREEREG_INTEGRATION_SPEC §0, resolves FT-27).
+        // Islands quartet exempt (FreeREG integration, resolves FT-27).
         // Enforce defensively even if the dispatcher over-fans.
         let chapmanCodes = FreeREGParams.cappedChapmanCodes(rawChapmanCodes)
 
-        // Capability axes + surname policy (FREEREG_INTEGRATION_SPEC §1).
+        // Capability axes + surname policy (FreeREG integration).
         // `place_ids` are valid only with a SINGLE county (the form's cascading
         // Places box); `search_nearby_places` needs a place; `no_surname` needs
         // forename + county + place — only then does the engine return rows
@@ -188,7 +188,7 @@ actor FreeREGSource: RecordSource, DetailFetchingSource {
                 fields.append(("search_query[chapman_codes][]", code))
             }
             fields.append(("commit", "Search"))
-            // RESEARCH_AXES_SPEC Change 5/6: FreeREG exposes a Name Soundex
+            // Research axes Change 5/6: FreeREG exposes a Name Soundex
             // checkbox at `search_query[fuzzy]` (form value `"true"`).
             // .loose enables it. .variant is the dispatcher tier marker —
             // the surname has been substituted to a variant before arriving,
@@ -876,7 +876,7 @@ actor FreeREGSource: RecordSource, DetailFetchingSource {
     /// exactly these two shapes (freereg_search.py:308-321). Labels are
     /// NOT normalised and duplicates are PRESERVED — order + repetition
     /// carry the witness grouping the typed mapper needs
-    /// (`FreeREGDetailMapper`, FREEREG_INTEGRATION_SPEC §2).
+    /// (`FreeREGDetailMapper`, FreeREG integration).
     nonisolated static func parseDetailPairs(_ html: String) -> [(String, String)] {
         var pairs: [(String, String)] = []
         let pairPatterns = [
@@ -1052,7 +1052,7 @@ actor FreeREGSource: RecordSource, DetailFetchingSource {
     /// in rawFields (search-row keys win on collision); the FULL typed
     /// payload (occupations, witnesses, both spouses' parents, burial
     /// relative, register reference, transcriber attribution) rides on
-    /// `detail` via `FreeREGDetailMapper` (FREEREG_INTEGRATION_SPEC §2).
+    /// `detail` via `FreeREGDetailMapper` (FreeREG integration).
     ///
     /// Flat `fatherName`/`motherName` are populated for BAPTISMS ONLY:
     /// they are what `RecordScorer.familyContextGate` (DS-10) compares

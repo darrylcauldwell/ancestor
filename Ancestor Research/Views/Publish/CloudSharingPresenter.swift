@@ -1,7 +1,7 @@
 import AppKit
 import CloudKit
 
-// PUBLISHER_SPEC Change 5 — Apple's own macOS cloud-sharing window.
+// Publisher Change 5 — Apple's own macOS cloud-sharing window.
 //
 // SQLiteData's bundled CloudSharingView is UIKit-only, but AppKit has a
 // first-party equivalent: NSSharingService(.cloudSharing) driven by an

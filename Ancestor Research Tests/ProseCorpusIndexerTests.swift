@@ -3,7 +3,7 @@ import Foundation
 import GRDB
 @testable import Ancestor_Research
 
-/// Pins the indexer contract from spec §4 (schema) and §8 (extraction +
+/// Pins the indexer contract from spec (schema) and (extraction +
 /// refresh). Three concerns covered:
 ///
 /// 1. Tokeniser purity — surname / year / place extraction rules.
@@ -168,7 +168,7 @@ struct ProseCorpusIndexerTests {
         defer { cleanup(tmp) }
 
         try index.dbQueue.read { db in
-            // Spec §4 — all four pivot tables + FTS5 virtual table.
+            // Spec — all four pivot tables + FTS5 virtual table.
             let pagesExists = try Bool.fetchOne(db, sql: "SELECT 1 FROM sqlite_master WHERE type='table' AND name='pages'") ?? false
             let surnamesExists = try Bool.fetchOne(db, sql: "SELECT 1 FROM sqlite_master WHERE type='table' AND name='page_surnames'") ?? false
             let yearsExists = try Bool.fetchOne(db, sql: "SELECT 1 FROM sqlite_master WHERE type='table' AND name='page_years'") ?? false

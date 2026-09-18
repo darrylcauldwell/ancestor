@@ -3,7 +3,7 @@ import Foundation
 import AncestorKit
 @testable import Ancestor_Research
 
-/// PARISH_ABSORPTION_SPEC Changes A–C — a FreeREG parish register entry
+/// Parish absorption Changes A–C — a FreeREG parish register entry
 /// carries a fully-typed payload (both spouses, both sets of parents,
 /// occupations, abodes, church, witnesses) that, before this, evaporated on
 /// apply. These tests pin the fact-level absorption: implied birth/death

@@ -3,10 +3,10 @@ import Foundation
 import GRDB
 @testable import Ancestor_Research
 
-/// RESEARCH_PIPELINE_SPEC §5.15 Slice 4 — the Workbench intake seam
+/// Research pipeline Slice 4 — the Workbench intake seam
 /// (`HypothesisSeedService.submitSeed`), the straight-to-`.contradicted`
-/// intake materialisation (§5.15.2 last paragraph, deferred by Slice 2),
-/// and the §5.15.8 refuted/exhausted UX surfaced by
+/// intake materialisation ( last paragraph, deferred by Slice 2),
+/// and the refuted/exhausted UX surfaced by
 /// `UserHypothesisViewModel`.
 ///
 /// The project tests services/models, not views — so the testable unit
@@ -73,7 +73,7 @@ struct UserHunchIntakeAndViewModelTests {
         }
     }
 
-    // MARK: - submitSeed happy path (§5.15.7 phase b)
+    // MARK: - submitSeed happy path ( phase b)
 
     @Test func submitSeedQueuesRowWithWorkbenchProvenance() throws {
         let db = try makeTempDB()
@@ -123,7 +123,7 @@ struct UserHunchIntakeAndViewModelTests {
         #expect(h.reasoning.contains("workbench"))
     }
 
-    // MARK: - submitSeed refusals (validation not duplicated, §5.15.2)
+    // MARK: - submitSeed refusals (validation not duplicated,)
 
     @Test func submitSeedRefusesEmptyHintsWithoutWriting() throws {
         let db = try makeTempDB()
@@ -179,7 +179,7 @@ struct UserHunchIntakeAndViewModelTests {
     }
 
     @Test func submitSeedRefusesPreviouslyRejectedHunch() throws {
-        // §5.15.2 rule 4 / §5.15.6 rejection memory applies at intake.
+        // rule 4 / rejection memory applies at intake.
         let db = try makeTempDB()
         try insertSubject(into: db)
         let hints = HypothesisSeedService.SeedHints(fatherGiven: "Bob", motherGiven: "Sue")
@@ -198,7 +198,7 @@ struct UserHunchIntakeAndViewModelTests {
         #expect(result == .refused(.previouslyRejected))
     }
 
-    // MARK: - Straight-to-.contradicted at intake (§5.15.2 last paragraph)
+    // MARK: - Straight-to-.contradicted at intake ( last paragraph)
 
     @Test func intakeMaterialisesContradictedWhenConfirmedParentConflicts() throws {
         // Tree already holds a confirmed father "Thomas"; a hunch that the
@@ -310,7 +310,7 @@ struct UserHunchIntakeAndViewModelTests {
         #expect(model.errorMessage != nil)
     }
 
-    // MARK: - UserHypothesisViewModel: load + verdict surface (§5.15.8)
+    // MARK: - UserHypothesisViewModel: load + verdict surface
 
     @Test func viewModelLoadReturnsUserHunchesOnly() throws {
         let db = try makeTempDB()
@@ -341,7 +341,7 @@ struct UserHunchIntakeAndViewModelTests {
     }
 
     @Test func viewModelSortsRefutedToTop() {
-        // §5.15.8: contradicted hunches sort to the top.
+        //: contradicted hunches sort to the top.
         let refuted = makeHunch(id: "r", verdict: .contradicted, attempts: 1)
         let supported = makeHunch(id: "s", verdict: .supported, attempts: 2)
         let inconclusive = makeHunch(id: "i", verdict: .inconclusive, attempts: 1)
@@ -384,7 +384,7 @@ struct UserHunchIntakeAndViewModelTests {
         #expect(model.exhaustedHunches.map(\.id) == ["x"])
     }
 
-    // MARK: - UserHypothesisViewModel: dismiss (§5.15.8)
+    // MARK: - UserHypothesisViewModel: dismiss
 
     @Test func viewModelDismissFlipsRejectedAndRemovesFromList() throws {
         let db = try makeTempDB()

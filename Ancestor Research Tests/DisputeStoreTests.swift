@@ -3,7 +3,7 @@ import Foundation
 import GRDB
 @testable import Ancestor_Research
 
-/// CONFLICT_LAYER_SPEC §4.3 — C3, the DisputeStore: idempotent upsert
+/// Conflict layer — C3, the DisputeStore: idempotent upsert
 /// keyed on (entity_id, kind, field), competing-source join, witness-gated
 /// reopen scaffolding ⟨G3⟩ (value-novelty surrogate until CL4), the
 /// `detected_by` stamp ⟨G6⟩, and the surfacing queries.
@@ -195,7 +195,7 @@ struct DisputeStoreTests {
         let open = try db.openDisputes(profileID: "p1")
         #expect(open.count == 1)
         #expect(open[0].competingSources.contains { $0.raw == "1899" })
-        // The resolved row is history — preserved, not mutated (§3).
+        // The resolved row is history — preserved, not mutated.
         let all = try db.allDisputes(profileID: "p1")
         #expect(all.count == 2)
         #expect(all.contains { $0.resolution != nil })

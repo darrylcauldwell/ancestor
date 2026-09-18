@@ -124,7 +124,7 @@ nonisolated extension HypothesisEngine {
     ///
     /// Further levels (loose tier, adjacent districts) are deferred to
     /// T31's empirical ladder retune — without harness data they'd be
-    /// guesses, and the existing storm guards (Part I §11.2) make
+    /// guesses, and the existing storm guards (Part I) make
     /// loose-vs-strict a no-op for surname-only queries anyway.
     static func deficitQuerySiblingExists(
         for hypothesis: ResearchHypothesis,

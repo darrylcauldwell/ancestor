@@ -3,10 +3,10 @@ import CryptoKit
 import GRDB
 import SQLiteData
 
-// PUBLISHER_SPEC Change 4 — the SQLiteData-backed published store.
+// Publisher Change 4 — the SQLiteData-backed published store.
 //
 // A small, DISPOSABLE SQLite file per project (`<projectID>.publish.sqlite`
-// beside the canonical store) holding the §4 published schema. The store
+// beside the canonical store) holding the published schema. The store
 // IS the diff basis (Change 3 amendment): publishing means upserting/
 // deleting store rows from the projection — SQLiteData mirrors the deltas
 // to CloudKit. Rules binding here:

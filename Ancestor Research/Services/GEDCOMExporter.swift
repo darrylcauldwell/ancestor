@@ -27,9 +27,9 @@ nonisolated struct WorkbenchExportSummary: Sendable {
 
 /// Exports a FamilyGraphSnapshot to GEDCOM 5.5.1 format.
 /// This is lossy interop — app-specific data (disputes, source provenance
-/// beyond first source, transaction history) is dropped. See DESIGN.md §5.10.
+/// beyond first source, transaction history) is dropped. See the design
 ///
-/// Citations (DESIGN.md §5.12) ARE preserved on a best-effort basis: every
+/// Citations (by design) ARE preserved on a best-effort basis: every
 /// distinct `Citation` carried by any `FieldSource` becomes a top-level
 /// `0 @Snnn@ SOUR` record, and event lines (BIRT/DEAT/MARR) reference it
 /// inline via `2 SOUR @Snnn@` with `3 PAGE` and `3 QUAY` children.
@@ -55,7 +55,7 @@ nonisolated struct GEDCOMExporter {
     ///   the life event's profile and are emitted as OBJE under that
     ///   individual. Required for the sensitive filter to know which life
     ///   events are flagged.
-    /// - Parameter excludeSensitive: when true (M14 §7.15.2), attachments
+    /// - Parameter excludeSensitive: when true (M14), attachments
     ///   whose target is a sensitive `LifeEvent` are omitted from the
     ///   exported OBJE blocks. Sensitive workbench notes never become GEDCOM
     ///   today (notes aren't surfaced as GEDCOM `NOTE` lines), so the flag
@@ -315,7 +315,7 @@ nonisolated struct GEDCOMExporter {
             lines.append(contentsOf: citationLines(for: citationFieldSource, registry: registry, baseLevel: 2))
         }
 
-        // OBJE — multimedia objects (M13). Per DESIGN.md §5.15, each
+        // OBJE — multimedia objects (M13). By design, each
         // attachment whose target is this profile (or one of its field
         // sources) becomes one `1 OBJE` block.
         //
@@ -370,7 +370,7 @@ nonisolated struct GEDCOMExporter {
     /// the pre-M14 behaviour where life events were app-only storage.
     ///
     /// When `excludeSensitive` is true, attachments whose life event is
-    /// flagged sensitive are dropped from the result (M14 §7.15.2).
+    /// flagged sensitive are dropped from the result (M14).
     private static func groupAttachmentsByProfile(
         _ attachments: [Attachment],
         lifeEventLookup: [UUID: (profileID: String, sensitive: Bool)] = [:],

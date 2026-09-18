@@ -4,7 +4,7 @@ import AncestorKit
 /// Canonical resolver from a place-or-district string to its GRO registration
 /// district `PlaceAuthority` id ("DBY:Ashbourne-RD").
 ///
-/// LOCATION_MODEL_SPEC Part II — the single place the app turns a birthplace or a
+/// Location model Part II — the single place the app turns a birthplace or a
 /// BMD record's `district` field into a typed registration-district id. Extracted
 /// from the Slice B(i) birth-conflict guard so the two consumers can never drift:
 ///   • `RecordScorer.conflictsWithConfirmedBirth` (review layer) — discriminates

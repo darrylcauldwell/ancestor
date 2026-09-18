@@ -1,7 +1,7 @@
 import Foundation
 
 /// Surface profiles the user has touched recently as candidates for a
-/// focus set (DESIGN.md §7.7.2). Drives the "Quick add" row in the focus
+/// focus set (by design). Drives the "Quick add" row in the focus
 /// composer — suggestions are never auto-added, the user taps to accept.
 ///
 /// Pure logic, nonisolated — no DB access. Callers pass the full

@@ -4,7 +4,7 @@ import GRDB
 @testable import AncestorKit
 @testable import Ancestor_Research
 
-/// Pins migration `v35_name_forms` (MODEL_EVOLUTION_SPEC §Change2 / ADR-004 E2 —
+/// Pins migration `v35_name_forms` (Model evolution Change 2 / ADR-004 E2 —
 /// typed repeatable name forms).
 ///
 /// Two things ship together and must both be proven:

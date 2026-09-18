@@ -1,6 +1,6 @@
 import SwiftUI
 
-/// SwiftUI page rendered to PDF for one family unit (DESIGN.md §7.9.3).
+/// SwiftUI page rendered to PDF for one family unit (by design).
 ///
 /// Sections (top to bottom): title, parents, children, sources, notes.
 /// Empty sections (no children, no sources, no notes) collapse out so a

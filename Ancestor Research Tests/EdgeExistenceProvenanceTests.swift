@@ -4,7 +4,7 @@ import GRDB
 @testable import AncestorKit
 @testable import Ancestor_Research
 
-/// Pins E4 — edge-existence provenance (MODEL_EVOLUTION_SPEC §Change4).
+/// Pins E4 — edge-existence provenance (Model evolution Change 4).
 ///
 /// "This parent/spouse edge exists because of this record" gets a home: an
 /// `existence` pseudo-field on the `field_sources` mechanism, keyed

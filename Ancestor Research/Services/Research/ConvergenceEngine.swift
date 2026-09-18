@@ -80,7 +80,7 @@ nonisolated struct ConvergenceEngine {
     }
 
     /// Produce a `SourcingStrength` summary for a set of source records.
-    /// `RESEARCH_CONFIDENCE_SPEC` §3.2 — one of three independent confidence
+    /// Research confidence — one of three independent confidence
     /// axes, surfaced directly in the new ConfidenceBadgeView. Uses the same
     /// lineage-grouping rules as `score(records:sourceInfoMap:)` so the
     /// "cross-referenced" threshold aligns across all consumers.
@@ -152,7 +152,7 @@ extension SourceRegistry {
 }
 
 
-// MARK: - Value-group scoring (CONFLICT_LAYER_SPEC CL3, DS-20/DS-24)
+// MARK: - Value-group scoring (Conflict layer CL3, DS-20/DS-24)
 
 nonisolated extension ConvergenceEngine {
 
@@ -162,7 +162,7 @@ nonisolated extension ConvergenceEngine {
         let records: [SourceRecord]
         let level: ConvergenceLevel
         /// Codable sourcing detail persisted alongside the level
-        /// (evidence_convergence.sourcing_json, CAMPAIGN_REVIEW_SPEC
+        /// (evidence_convergence.sourcing_json, Campaign review
         /// Change 3) — the audit-trail form of "how strong is this chain".
         let sourcing: SourcingStrength
     }
@@ -172,7 +172,7 @@ nonisolated extension ConvergenceEngine {
     /// inflated convergence level (DS-24: birth 1881 + census-implied 1895
     /// previously counted as mutual corroboration).
     ///
-    /// Interim note (§4.5, stated per spec): group scoring still uses
+    /// Interim note (, stated per spec): group scoring still uses
     /// lineage counting; witness-counted convergence arrives with CL4.
     static func scoreValueGroups(
         records: [SourceRecord],

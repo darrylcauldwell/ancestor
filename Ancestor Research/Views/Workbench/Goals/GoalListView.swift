@@ -3,7 +3,7 @@ import SwiftUI
 /// Lists every research goal for the current project. Each row shows a
 /// status badge, progress bar, and counts of attached questions and
 /// hypotheses. Tapping a row opens the detail view; the "+ New goal"
-/// button opens the editor in add mode. Per DESIGN.md §5.16.
+/// button opens the editor in add mode. By design
 struct GoalListView: View {
     @Environment(AppState.self) private var appState
 

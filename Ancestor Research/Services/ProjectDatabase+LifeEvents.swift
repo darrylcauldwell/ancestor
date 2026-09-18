@@ -2,7 +2,7 @@ import Foundation
 import GRDB
 
 /// Life event persistence (M12). Adds, updates, deletes, loads `LifeEvent`
-/// records keyed on profileID. Per DESIGN.md §5.13.
+/// records keyed on profileID. By design
 nonisolated extension ProjectDatabase {
 
     @discardableResult

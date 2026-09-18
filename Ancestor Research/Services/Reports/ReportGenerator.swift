@@ -1,7 +1,7 @@
 import Foundation
 import SwiftUI
 
-/// Top-level dispatcher for report generation. Per DESIGN.md §7.9, reports
+/// Top-level dispatcher for report generation. By design, reports
 /// are read-only projections of existing data — no new state, no side effects.
 ///
 /// Each report type has its own renderer (`PedigreeChartReport`,

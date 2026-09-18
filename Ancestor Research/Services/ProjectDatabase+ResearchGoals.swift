@@ -1,7 +1,7 @@
 import Foundation
 import GRDB
 
-/// Research goal persistence (M13). Per DESIGN.md §5.16.
+/// Research goal persistence (M13). By design
 nonisolated extension ProjectDatabase {
 
     @discardableResult

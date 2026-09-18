@@ -64,7 +64,7 @@ struct SearchDispatcher {
     /// `.localCorpus` scope handling ignore scope (CWGC, FindAGrave,
     /// Probate) — see `ScopeHandling`.
     ///
-    /// `mode` is the wedge for the strictness ladder (RESEARCH_AXES_SPEC §3.1 /
+    /// `mode` is the wedge for the strictness ladder (Research axes /
     /// Change 6). This Change passes `.strict` to every source unconditionally;
     /// Change 6 wires the per-mode empty-then-broaden flow.
     func dispatch(
@@ -667,7 +667,7 @@ struct SearchDispatcher {
         return trimmed.isEmpty ? ladder : trimmed
     }
 
-    /// Strictness ladder per mode — see RESEARCH_AXES_SPEC §3.1 / §5.2.
+    /// Strictness ladder per mode — see Research axes /.
     /// The dispatcher walks this list for each source, stopping early on the
     /// first non-empty tier (except in `.all` mode, which runs the full list).
     static func strictnessLadder(for mode: ResearchMode) -> [SearchStrictness] {
@@ -767,7 +767,7 @@ struct SearchDispatcher {
     }
 
     #if DEBUG
-    /// Test seam for `RESEARCH_AXES_SPEC` Change 3+5 acceptance tests. Lets a test
+    /// Test seam for Research axes Change 3+5 acceptance tests. Lets a test
     /// inspect the per-source query fan-out for a given scope (and optional
     /// strictness) without going through the async network path.
     /// `freeBMDCountyQueriesEnabled` overrides the FT-01 gate so both the
@@ -1056,7 +1056,7 @@ struct SearchDispatcher {
     ///   surname variant from `SurnameVariants.shared`. CWGC falls back to
     ///   `.loose` (it has no useful variant axis distinct from server-side
     ///   soundex). Sources with no variant axis (Probate, FindAGrave)
-    ///   fall back to `.strict`. See RESEARCH_AXES_SPEC §7.
+    ///   fall back to `.strict`. See Research axes.
     static func applyStrictness(
         _ queries: [RecordQuery],
         strictness: SearchStrictness,
@@ -1233,7 +1233,7 @@ struct SearchDispatcher {
                     }
                 }
             case "cwgc":
-                // No useful variant axis distinct from server soundex per §7.
+                // No useful variant axis distinct from server soundex per.
                 return queries.map { $0.with(strictness: .loose) }
             default:
                 // Strict-only sources (Probate, FindAGrave).
@@ -1259,7 +1259,7 @@ struct SearchDispatcher {
             // Geographic fan-out per scope — see `freeBMDGeoAxes` (FT-01 /
             // FT-02). Nil-surname subjects (ghost mothers) skip FreeBMD.
             //
-            // Per RESEARCH_AXES_SPEC §5.3 + §7:
+            // Per Research axes +:
             //   .parish    → zero queries (FreeBMD has no parish endpoint).
             //   .district  → transitional widen to .county (subject lacks
             //                structured location code until prior spec Change 2).
@@ -1325,7 +1325,7 @@ struct SearchDispatcher {
             // returns zero hits because the column is empty for that
             // era. Gate on yearFrom >= 1912 so we only attach MMN when
             // the entire year window is in the MMN era (1911 itself is
-            // ambiguous — Q1–Q2 lacks MMN, Q3–Q4 has it). Spec §23.
+            // ambiguous — Q1–Q2 lacks MMN, Q3–Q4 has it). Spec.
             // For `.marriage`, fan out across the wife's recorded surname
             // AND her maiden surname when the import inverted the wikitree
             // convention. `spouseFatherSurname` holds the maiden form (the
@@ -1404,7 +1404,7 @@ struct SearchDispatcher {
                 let to = yearRange.to ?? 1911
                 return year >= from && year <= to && FreeCenSource.validYears.contains(year)
             }
-            // Per RESEARCH_AXES_SPEC §5.3 — FreeCen is chapman-coded, not
+            // Per Research axes — FreeCen is chapman-coded, not
             // district-coded, so .parish/.district widen to .county.
             // (FT-13: parish/place scoping via `freecen2_place_ids[]` is a
             // deferred capability — `FreeCenParams` has no parish field;
@@ -1593,7 +1593,7 @@ struct SearchDispatcher {
         case "freereg":
             // Per Chapman code × applicable register types.
             // Local = 1 Chapman code; National = ~70 (England & Wales) covering FreeREG's reach.
-            // Per RESEARCH_AXES_SPEC §5.3 — FreeREG is chapman-coded.
+            // Per Research axes — FreeREG is chapman-coded.
             // Same widening pattern as FreeCen.
             guard subject.surname != nil else { return [] }
             let regChapmanCodes: [String]
@@ -1702,7 +1702,7 @@ struct SearchDispatcher {
             }
 
         case "wishful-thinking-mi":
-            // TEMPLATED_NARRATIVE_SOURCE_SPEC Stage 2 — an MI is a burial-shaped
+            // Templated narrative source Stage 2 — an MI is a burial-shaped
             // record. Fill the URL template from the county Chapman code + the
             // parish where the subject would be memorialised: their burial or death
             // place, else a HOME/RESIDENCE parish from the census. Residences are
@@ -1757,7 +1757,7 @@ struct SearchDispatcher {
             // surname+given. Each axis tightens the search. Subject-side
             // values come from Profile + linked-relative profiles via
             // FamilyContext; nil-defaults safely skip parameters we
-            // can't fill. Spec §23.
+            // can't fill. Spec.
             let context = subject.familyContext
             let fsSurnames = subject.surnamesToProbe(for: recordType)
             return fsSurnames.map { surnameToTry in
@@ -1947,7 +1947,7 @@ struct SearchDispatcher {
             // location free-text (state / town / cemetery). deathLocation
             // is the closest semantic match for where someone is buried;
             // fall back to region (county name from birthLocation) when
-            // death location is unknown. Spec §23.
+            // death location is unknown. Spec.
             // EV19 (2026-08-26) — FAG takes ONE `location` per request, so a
             // subject whose pin can only come from the birth county gets one
             // pin per candidate place instead of one guess.

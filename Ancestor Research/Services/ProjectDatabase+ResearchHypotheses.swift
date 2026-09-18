@@ -13,7 +13,7 @@ import GRDB
 /// User-rejection persists via the `user_rejected` flag; rejected rows
 /// stay in the table so the UI knows not to re-surface them.
 ///
-/// See `AncestorApp/RESEARCH_PIPELINE_V2_SPEC.md` Part II §4.3 and §5.1.
+/// See `AncestorApp/Research pipeline V2` Part II and.
 nonisolated extension ProjectDatabase {
 
     /// Insert-or-update a batch of hypotheses. `created_at` is preserved
@@ -98,7 +98,7 @@ nonisolated extension ProjectDatabase {
         // preserved so user-rejection survives a re-run. `origin` (v32)
         // is likewise insert-only: who asserted a hypothesis is fixed at
         // creation, so a re-grade upsert can never flip a `.user` row
-        // back to 'engine' (§5.15.1).
+        // back to 'engine'.
         try db.execute(sql: """
             INSERT INTO research_hypotheses (
                 id, subject_profile_id, kind_discriminator, kind_payload,
@@ -163,7 +163,7 @@ nonisolated extension ProjectDatabase {
         let attempts: Int = row["attempts"] ?? 0
         // Rows written before v32 have no origin column value in older
         // snapshots; unknown raw values also degrade to .engine — the
-        // conservative default (engine rows get no §5.15 privileges).
+        // conservative default (engine rows get no privileges).
         let originRaw: String = row["origin"] ?? "engine"
         let origin = ResearchHypothesis.Origin(rawValue: originRaw) ?? .engine
 

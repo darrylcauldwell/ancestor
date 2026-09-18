@@ -3,7 +3,7 @@ import UniformTypeIdentifiers
 
 /// Sheet that lets the user pick a photo / PDF / typed-in transcription and
 /// attach it to a profile, life event, or specific field source. Per
-/// DESIGN.md §5.15.
+/// the design
 ///
 /// Flow: pick "Choose file…" → fileImporter runs → AttachmentImporter copies
 /// the file + extracts EXIF + builds a thumbnail → user can edit caption /

@@ -323,7 +323,7 @@ nonisolated final class ProjectDatabase: Sendable {
                 // Actual page data stored as files in Application Support, keyed by url_hash
             }
 
-            // Field researcher sessions — cost tracking (§10)
+            // Field researcher sessions — cost tracking
             try db.create(table: "field_researcher_sessions") { t in
                 t.primaryKey("id", .text)
                 t.column("profile_id", .text).notNull()
@@ -477,7 +477,7 @@ nonisolated final class ProjectDatabase: Sendable {
         }
 
         // MARK: v8 — Citations + Evidence Quality on field_sources
-        // Per DESIGN.md §5.12. JSON-encoded Citation goes in `citation_json`;
+        // By design JSON-encoded Citation goes in `citation_json`;
         // EvidenceQuality (small enum) is stored as integer for cheap reads.
         // Both nullable — most existing field_sources will stay null.
         migrator.registerMigration("v8_citations") { db in
@@ -489,7 +489,7 @@ nonisolated final class ProjectDatabase: Sendable {
 
         // MARK: v9 — Life events + FactConfidence (M12)
         // Adds the `life_events` table and `fact_confidence` column on
-        // `field_sources`. Per DESIGN.md §5.13 + §5.14.
+        // `field_sources`. By design +.
         migrator.registerMigration("v9_life_events") { db in
             try db.alter(table: "field_sources") { t in
                 t.add(column: "fact_confidence", .integer)  // 0=tentative,1=standard,2=wellEvidenced; null = unset
@@ -520,7 +520,7 @@ nonisolated final class ProjectDatabase: Sendable {
         }
 
         // MARK: v10 — Attachments + Research Goals (M13)
-        // Per DESIGN.md §5.15 + §5.16. Attachments store metadata; the
+        // By design +. Attachments store metadata; the
         // actual files live in the project's media directory on disk.
         migrator.registerMigration("v10_attachments_goals") { db in
             // `ifNotExists` is defensive: some pre-v10 builds shipped an
@@ -565,7 +565,7 @@ nonisolated final class ProjectDatabase: Sendable {
         }
 
         // MARK: v11 — Sensitive flag (M14)
-        // Per DESIGN.md §7.15.2. Adds `sensitive` column to workbench_notes
+        // By design Adds `sensitive` column to workbench_notes
         // and life_events so users can mark items for exclusion from shared
         // exports. Defaults to 0 (not sensitive) so existing rows are unaffected.
         migrator.registerMigration("v11_sensitive_flag") { db in
@@ -578,7 +578,7 @@ nonisolated final class ProjectDatabase: Sendable {
         }
 
         // MARK: v12 — Audit rule overrides (M18)
-        // Per DESIGN.md §13. Per-project storage of user-toggled rules,
+        // By design Per-project storage of user-toggled rules,
         // user-tuned thresholds, and per-profile snooze. Scope distinguishes
         // global (rule-wide) overrides from profile-scoped (snooze-this-rule-
         // for-this-person) overrides.
@@ -715,19 +715,19 @@ nonisolated final class ProjectDatabase: Sendable {
             }
         }
 
-        // RESEARCH_AXES_SPEC Change 1 — per-subject RegionConfig. NULL on
+        // Research axes Change 1 — per-subject RegionConfig. NULL on
         // legacy projects; resolution goes through
         // Project.resolvedHomeChapmanCode (empty string = no region anchor —
         // there is no hardcoded county fallback). Derived at creation
         // from the home-person anchor's birth location once the gazetteer
-        // ships (RESEARCH_AND_CLEANSE_SPEC Change 2).
+        // ships (Research and cleanse Change 2).
         migrator.registerMigration("v21_project_home_chapman_code") { db in
             try db.alter(table: "project_meta") { t in
                 t.add(column: "home_chapman_code", .text)
             }
         }
 
-        // CLEANSE_WIZARD_SPEC — persistent "user marked this unresolvable"
+        // Cleanse wizard — persistent "user marked this unresolvable"
         // flag, keyed by (profile_id, field). Lets the wizard skip findings
         // the user has actively dismissed (e.g. "Madeira (born at sea)" for
         // a birth location that genuinely can't be resolved). Field is a
@@ -815,8 +815,8 @@ nonisolated final class ProjectDatabase: Sendable {
         // the v7 `hypotheses` table (workbench, user-authored). Re-runs of
         // the pipeline upsert keyed on `id`; user-rejection persists via the
         // `user_rejected` flag. The `attempts` column tracks expansiveness
-        // ladder progress for T7 / §5.11 deficit-query dispatch.
-        // See AncestorApp/RESEARCH_PIPELINE_V2_SPEC.md Part II §4.3.
+        // ladder progress for T7 / deficit-query dispatch.
+        // See AncestorApp/Research pipeline V2 Part II.
         migrator.registerMigration("v26_research_hypotheses") { db in
             try db.create(table: "research_hypotheses") { t in
                 t.column("id", .text).primaryKey()
@@ -869,7 +869,7 @@ nonisolated final class ProjectDatabase: Sendable {
 
         // MARK: v28 — Auto-approval metadata on pending_facts
         //
-        // Per AncestorApp/AUTO_APPROVAL_VIA_MCP_SPEC.md, the MCP server
+        // Per AncestorApp/Auto-approval via MCP, the MCP server
         // gains tools that can commit a pending fact when the deterministic
         // rules judge it unambiguous. Three nullable columns distinguish a
         // user keystroke from a rules-driven commit and record which gate
@@ -890,7 +890,7 @@ nonisolated final class ProjectDatabase: Sendable {
         }
 
         // V29 — per-run structured result envelope for the eval-harness
-        // backend (SWIFT_MCP_EVAL_BACKEND_SPEC #Change1). The Swift app
+        // backend (MCP eval backend #Change1). The Swift app
         // doesn't read this column; the upcoming `get_research_result`
         // MCP tool (#Change4) will. Empty string is a valid "no
         // envelope persisted yet" sentinel.
@@ -900,13 +900,13 @@ nonisolated final class ProjectDatabase: Sendable {
             }
         }
 
-        // PUBLISHER_SPEC Change 1 — publisher-domain tables. Mac-local
+        // Publisher Change 1 — publisher-domain tables. Mac-local
         // publisher state: never part of the canonical genealogy, never
         // published themselves, excluded from any future canonical sync.
-        // publish_policy — per-person redaction override (§5); absent row
+        // publish_policy — per-person redaction override; absent row
         //   = .auto (resolve via potentiallyLiving). acknowledged_at backs
         //   the pre-publish review gate and Change 7's auto-publish rule.
-        // published_ids — permanent record-UUID identity (§4.1); rows
+        // published_ids — permanent record-UUID identity; rows
         //   survive delete/omit/re-add; superseded_by records merges.
         // published_state — per-record checksum of the last acknowledged
         //   upload (presence diff basis). publish_meta — one-row project
@@ -939,7 +939,7 @@ nonisolated final class ProjectDatabase: Sendable {
             }
         }
 
-        // FT-16 follow-up (CONNECTOR_AUDIT_2026-07 §2.3) — purge rows keyed
+        // FT-16 follow-up (the 2026-07 connector audit) — purge rows keyed
         // on the retired hash-based record IDs. FreeREG and Wirksworth
         // previously built SourceRecord ids from `String.hashValue`
         // ("freereg_<hash>_<hash>", "wirksworth_<hash>") — SipHash with a
@@ -984,8 +984,8 @@ nonisolated final class ProjectDatabase: Sendable {
             }
         }
 
-        // MARK: v32 — user-seeded hypothesis staging (RESEARCH_PIPELINE_SPEC
-        // §5.15.2, Decision E2). External surfaces never write
+        // MARK: v32 — user-seeded hypothesis staging (Research pipeline
+        //, Decision E2). External surfaces never write
         // `research_hypotheses` directly — that table is engine-owned, and
         // an external writer racing pipeline upserts is the class of bug
         // the firewall exists to prevent. Intake instead mirrors the
@@ -1024,7 +1024,7 @@ nonisolated final class ProjectDatabase: Sendable {
         }
 
         // MARK: v33 — persistent negative-search cache reader key
-        // (CONNECTOR_AUDIT_2026-07 §6.1 T1-04 / §5.2). The honesty
+        // (the 2026-07 connector audit T1-04 /). The honesty
         // envelope (a6e9c6d) made `negative_searches` a genuine WRITER —
         // one pair-level row per clean-zero (source, recordType). T1-04
         // adds the READER: before re-firing a query on a re-run, consult
@@ -1063,8 +1063,8 @@ nonisolated final class ProjectDatabase: Sendable {
                 """)
         }
 
-        // MARK: v34 — typed external-identifier records (MODEL_EVOLUTION_SPEC
-        // §Change1 / ADR-004 E1). The untyped `external_ids` string-map column
+        // MARK: v34 — typed external-identifier records (Model evolution
+        // Change 1 / ADR-004 E1). The untyped `external_ids` string-map column
         // (v1) holds one current ID per system with no type and no lifecycle,
         // so a merged-away FamilySearch PID (HTTP 301 merge-forwarding) can't
         // be represented. This adds a `external_identifiers` JSON column — an
@@ -1102,8 +1102,8 @@ nonisolated final class ProjectDatabase: Sendable {
             }
         }
 
-        // MARK: v35 — typed repeatable name forms (MODEL_EVOLUTION_SPEC
-        // §Change2 / ADR-004 E2). The flat name columns (first_name, last_name,
+        // MARK: v35 — typed repeatable name forms (Model evolution
+        // Change 2 / ADR-004 E2). The flat name columns (first_name, last_name,
         // married_surname, nick_name, mothers_maiden_name) can hold exactly one
         // married surname and one nickname, so a twice-married woman, an alias
         // (WikiTree LastNameOther — silently dropped before E2), a deed-poll
@@ -1143,8 +1143,8 @@ nonisolated final class ProjectDatabase: Sendable {
             }
         }
 
-        // MARK: v36 — place-authority landing slot (MODEL_EVOLUTION_SPEC
-        // §Change3 / ADR-004 E3). E3's substance — the typed place hierarchy
+        // MARK: v36 — place-authority landing slot (Model evolution
+        // Change 3 / ADR-004 E3). E3's substance — the typed place hierarchy
         // with temporal validity — is DERIVED at runtime from the existing seed
         // data (the gazetteer + the FreeBMD district catalogue) by
         // `PlaceAuthorityRegistry`; the *stored* `COUNTY:Place` codes in
@@ -1175,7 +1175,7 @@ nonisolated final class ProjectDatabase: Sendable {
             }
         }
 
-        // v37 — E4: edge-existence provenance (MODEL_EVOLUTION_SPEC §Change4).
+        // v37 — E4: edge-existence provenance (Model evolution Change 4).
         //
         // Additive capability marker. The `field_sources` table already stores
         // provenance keyed `(entity_id, entity_kind, field)` and `field` is
@@ -1209,7 +1209,7 @@ nonisolated final class ProjectDatabase: Sendable {
             )
         }
 
-        // ENGINE_FOUNDATION_SPEC §Change7 — per-project Discovery expansion
+        // Engine foundation Change 7 — per-project Discovery expansion
         // bound. Stored as a compact wire string ("generational:4" /
         // "collateral:2"); NULL = engine default. Bounds which leads may
         // promote so a run stops burning budget on peripheral kin; never a
@@ -1220,18 +1220,18 @@ nonisolated final class ProjectDatabase: Sendable {
             }
         }
 
-        // ENGINE_FOUNDATION_SPEC §Change5 — per-source daily-budget counters.
+        // Engine foundation Change 5 — per-source daily-budget counters.
         // One row per source holding the request count within the current
         // reset window. Persisted here (rather than in memory) so a source's
         // spent daily budget survives a process restart — the sustained-run
-        // requirement §Change6 depends on. `window_start` anchors the count
+        // requirement Change 6 depends on. `window_start` anchors the count
         // to the source's reset boundary; when `now` passes the next reset
         // the tracker rolls the row to a fresh window with count 0. Not
         // profile-scoped: a source's quota is global to the volunteer host,
         // not per-tree, so there is exactly one row per source_id.
         //
         // NOTE on numbering: this is v39, not the spec's implied "next after
-        // v37", because a concurrent change (§Change7) claimed v38 for
+        // v37", because a concurrent change (Change 7) claimed v38 for
         // `project_meta.expansion_policy`. GRDB applies migrations in
         // registration order and keys them by identifier, so a v39 appended
         // after v38 is correct and collision-free.
@@ -1244,7 +1244,7 @@ nonisolated final class ProjectDatabase: Sendable {
             }
         }
 
-        // ENGINE_FOUNDATION_SPEC §Change6 — checkpoint/resume hardening.
+        // Engine foundation Change 6 — checkpoint/resume hardening.
         // Resume-audit columns on the run-request queue. A request killed
         // mid-run is left in `running` and orphaned forever today; on the
         // next launch the watcher RECLAIMS a stale `running` row back to
@@ -1259,7 +1259,7 @@ nonisolated final class ProjectDatabase: Sendable {
             }
         }
 
-        // CONFLICT_LAYER_SPEC §5 — the evidence-conflict layer's single
+        // Conflict layer — the evidence-conflict layer's single
         // migration (ships with CL-Change1; Changes 2–6 need no further
         // migration). `field_disputes` has zero production writers before
         // this layer (DS-13), so every change here is additive and
@@ -1277,7 +1277,7 @@ nonisolated final class ProjectDatabase: Sendable {
                 t.add(column: "detected_by", .text)
                 // Non-FieldSource competitors BY REFERENCE: life_event IDs
                 // (F3/T-D), relationship IDs + record refs (F4a/F4b).
-                // Never WitnessKeys (§2.6 — computed, never persisted).
+                // Never WitnessKeys ( — computed, never persisted).
                 t.add(column: "evidence_json", .text)
                 // ⟨G2⟩ JSON [{rung, outcome, detail}] — every ladder rung
                 // evaluated (fired or not), the written proof argument GPS
@@ -1291,7 +1291,7 @@ nonisolated final class ProjectDatabase: Sendable {
             // C3 upsert identity: at most ONE open dispute per
             // (entity_id, kind, field). Partial unique index — resolved
             // rows are history and may accumulate per key (reopen = new
-            // row, §2.8).
+            // row,).
             try db.execute(sql: """
                 CREATE UNIQUE INDEX idx_field_disputes_open
                 ON field_disputes(entity_id, kind, field)
@@ -1331,13 +1331,13 @@ nonisolated final class ProjectDatabase: Sendable {
         }
 
         // MARK: v42 — negative-search outcome columns
-        // (FAMILYSEARCH_READ_LEG_PLAN #Change3 / FS spec §6.6). Until now
+        // (FAMILYSEARCH_READ_LEG_PLAN #Change3 / FS spec). Until now
         // the table could only say "searched, empty"; these columns let a
         // row distinguish HOW the search concluded so a truncated page-1
         // answer can never masquerade as verified absence.
         migrator.registerMigration("v42_negative_search_outcome") { db in
             try db.alter(table: "negative_searches") { t in
-                // 'zero' | 'sparse' | 'positive' | 'truncated' (§6.6).
+                // 'zero' | 'sparse' | 'positive' | 'truncated'.
                 // NULL = legacy row written before v42 — by writer
                 // construction those were only ever clean zeros, so
                 // readers treat NULL as 'zero'.
@@ -1349,15 +1349,15 @@ nonisolated final class ProjectDatabase: Sendable {
         }
 
         // MARK: v43 — evidence external ARK identity columns
-        // (FAMILYSEARCH_READ_LEG_PLAN #Change7 / FS spec §17.1). Bare
+        // (FAMILYSEARCH_READ_LEG_PLAN #Change7 / FS spec). Bare
         // `ark:/61903/…` PATH SEGMENTS only, never full URLs (the FS
         // permanence guarantee excludes domain + query decorations). These
         // are the idempotency key for FS evidence ingestion and the
         // ARK-deterministic join for the citation matcher (which works
-        // under the §16 pointer-only licensing posture — it matches
+        // under the pointer-only licensing posture — it matches
         // identity, not content). Nullable; populated when the FS OAuth
         // ingestion path lands (#Change5/#Change8) — data-model commits
-        // early, endpoint integration later (§12.4).
+        // early, endpoint integration later.
         migrator.registerMigration("v43_evidence_external_ids") { db in
             try db.alter(table: "evidence_records") { t in
                 t.add(column: "external_persona_id", .text)  // ark:/61903/1:1:XXXX
@@ -1366,7 +1366,7 @@ nonisolated final class ProjectDatabase: Sendable {
         }
 
         // MARK: v44 — Full scorer output on evidence rows
-        // CAMPAIGN_REVIEW_SPEC Change 2. evidence_records previously kept
+        // Campaign review Change 2. evidence_records previously kept
         // only record_json + verdict — ScoredRecord.gates and .summary were
         // discarded at persist, so DB-reconstructed records lost gate chips,
         // rejected-reasons, and the known-spouse apply bypass; and the
@@ -1384,7 +1384,7 @@ nonisolated final class ProjectDatabase: Sendable {
         }
 
         // MARK: v45 — Persisted evidence-chain convergence
-        // CAMPAIGN_REVIEW_SPEC Change 3. One row per (profile, asserted
+        // Campaign review Change 3. One row per (profile, asserted
         // fact value): the ConvergenceLevel + Codable SourcingStrength the
         // chain has earned, upserted at every run-persist so the level
         // upgrades as independent lineages accumulate — the durable answer
@@ -1406,7 +1406,7 @@ nonisolated final class ProjectDatabase: Sendable {
         }
 
         // MARK: v46 — Campaign-review watermark
-        // CAMPAIGN_REVIEW_SPEC Change 6. "Reviewed up to" high-water mark for
+        // Campaign review Change 6. "Reviewed up to" high-water mark for
         // the bulk campaign-review surface — same pattern as
         // conflict_sweep_high_water (v41).
         migrator.registerMigration("v46_campaign_review_high_water") { db in
@@ -1416,7 +1416,7 @@ nonisolated final class ProjectDatabase: Sendable {
         }
 
         // v47 — structured age-at-death + event place on leads. Lead discovery
-        // (LEAD_DISCOVERY_SPEC §9) derives an implied birth year from
+        // (Lead discovery) derives an implied birth year from
         // age-at-death and uses place as a second discriminator so no-birth-
         // year death/burial/marriage leads stop chain-merging on name alone
         // (the Phase 0 "George Ward = 273" over-merge). Additive columns; old
@@ -1444,7 +1444,7 @@ nonisolated final class ProjectDatabase: Sendable {
             logger.info("v48: backfilled age/place onto \(updated) leads from persisted source records")
         }
 
-        // v49 — IMPORT_DEDUPE_SPEC Change 5: the phantom-spouse "not a
+        // v49 — Import dedupe Change 5: the phantom-spouse "not a
         // duplicate" marker. When the user chooses "These were separate people"
         // on a phantom-spouse card, the phantom's id lands here so the detector
         // stops surfacing it in future scans (without deleting the profile).
@@ -1455,7 +1455,7 @@ nonisolated final class ProjectDatabase: Sendable {
             }
         }
 
-        // v50 — PROJECT_ONBOARDING_SPEC Part A: the once-per-project setup
+        // v50 — Project onboarding Part A: the once-per-project setup
         // wizard marker. NULL = the setup wizard has not been completed/skipped
         // for this project. Deliberately NOT in the Project struct / the
         // saveProjectMeta column list — it is written by a targeted UPDATE
@@ -1488,7 +1488,7 @@ nonisolated final class ProjectDatabase: Sendable {
         }
 
         // v52 — FamilySearch User Tree upload bookkeeping (WL3,
-        // FAMILYSEARCH_TREES_WRITE_SPEC §5). One-person-per-POST × hundreds of
+        // FamilySearch tree write). One-person-per-POST × hundreds of
         // persons × throttling means interruption is normal: every created FS
         // entity is recorded BEFORE the next call so a re-run resumes instead
         // of duplicating. `familysearch_person_links` is the pid map (the E1
@@ -1538,7 +1538,7 @@ nonisolated final class ProjectDatabase: Sendable {
         // whole tree); the app's RunRequestWatcher claims and executes them
         // with the app's own auth. Request-driven uploads NEVER finalize —
         // the one-way hidden flip and privacy choice are in-app wizard
-        // consents (FAMILYSEARCH_TREES_WRITE_SPEC §3 D4).
+        // consents (FamilySearch tree write D4).
         migrator.registerMigration("v53_fs_action_requests") { db in
             try db.create(table: "fs_action_requests") { t in
                 t.column("id", .text).primaryKey()
@@ -1557,7 +1557,7 @@ nonisolated final class ProjectDatabase: Sendable {
                           on: "fs_action_requests", columns: ["status"])
         }
 
-        // v54 — WikiTree contribution log (WT4, WIKITREE_MERGEEDIT_SPEC §5).
+        // v54 — WikiTree contribution log (WT4, WikiTree MergeEdit).
         // Records that a MergeEdit review page was OPENED in the browser for a
         // profile. Whether Darryl actually saved on WikiTree is unknowable
         // app-side (the commit happens on wikitree.com) — truth arrives via a
@@ -1577,7 +1577,7 @@ nonisolated final class ProjectDatabase: Sendable {
                           on: "wikitree_contributions", columns: ["profile_id"])
         }
 
-        // v55 — persisted Health audit findings (MCP_CONSUMER_SURFACE_SPEC MC4).
+        // v55 — persisted Health audit findings (MCP consumer surface MC4).
         // Audit results were in-process only; an external MCP reader needs a
         // table. Each in-app audit pass replaces the whole snapshot, and
         // `computed_at` lets consumers judge staleness honestly. `profile_id`
@@ -1627,7 +1627,7 @@ nonisolated final class ProjectDatabase: Sendable {
                 """)
         }
 
-        // Slice C (LOCATION_MODEL_SPEC Part II): the structured GRO registration
+        // Slice C (Location model Part II): the structured GRO registration
         // district a birth was registered in, as a `PlaceAuthority` id
         // ("DBY:Ashbourne-RD"). Derived metadata like `birth_location_code` — no
         // FieldSource — populated by BMD-birth apply. Nullable; pre-existing rows
@@ -1640,7 +1640,7 @@ nonisolated final class ProjectDatabase: Sendable {
 
         // FamilySearch was dropped as a RECORD source on 2026-08-07 (SourceBootstrap
         // stopped registering `FamilySearchSource`; the FS records API is
-        // permanently unavailable to third parties — project_familysearch_beta_program).
+        // permanently unavailable to third parties — the FamilySearch beta-programme finding).
         // Unregistering the source stopped NEW FS record rows but never purged the
         // ones already in the tree, so historical FS record-search evidence lingers
         // — surfacing in review as description-less "Skipped" rows and inflating
@@ -1653,7 +1653,7 @@ nonisolated final class ProjectDatabase: Sendable {
             try Self.purgeFamilySearchRecordRows(db)
         }
 
-        // The Places tab's decisions (LOCATION_MODEL_SPEC Part III, Slice A) — the
+        // The Places tab's decisions (Location model Part III, Slice A) — the
         // user-built layer over the bundled gazetteer. A row is one human answer
         // to "what place does this text name", with the reason they gave.
         //
@@ -1934,7 +1934,7 @@ nonisolated final class ProjectDatabase: Sendable {
     /// Load a single profile by id. Returns nil when no row exists or
     /// the row is soft-deleted. Used by callers that need one profile
     /// without the full snapshot cost — currently the placeholder
-    /// write-back path (ENGINE_FOUNDATION_SPEC #Change2).
+    /// write-back path (Engine foundation #Change2).
     func loadProfile(id: String) throws -> Profile? {
         try dbQueue.read { db in
             guard let row = try Row.fetchOne(
@@ -1965,7 +1965,7 @@ nonisolated final class ProjectDatabase: Sendable {
 
             // Life events, grouped by profile — carried on the snapshot so
             // RecordAfterDeathRule and ConflictSweep consume identical data
-            // (CONFLICT_LAYER_SPEC CL2, shared-predicate requirement).
+            // (Conflict layer CL2, shared-predicate requirement).
             let eventRows = try Row.fetchAll(db, sql: "SELECT * FROM life_events")
             var lifeEvents: [String: [LifeEvent]] = [:]
             for row in eventRows {
@@ -1991,7 +1991,7 @@ nonisolated final class ProjectDatabase: Sendable {
 
     private static func profileFromRow(_ row: Row, db: Database) throws -> Profile {
         let id: String = row["id"]
-        // E1 (MODEL_EVOLUTION_SPEC §Change1): prefer the typed
+        // E1 (Model evolution Change 1): prefer the typed
         // `external_identifiers` column; fall back to the legacy
         // `external_ids` string-map column (pre-v34 rows, or the frozen
         // rollback-insurance copy). A row that somehow has neither yields an
@@ -2009,7 +2009,7 @@ nonisolated final class ProjectDatabase: Sendable {
             return records.mergingLegacyMap(legacy)
         }()
 
-        // E2 (MODEL_EVOLUTION_SPEC §Change2): typed name forms from the
+        // E2 (Model evolution Change 2): typed name forms from the
         // `name_forms` JSON column. Absent/unparseable (a pre-v35 row that
         // somehow lacks the column, or a corrupt blob) yields `[]` — the flat
         // name columns remain the source of truth for such a profile.
@@ -2060,7 +2060,7 @@ nonisolated final class ProjectDatabase: Sendable {
             ))
         }
 
-        // Load disputes for this profile. CONFLICT_LAYER_SPEC §4.8.1:
+        // Load disputes for this profile. Conflict layer:
         // the snapshot map carries `fieldValue` disputes only — structural
         // kinds (timeline/parentRole/spouseIdentity) use field keys that
         // are not ProfileFields and surface through the DisputeStore
@@ -2200,7 +2200,7 @@ nonisolated final class ProjectDatabase: Sendable {
             // v41_conflict_backfill_done, campaign_review_high_water, all
             // written by targeted UPDATEs). ON CONFLICT DO UPDATE touches only
             // the managed columns, so those side-channel markers survive a
-            // save. (PROJECT_ONBOARDING_SPEC Part A caught this via the
+            // save. (Project onboarding Part A caught this via the
             // setup marker; the fix also protects the conflict-layer
             // high-water marks.)
             try db.execute(sql: """
@@ -2238,7 +2238,7 @@ nonisolated final class ProjectDatabase: Sendable {
             default: .wikitree(email: sourceValue)
             }
             let homePersonID: String? = row["home_person_id"]
-            // §Change7 — decode the compact expansion-policy wire string.
+            // Change 7 — decode the compact expansion-policy wire string.
             // NULL / unrecognised → nil (project uses the engine default).
             let expansionPolicy: ExpansionPolicy? = (row["expansion_policy"] as String?)
                 .flatMap { ExpansionPolicy(wireValue: $0) }
@@ -2451,7 +2451,7 @@ nonisolated final class ProjectDatabase: Sendable {
                 let field: String = row["field"]
                 let oldValue: String? = row["old_value"]
 
-                // CONFLICT_LAYER_SPEC §6 Change 1 AC4 — reverse a dispute
+                // Conflict layer Change 1 AC4 — reverse a dispute
                 // resolution write (journalled by resolveFieldDispute with
                 // entity_id = the dispute rowid). Restoring a nil old
                 // resolution reopens the dispute (resolved_at cleared);
@@ -2624,7 +2624,7 @@ nonisolated extension ProjectDatabase {
 
     /// Add a family group — multiple profiles and relationships in one atomic transaction.
     ///
-    /// `edgeExistenceEvidence` (E4 / MODEL_EVOLUTION_SPEC §Change4): maps a
+    /// `edgeExistenceEvidence` (E4 / Model evolution Change 4): maps a
     /// relationship's `id` to the reason that edge exists. Every entry writes
     /// an `existence` provenance row for that edge inside this same atomic
     /// transaction. Edges absent from the map get no existence row — forward-
@@ -2680,7 +2680,7 @@ nonisolated extension ProjectDatabase {
 
     /// Add a relationship between two existing profiles.
     ///
-    /// `existenceEvidence` (E4 / MODEL_EVOLUTION_SPEC §Change4): when the edge
+    /// `existenceEvidence` (E4 / Model evolution Change 4): when the edge
     /// is being materialised from evidence, pass the driving record (or a
     /// manual/import origin) and an `existence` provenance row is written in
     /// the same transaction. Defaults to `nil` — legacy call sites keep working
@@ -2889,7 +2889,7 @@ nonisolated extension ProjectDatabase {
                 ])
 
             // Read current values to honour the overwrite policy. The
-            // "Check Before Overwrite" rule (feedback_check_before_overwrite.md)
+            // "Check Before Overwrite" rule (the Check Before Overwrite rule)
             // is directional: precise data must not be replaced with
             // imprecise data. Earlier code implemented this as an absolute
             // nil-only rule, which silently blocked precise BMD quarters
@@ -3281,7 +3281,7 @@ nonisolated extension ProjectDatabase {
     /// only describes the loser's own unwanted fields and must not be re-applied
     /// to the winner. Returns the number of citation rows preserved.
     ///
-    /// IMPORT_DEDUPE_SPEC option A (2026-07-18): the general Merge path dropped
+    /// Import dedupe option A (2026-07-18): the general Merge path dropped
     /// the loser's field-level citations; this closes that gap for every merge,
     /// not just phantom spouses.
     @discardableResult
@@ -3297,7 +3297,7 @@ nonisolated extension ProjectDatabase {
         }
     }
 
-    // MARK: - IMPORT_DEDUPE_SPEC Change 5 — phantom-spouse "reviewed" marker
+    // MARK: - Import dedupe Change 5 — phantom-spouse "reviewed" marker
 
     /// Mark a phantom-spouse profile as "not a duplicate" so the detector stops
     /// surfacing it in future scans. Does NOT delete the profile — the user
@@ -3431,7 +3431,7 @@ nonisolated extension ProjectDatabase {
         }
     }
 
-    /// PROJECT_ONBOARDING_SPEC Part A — mark the setup wizard as
+    /// Project onboarding Part A — mark the setup wizard as
     /// completed/skipped for this project so it is never auto-offered again.
     /// Targeted UPDATE (not via saveProjectMeta) so a later full-row save
     /// can't reset it.
@@ -3491,7 +3491,7 @@ nonisolated extension ProjectDatabase {
     }
 
     /// Update the citation/quality on the most-recent field_sources row
-    /// matching (profileID, field, origin). Per DESIGN.md §5.12, citations
+    /// matching (profileID, field, origin). By design, citations
     /// are layered onto existing sources rather than replacing them; the
     /// raw value stays untouched. nil arguments clear that column.
     /// No-op when no matching row exists.
@@ -3525,7 +3525,7 @@ nonisolated extension ProjectDatabase {
         }
     }
 
-    // MARK: - Edge-existence provenance (MODEL_EVOLUTION_SPEC §Change4 / E4)
+    // MARK: - Edge-existence provenance (Model evolution Change 4 / E4)
 
     /// The reason we believe an edge exists, in the two shapes E4's write
     /// points produce. Callers hand one of these to the edge-creation methods
@@ -3840,7 +3840,7 @@ nonisolated extension ProjectDatabase {
     /// Set a single structured location code (Slice E — the normaliser applies
     /// one approved proposal at a time). Updates only the column for `field`,
     /// leaving the other code and the freeform display string untouched
-    /// (LOCATION_MODEL_SPEC "display strings preserved"). Only birth/death
+    /// (Location model "display strings preserved"). Only birth/death
     /// location fields have a code column; any other field is a no-op.
     func setProfileLocationCode(profileID: String, field: ProfileField, code: String) throws {
         let column: String
@@ -3857,7 +3857,7 @@ nonisolated extension ProjectDatabase {
         }
     }
 
-    /// Set the structured birth registration district (LOCATION_MODEL_SPEC Part
+    /// Set the structured birth registration district (Location model Part
     /// II, Slice C). Derived metadata like the location codes — bypasses the
     /// per-field source path (its provenance is the birth record already cited on
     /// birthDate/birthLocation). **Check-before-overwrite:** writes only when the
@@ -3878,7 +3878,7 @@ nonisolated extension ProjectDatabase {
         }
     }
 
-    /// Load a profile's negative-search rows, newest first (DOSSIER_SPEC
+    /// Load a profile's negative-search rows, newest first (Dossier
     /// #T9-Change1 — the D3 "what's missing" input; no fetch helper existed).
     /// `result_kind` NULL = legacy pre-v42 row — by writer construction those
     /// were only ever clean zeros, so readers treat NULL as 'zero'.
@@ -4020,7 +4020,7 @@ nonisolated extension ProjectDatabase {
     /// duplicate row. The `__whole_tree__` resume-state writer and any
     /// NULL-param legacy callers fall through to a plain INSERT (the
     /// unique index is partial on `search_params IS NOT NULL`).
-    /// `resultKind`/`hitCount` (v42, spec §6.6): how the search concluded —
+    /// `resultKind`/`hitCount` (v42, spec): how the search concluded —
     /// 'zero' | 'sparse' | 'positive' | 'truncated' plus the claimed hit
     /// count. The genuine-negative writer stamps 'zero'/0; NULL means a
     /// legacy pre-v42 row (readers treat as 'zero') or a non-search reuse
@@ -4053,7 +4053,7 @@ nonisolated extension ProjectDatabase {
 
     /// Load every persisted per-source request window. Used by
     /// `SourceBudgetTracker` at startup to rehydrate counters so a spent
-    /// daily budget survives a process restart (§Change6 depends on this).
+    /// daily budget survives a process restart (Change 6 depends on this).
     /// Returns raw window rows; the tracker applies the roll-forward /
     /// pause math against a live clock.
     func loadSourceBudgetWindows() throws -> [SourceBudgetWindow] {
@@ -4212,7 +4212,7 @@ nonisolated extension ProjectDatabase {
     func saveEvidence(profileID: String, scored: ScoredRecord, citationFull: String?, citationURL: String?,
                       isEnrichment: Bool = false, runID: String? = nil) throws {
         let compositeID = EvidenceRecord.compositeID(profileID: profileID, sourceRecordID: scored.record.id)
-        // CAMPAIGN_REVIEW_SPEC Change 2 — the FULL scorer output persists:
+        // Campaign review Change 2 — the FULL scorer output persists:
         // gates + summary make the row a complete ScoredRecord; the
         // enrichment flag preserves the run's cluster-input exclusion; the
         // run id links the row to the run that last scored it.
@@ -4278,7 +4278,7 @@ nonisolated extension ProjectDatabase {
         }
     }
 
-    /// FREEBMD_CITATION_BACKFILL_SPEC Change 3 — enrich-in-place. After a run,
+    /// FreeBMD citation backfill Change 3 — enrich-in-place. After a run,
     /// copy a citation link onto any link-less applied FreeBMD record from a
     /// freshly-saved sibling transcription of the same GRO entry (vol/page).
     /// `saveEvidence`'s ON CONFLICT already handles a re-scraped *same*
@@ -4300,7 +4300,7 @@ nonisolated extension ProjectDatabase {
                 }
             }
         }
-        // FREEBMD_CITATION_BACKFILL_SPEC Change 6 — propagate every linked
+        // FreeBMD citation backfill Change 6 — propagate every linked
         // FreeBMD evidence row's link onto the still-link-less applied citation
         // it produced. Reload AFTER the write so rows reconciled just above are
         // included; running over ALL linked rows (not only this run's fresh
@@ -4324,7 +4324,7 @@ nonisolated extension ProjectDatabase {
         return updates.count + propagated
     }
 
-    /// FREEBMD_CITATION_BACKFILL_SPEC Change 5 — apply a targeted enrichment to
+    /// FreeBMD citation backfill Change 5 — apply a targeted enrichment to
     /// one evidence row: set the citation link, and (for a link-less birth)
     /// inject the mother's maiden name into `record_json` so it seeds parent
     /// inference on the next run — the "/Lees/ → /Beresford/" cascade. The MMN
@@ -4355,7 +4355,7 @@ nonisolated extension ProjectDatabase {
                            arguments: [newJSON, evidenceID])
         }
 
-        // FREEBMD_CITATION_BACKFILL_SPEC Change 6 — carry the link onto the
+        // FreeBMD citation backfill Change 6 — carry the link onto the
         // already-applied field_sources citation (same rationale as the
         // reconcile writer above; see propagateCitationURLToAppliedFacts).
         let identity = try dbQueue.read { db -> (profileID: String, citationFull: String?)? in
@@ -4372,7 +4372,7 @@ nonisolated extension ProjectDatabase {
         }
     }
 
-    /// FREEBMD_CITATION_BACKFILL_SPEC Change 6 — propagate an enrich-in-place
+    /// FreeBMD citation backfill Change 6 — propagate an enrich-in-place
     /// link onto the ALREADY-APPLIED confirmed-fact citation. The two evidence
     /// enrich writers above heal `evidence_records.citation_url`, but the
     /// citation the apply copied onto `field_sources` at apply-time is a
@@ -4482,7 +4482,7 @@ nonisolated extension ProjectDatabase {
         }
     }
 
-    // MARK: - Evidence convergence (CAMPAIGN_REVIEW_SPEC Change 3)
+    // MARK: - Evidence convergence (Campaign review Change 3)
 
     /// Upsert the persisted convergence rows for a profile — one per
     /// asserted fact value. Called at run-persist; the stored level is the
@@ -5216,7 +5216,7 @@ nonisolated extension ProjectDatabase {
     }
 
     /// Decode a persisted lead status, mapping the legacy MCP value
-    /// 'resolved' (written by promote_lead before CAMPAIGN_REVIEW_SPEC
+    /// 'resolved' (written by promote_lead before Campaign review
     /// Change 1) to `.promoted` instead of dropping the row — those leads
     /// were silently invisible to every in-app surface.
     nonisolated static func leadStatus(fromRaw raw: String) -> LeadStatus? {
@@ -5351,14 +5351,14 @@ nonisolated extension ProjectDatabase {
     }
 }
 
-// MARK: - Field disputes (M16.14 + CONFLICT_LAYER_SPEC §4.3 C3 — DisputeStore)
+// MARK: - Field disputes (M16.14 + Conflict layer C3 — DisputeStore)
 
 /// Full-fidelity projection of one `field_disputes` row (post-v41). The
 /// snapshot's `[ProfileField: FieldDispute]` map carries only `fieldValue`
 /// kinds; this row type is the store-level contract that carries every
 /// kind, the ladder trace, and the witness summary — `allDisputes` over it
-/// is the T9 dossier read contract (§4.8.6).
-/// One negative-search row (DOSSIER_SPEC #T9-Change1). The honesty envelope
+/// is the T9 dossier read contract.
+/// One negative-search row (Dossier #T9-Change1). The honesty envelope
 /// distinction is load-bearing: only a CLEAN negative ("searched and absent")
 /// may back an absence claim — a truncated/partial answer is never evidence
 /// of absence.
@@ -5445,7 +5445,7 @@ nonisolated extension ProjectDatabase {
 
     /// Persist a detected conflict, enforcing the C3 identity: at most ONE
     /// open dispute per `(entity_id, kind, field)` (unique partial index,
-    /// §5). Behaviour:
+    ///). Behaviour:
     ///
     /// - **No matching open row** → insert a new open dispute stamped with
     ///   `detected_by` ⟨G6⟩, the ladder trace ⟨G2⟩, and the (interim,
@@ -5455,11 +5455,11 @@ nonisolated extension ProjectDatabase {
     ///   trace + witness summary recomputed); an identical re-detection is
     ///   a no-op.
     /// - **Matching resolved row, no open row** → witness-gated reopen
-    ///   scaffolding (§2.8 ⟨G3⟩): a new row opens ONLY when the incoming
+    ///   scaffolding ( ⟨G3⟩): a new row opens ONLY when the incoming
     ///   conflict asserts a value not already represented among the
     ///   resolved row's competitors. Until WitnessIdentity ships (CL4)
     ///   value-novelty stands in for witness-novelty — the conservative
-    ///   direction (§4.1: when independence cannot be proven it is not
+    ///   direction (: when independence cannot be proven it is not
     ///   counted), so an already-weighed value never re-litigates.
     ///
     /// `transactionID` (optional) binds the row to the apply transaction
@@ -5526,12 +5526,12 @@ nonisolated extension ProjectDatabase {
                 if !novel {
                     // Every asserted value was already weighed when the
                     // human (or a future rule) resolved this dispute —
-                    // never re-litigate (§2.8).
+                    // never re-litigate.
                     return resolvedRow["rowid"] as Int64
                 }
                 // Fall through: a genuinely new value reopens as a NEW row
                 // (the resolved row is history — preserved for undo and
-                // the dossier, §3).
+                // the dossier,).
             }
 
             // 3. Insert a fresh dispute row.
@@ -5564,7 +5564,7 @@ nonisolated extension ProjectDatabase {
     /// resolution UI renders. Until WitnessIdentity ships (CL4) the
     /// "witnesses" listed are provenance origins (lineage-level), stated
     /// here so nobody mistakes the interim for the design. A display
-    /// cache recomputed on every upsert, never identity (§2.6).
+    /// cache recomputed on every upsert, never identity.
     static func interimWitnessSummary(for sources: [FieldSource]) -> String {
         struct ValueSummary: Codable {
             let value: String
@@ -5620,7 +5620,7 @@ nonisolated extension ProjectDatabase {
     }
 
     /// Open + resolved disputes for one profile — the T9 dossier read
-    /// contract (§4.8.6): each row carries its deterministic reasoning
+    /// contract: each row carries its deterministic reasoning
     /// inputs (`ladderTrace`, `witnessSummary`) verbatim.
     func allDisputes(profileID: String) throws -> [DisputeRow] {
         try dbQueue.read { db in
@@ -5660,7 +5660,7 @@ nonisolated extension ProjectDatabase {
 
     /// Full-fidelity discrepancies for a profile's MOST RECENT run —
     /// reconstruction input for ResearchResult.discrepancies
-    /// (CAMPAIGN_REVIEW_SPEC Change 5; the tuple loader below is
+    /// (Campaign review Change 5; the tuple loader below is
     /// insufficient — the CL3 badge needs sourceID + severity + values).
     func latestRunDiscrepancies(profileID: String) throws -> [ResearchDiscrepancy] {
         try dbQueue.read { db in
@@ -5731,7 +5731,7 @@ nonisolated extension ProjectDatabase {
     /// undo can replay the change. Returns the new transaction record so
     /// callers can record session events.
     ///
-    /// CONFLICT_LAYER_SPEC §6 Change 1 AC4 — pick-a-value resolution is
+    /// Conflict layer Change 1 AC4 — pick-a-value resolution is
     /// end-to-end: an `.accepted(source)` (or rule-`.rule`) resolution also
     /// updates the **canonical profile field** to the accepted value inside
     /// the same transaction, journalled through `field_changes` so ONE undo
@@ -5893,7 +5893,7 @@ nonisolated extension ProjectDatabase {
 
 // MARK: - Cleanse Unresolvable Flags
 //
-// CLEANSE_WIZARD_SPEC §3 — persistent per-(profile, field) flag that hides a
+// Cleanse wizard — persistent per-(profile, field) flag that hides a
 // finding from the wizard once the user has decided it cannot be resolved.
 // Cleared explicitly from Settings; otherwise survives app restarts.
 nonisolated extension ProjectDatabase {

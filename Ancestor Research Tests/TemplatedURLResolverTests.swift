@@ -2,7 +2,7 @@ import Testing
 import Foundation
 @testable import Ancestor_Research
 
-/// TEMPLATED_NARRATIVE_SOURCE_SPEC Stage 1 — the config-driven Chapman-templated
+/// Templated narrative source Stage 1 — the config-driven Chapman-templated
 /// resolver. Adding a source is a config; the resolver fills it per-subject and
 /// never emits a URL with an unfilled placeholder.
 struct TemplatedURLResolverTests {

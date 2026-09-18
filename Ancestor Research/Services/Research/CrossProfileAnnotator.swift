@@ -2,7 +2,7 @@ import Foundation
 import AncestorKit
 
 /// #CPC-Change3 — the in-run half of cross-profile corroboration
-/// (`CROSS_PROFILE_CORROBORATION_SPEC.md` Change 3).
+/// (`Cross-profile corroboration` Change 3).
 ///
 /// Runs pre-scoring, beside `annotateMarriagesWithSamePagePartner`: for each
 /// candidate marriage record in the batch, consult every TREE-LINKED

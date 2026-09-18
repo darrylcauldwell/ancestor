@@ -1,7 +1,7 @@
 import Foundation
 import AncestorKit
 
-/// SUBJECT_PLACE_MODEL_SPEC Slice 2 — the one place shape.
+/// Subject place model Slice 2 — the one place shape.
 ///
 /// Storage was always uniform: every location in the model is a `(text, code)`
 /// pair — `birthLocation`/`birthLocationCode`, `deathLocation`/`deathLocationCode`,

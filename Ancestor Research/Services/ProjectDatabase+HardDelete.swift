@@ -1,7 +1,7 @@
 import Foundation
 import GRDB
 
-/// Hard-delete a profile and ALL its associated data (M14, DESIGN.md §7.15.2).
+/// Hard-delete a profile and ALL its associated data (M14, the design).
 /// Irreversible. Used by Settings → Deleted People → "Permanently remove".
 ///
 /// Removes from these tables:

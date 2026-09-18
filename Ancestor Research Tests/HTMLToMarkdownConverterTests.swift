@@ -3,7 +3,7 @@ import Foundation
 @testable import Ancestor_Research
 
 /// Pins the conversion contract for `HTMLToMarkdownConverter`. Five test
-/// fixtures cover the corner cases the spec §7 calls out: heading
+/// fixtures cover the corner cases the spec calls out: heading
 /// preservation, list semantics, `<pre>` verbatim handling, link rewriting,
 /// chrome stripping. Plus an end-to-end smoke test against a real-world
 /// genealogy page (the Wirksworth pedigree the scout agent fetched).
@@ -93,7 +93,7 @@ struct HTMLToMarkdownConverterTests {
     }
 
     @Test func imagesBecomeImageLinksNotInlineImages() {
-        // Spec §7.3 — images preserved as links so MLX can decide to fetch
+        // Spec — images preserved as links so MLX can decide to fetch
         // (e.g. OCR), but v1 stores no image bytes.
         let html = "<img src=\"menu-2.gif\" alt=\"navigation icon\">"
         let md = HTMLToMarkdownConverter.convert(html)

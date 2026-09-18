@@ -4,7 +4,7 @@ import GRDB
 @testable import Ancestor_Research
 import AncestorKit
 
-/// IMPORT_DEDUPE_SPEC Change 4 — phantom-spouse detection, reproducing the
+/// Import dedupe Change 4 — phantom-spouse detection, reproducing the
 /// live William Henry Keyworth four-spouse case as a synthetic fixture (two
 /// real wives with dates, two dateless phantom stubs each tied only to William).
 /// No real family data.

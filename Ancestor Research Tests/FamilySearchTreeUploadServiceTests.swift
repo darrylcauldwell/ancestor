@@ -3,7 +3,7 @@ import Foundation
 @testable import Ancestor_Research
 @testable import AncestorKit
 
-/// Upload orchestrator (WL4 — FAMILYSEARCH_TREES_WRITE_SPEC §2/§6): the full
+/// Upload orchestrator (WL4 — FamilySearch tree write/): the full
 /// documented call sequence against the mock transport + a real temp database,
 /// resume (pre-linked entities are skipped, not re-created), and fail-soft
 /// (per-entity failure captured, run continues, one-way finalize withheld).

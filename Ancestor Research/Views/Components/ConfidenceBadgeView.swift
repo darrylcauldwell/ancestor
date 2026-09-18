@@ -3,7 +3,7 @@ import SwiftUI
 /// Three-axis confidence badge — the canonical surface for the new
 /// `EvidenceConfidence` model. Replaces the single tier badge that used to
 /// render `ClusterConfidence` (weak / moderate / strong). See
-/// `RESEARCH_CONFIDENCE_SPEC.md` §4 for the locked visual contract.
+/// Research confidence for the locked visual contract.
 ///
 /// Layout: horizontal row of three elements, primary → tertiary.
 ///
@@ -102,7 +102,7 @@ struct ConfidenceBadgeView: View {
             .accessibilityHint(sourcingTooltip)
     }
 
-    /// Display rules from `RESEARCH_CONFIDENCE_SPEC` §3.2 — case-by-case so the
+    /// Display rules from Research confidence — case-by-case so the
     /// rendered text is exactly what the spec contract names.
     private var sourcingText: String {
         let s = confidence.sourcing

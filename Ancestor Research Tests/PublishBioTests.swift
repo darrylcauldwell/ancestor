@@ -3,7 +3,7 @@ import Foundation
 import AncestorKit
 @testable import Ancestor_Research
 
-// PUBLISHER_SPEC Change 6 acceptance — bios from committed facts only,
+// Publisher Change 6 acceptance — bios from committed facts only,
 // snapshot-tested prose, and the relative-redaction rules exercised with
 // the spec's canonical scenario: a deceased subject with one living
 // spouse and one omitted child.

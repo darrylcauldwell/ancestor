@@ -84,7 +84,7 @@ nonisolated struct EvidenceFirewall {
 
     /// True for FamilySearch ark record URLs (any familysearch.org host,
     /// path containing `ark:/`) — the class of URL whose content is
-    /// licence-walled and must never be fetched or cached (spec §16.1(3)).
+    /// licence-walled and must never be fetched or cached (spec(3)).
     /// Pure predicate, extracted for hermetic testing.
     nonisolated static func isFamilySearchArk(url: String) -> Bool {
         guard let host = URL(string: url)?.host?.lowercased() else { return false }
@@ -106,7 +106,7 @@ nonisolated struct EvidenceFirewall {
         // sign-in, so an unauthenticated fetch returns a shell page that can
         // never contain the evidence text; content verification would
         // auto-reject every legitimate FS-cited fact. Per
-        // FAMILYSEARCH_SOURCE_SPEC §16.1(3), FS verification degrades to
+        // FamilySearch source(3), FS verification degrades to
         // pointer classification: treat as restricted, never fetch or cache
         // ark content (the pointer-only compliance posture).
         if isFamilySearchArk(url: url) {
@@ -156,10 +156,10 @@ nonisolated struct EvidenceFirewall {
         }
     }
 
-    // MARK: - §14.B.1 Defensive Hallucination Re-check
+    // MARK: -.B.1 Defensive Hallucination Re-check
 
     /// Re-verify an auto-approval candidate against its cited source before the
-    /// §14.3 gate is allowed to commit it. This is the firewall's defensive
+    /// gate is allowed to commit it. This is the firewall's defensive
     /// second look: it independently re-fetches the page (page-cache first, so a
     /// page already fetched during the original extraction costs nothing) and
     /// deterministically re-extracts the specific claim. A confirmed claim is
@@ -180,7 +180,7 @@ nonisolated struct EvidenceFirewall {
         await HallucinationRecheck.recheck(claim: .init(finding: finding), pages: pages)
     }
 
-    // MARK: - Idempotency Key (§13)
+    // MARK: - Idempotency Key
 
     /// Generate a deterministic ID for a finding, used for deduplication.
     static func idempotencyKey(profileID: String, field: String, value: String, sourceURL: String) -> String {
@@ -213,7 +213,7 @@ nonisolated struct EvidenceFirewall {
     }
 
     /// Normalise text for content matching: lowercase, collapse whitespace, strip punctuation.
-    /// Shared with `HallucinationRecheck` so the §14.B.1 re-check uses identical
+    /// Shared with `HallucinationRecheck` so the.B.1 re-check uses identical
     /// content-matching semantics to the firewall's original URL verification.
     static func normalise(_ text: String) -> String {
         text.lowercased()

@@ -4,7 +4,7 @@ import GRDB
 import AncestorKit
 @testable import Ancestor_Research
 
-// PUBLISHER_SPEC Change 2 acceptance — the bundle is the §4 viewer
+// Publisher Change 2 acceptance — the bundle is the viewer
 // contract on disk: redaction invariants hold on the artifact, media
 // copies are opt-in, identities are permanent, re-export is
 // byte-identical for the same `now`, and published_state is untouched.

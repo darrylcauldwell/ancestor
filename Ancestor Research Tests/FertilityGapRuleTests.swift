@@ -3,7 +3,7 @@ import Foundation
 import AncestorKit
 @testable import Ancestor_Research
 
-/// FREEREG_INTEGRATION_SPEC §5 — the 1911 fertility-gap audit rule.
+/// FreeREG integration — the 1911 fertility-gap audit rule.
 /// A married woman's 1911 statement (children born alive / living /
 /// deceased, years married) vs the tree. Deliberately under-firing:
 /// unknown-birth-year children count toward the tally; inconsistent

@@ -1,13 +1,13 @@
 import Foundation
 import GRDB
 
-// PUBLISHER_SPEC Change 2 — accessors for the v30 publisher tables.
+// Publisher Change 2 — accessors for the v30 publisher tables.
 // Publisher state is Mac-local and never part of the canonical genealogy;
 // these are the only readers/writers (the Evidence Firewall is untouched —
 // nothing here is reachable from outside the app).
 nonisolated extension ProjectDatabase {
 
-    // MARK: - publish_policy (§5)
+    // MARK: - publish_policy
 
     /// Stored per-person overrides. Absent row = `.auto`.
     func loadPublishPolicies() throws -> [String: PublishPolicy] {
@@ -36,7 +36,7 @@ nonisolated extension ProjectDatabase {
         }
     }
 
-    // MARK: - published_ids (§4.1 — permanent identity)
+    // MARK: - published_ids ( — permanent identity)
 
     /// Full identity map keyed `"kind|canonicalID"` → record UUID.
     /// Superseded rows are included — their canonical id no longer projects,
@@ -71,7 +71,7 @@ nonisolated extension ProjectDatabase {
         }
     }
 
-    /// Acknowledgement state (§5 review gate): profileID → when a human
+    /// Acknowledgement state ( review gate): profileID → when a human
     /// last confirmed this person's resolved policy. Persons without a
     /// row (or with NULL) have never been acknowledged.
     func loadPublishAcknowledgements() throws -> [String: Date] {
@@ -86,7 +86,7 @@ nonisolated extension ProjectDatabase {
         }
     }
 
-    /// Record the §5 eyeball confirmation for a set of persons. Inserts
+    /// Record the eyeball confirmation for a set of persons. Inserts
     /// `auto` rows for persons that had no explicit policy — the
     /// acknowledgement is per-person state regardless of override.
     func acknowledgePublishPolicies(profileIDs: [String], at date: Date) throws {
@@ -102,7 +102,7 @@ nonisolated extension ProjectDatabase {
         }
     }
 
-    // MARK: - publish_media (§4.2 — per-attachment opt-in)
+    // MARK: - publish_media ( — per-attachment opt-in)
 
     func loadPublishMediaOptIns() throws -> Set<UUID> {
         try dbQueue.read { db in

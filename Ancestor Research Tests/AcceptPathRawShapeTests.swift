@@ -24,7 +24,7 @@ import AncestorKit
 ///    composite under an apply-path origin.
 ///
 /// The WRITE format is deliberately untouched: the bracket is the sources-
-/// ledger entry label and the MCP §14.3 auto-approval convergence gate's
+/// ledger entry label and the MCP auto-approval convergence gate's
 /// independent-lineage proxy, and `raw` is a match key in five places. Fixing
 /// this read-side rewrites no stored row.
 @MainActor

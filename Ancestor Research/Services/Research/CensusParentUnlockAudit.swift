@@ -1,7 +1,7 @@
 import Foundation
 import AncestorKit
 
-/// CENSUS_PARENT_UNLOCK_SPEC Change 2 — surfaces a parentless ancestor whose
+/// Census parent unlock Change 2 — surfaces a parentless ancestor whose
 /// childhood census (them as a child in the parental home) is already among
 /// their research leads but was never promoted, because the scorer confirms via
 /// a family match it cannot make (the parents aren't on the tree yet).

@@ -1,6 +1,6 @@
 import Foundation
 
-/// M21 — "Share read-only link" per DESIGN.md §13. Renders the family tree as
+/// M21 — "Share read-only link" by design Renders the family tree as
 /// a folder of vanilla HTML/CSS files. A recipient who's never heard of this
 /// app can open `index.html` in any browser and click through the tree.
 ///

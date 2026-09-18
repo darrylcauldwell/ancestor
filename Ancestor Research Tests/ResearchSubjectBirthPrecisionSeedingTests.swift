@@ -82,7 +82,7 @@ struct ResearchSubjectBirthPrecisionSeedingTests {
 
     @Test func doesNotWidenWhenSourcesAreCoarserThanCurrent() {
         // Profile already has a precise quarter — wider sources must not
-        // override. (Mirrors `feedback_check_before_overwrite.md`.)
+        // override. (Mirrors `the Check Before Overwrite rule`.)
         let result = ResearchSubject.narrowBirthWindowFromSources(
             current: (1883, 1883),
             sources: [

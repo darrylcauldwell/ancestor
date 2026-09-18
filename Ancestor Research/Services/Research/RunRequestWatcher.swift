@@ -124,7 +124,7 @@ final class RunRequestWatcher {
         // runs OFF the main thread. It only needs `db` (GRDB is thread-safe),
         // and it previously blocked the main thread on a SQLite write
         // transaction every 3 seconds even when the queue was idle
-        // (project_runrequestwatcher_mainthread_poll). Only `execute` needs
+        // (the RunRequestWatcher main-thread poll). Only `execute` needs
         // the MainActor, and only when a request is actually queued.
         guard let request = await Self.pollDatabase(db: db) else {
             // Research queue idle — FS action requests (v53, MCP-staged) run
@@ -149,7 +149,7 @@ final class RunRequestWatcher {
     /// background executor (nonisolated async) so the idle 3s SQLite write
     /// never blocks the main thread.
     ///
-    /// §5.15.2 — seeds materialise before the dequeue so a
+    /// — seeds materialise before the dequeue so a
     /// submit_hypothesis → kick_off_research pair sees the hypothesis row
     /// exist before its run dispatches. Validation / refusal writes live in
     /// the service.
@@ -255,7 +255,7 @@ final class RunRequestWatcher {
         // Phase 1 slice 6: canonical construction via ResearchRunService.
         // Note this ADDS rejectionLookup to watcher runs — previously the
         // hand-rolled copy here omitted it, so MCP-triggered runs ignored
-        // user record discards (§3.6). Divergence fixed by construction.
+        // user record discards. Divergence fixed by construction.
         let built = ResearchRunService.makePipeline(
             registry: registry,
             snapshot: appState.snapshot,
@@ -548,12 +548,12 @@ final class RunRequestWatcher {
         return outcome.runID?.uuidString
     }
 
-    /// Serialize the §3 eval envelope into a JSON string for the
-    /// `research_runs.result_json` column (SWIFT_MCP_EVAL_BACKEND_SPEC
+    /// Serialize the eval envelope into a JSON string for the
+    /// `research_runs.result_json` column (MCP eval backend
     /// #Change3). Carries the three per-run verdicts plus the
     /// hypothesis / citation arrays the harness derives per-kind
     /// metrics from. Shape mirrors Python's `_state_to_envelope` in
-    /// `eval/run_harness.py:197` so the §5.8 harness consumes either
+    /// `eval/run_harness.py:197` so the harness consumes either
     /// backend without branching.
     /// Envelope "kind" tag for a SourceRecord — finer-grained than
     /// `recordType`. `SourceRecord.recordType` collapses `.military`
@@ -761,7 +761,7 @@ extension RunRequestWatcher {
 
     /// Request-driven upload: same encoder/orchestrator as the wizard but
     /// `performFinalize: false` — the run is capped at uploaded-but-hidden.
-    /// Visibility and privacy are wizard consents (spec §3 D4).
+    /// Visibility and privacy are wizard consents (spec D4).
     private func executeFSUpload(_ request: FSActionRequest, db: ProjectDatabase) async {
         do {
             let snapshot = try db.buildSnapshot()

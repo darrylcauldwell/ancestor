@@ -39,7 +39,7 @@ nonisolated enum SamePageCouplePairing {
     // MARK: - Canonical key (#CPC-Change1)
 
     /// Canonical components for CROSS-BATCH joins (cross-profile
-    /// corroboration, `CROSS_PROFILE_CORROBORATION_SPEC.md` Decision 2).
+    /// corroboration, `Cross-profile corroboration` Decision 2).
     ///
     /// `referenceKey` is safe when both sides come from ONE fetch session;
     /// the two sides of one marriage held by two PROFILES were transcribed

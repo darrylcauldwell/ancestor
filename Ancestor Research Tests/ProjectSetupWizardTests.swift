@@ -4,7 +4,7 @@ import GRDB
 import AncestorKit
 @testable import Ancestor_Research
 
-/// PROJECT_ONBOARDING_SPEC Part A (Slice 1) — the project setup wizard's
+/// Project onboarding Part A (Slice 1) — the project setup wizard's
 /// lifecycle and Step 1 (home region). The wizard VIEW isn't unit-tested (per
 /// project convention), but the load-bearing logic is: the once-per-project
 /// marker, the offer-gating that avoids sheet collisions, and that Step 1's

@@ -1,6 +1,6 @@
 import Foundation
 
-/// Soft-warning helper for unusually long person names (DESIGN.md §7.5.3).
+/// Soft-warning helper for unusually long person names (by design).
 ///
 /// Names of 100 characters or more are almost always a paste accident
 /// (e.g. a pasted bio or address ending up in the name field). The hard

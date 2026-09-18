@@ -6,7 +6,7 @@ import GRDB
 import AncestorKit
 @testable import Ancestor_Research
 
-// PUBLISHER_SPEC Change 4 acceptance — LIVE end-to-end against the
+// Publisher Change 4 acceptance — LIVE end-to-end against the
 // CloudKit development environment, using a FIXTURE tree (never a real
 // project). Env-gated like the Change 3 spike:
 //   env TEST_RUNNER_RUN_PUBLISH_E2E=1 xcodebuild test ... -parallel-testing-enabled NO
@@ -156,7 +156,7 @@ struct PublishEngineE2ETests {
 
         // Change 5 — share lifecycle. share() is idempotent (same share on
         // repeat call); unpublish deletes the zone; a republish after
-        // unpublish keeps every record UUID (§4.1 permanence) and continues
+        // unpublish keeps every record UUID ( permanence) and continues
         // the generation sequence (monotonic through unpublish).
         // DIAGNOSTIC — exact CK coordinates the sync engine recorded.
         let store = try PublishedStore.open(at: storeURL)
@@ -260,7 +260,7 @@ struct PublishEngineE2ETests {
         let identityAfter = try db.loadPublishedIdentityMap()
         #expect(identityBefore == identityAfter, "record UUIDs survive unpublish — §4.1")
 
-        // §418 hazard check: republish-after-unpublish re-inserts the SAME
+        // hazard check: republish-after-unpublish re-inserts the SAME
         // primary keys that were just tombstoned — sqlite-data's known
         // delete-then-reinsert pattern. Server truth decides whether the
         // records genuinely came back.

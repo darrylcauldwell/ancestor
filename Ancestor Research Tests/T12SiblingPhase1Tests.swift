@@ -2,7 +2,7 @@ import Testing
 import Foundation
 @testable import Ancestor_Research
 
-/// T12-sibling Phase 2 invariants (V2 spec §5.2). The `.siblingExists`
+/// T12-sibling Phase 2 invariants (V2 spec). The `.siblingExists`
 /// framework path is now the sole source of truth: `HypothesisEngine`
 /// generates the hypothesis, the orchestrator dispatches the level-1
 /// deficit query, `gradeSiblingExists` grades it, and the projection
@@ -340,7 +340,7 @@ struct T12SiblingPhase1Tests {
 
     @Test func uiPath_skipsContradictedAndInconclusiveHypotheses() throws {
         // Only `.supported` + `!isModelAssisted` hypotheses contribute
-        // to the UI list — contradicted ones surface in §5.11's archive
+        // to the UI list — contradicted ones surface in's archive
         // view, not the proposed-siblings section. This pins the filter.
         let subjectID = "subj-profile"
         let subjectRecord = birthRecord(

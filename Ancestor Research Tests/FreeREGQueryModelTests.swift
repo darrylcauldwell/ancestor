@@ -3,7 +3,7 @@ import Foundation
 import AncestorKit
 @testable import Ancestor_Research
 
-/// FREEREG_INTEGRATION_SPEC §0/§1 — the FreeREG capability axes (place_ids,
+/// FreeREG integration/ — the FreeREG capability axes (place_ids,
 /// witness, family, no_surname, nearby) and the MyopicVicar safety invariants
 /// (the `region` bot honeypot, the 3-county cap). Ground truth: the live engine
 /// FreeUKGen/MyopicVicar (`_form_freereg.html.erb`), validated 2026-07-29.
@@ -30,7 +30,7 @@ struct FreeREGQueryModelTests {
         )
     }
 
-    // MARK: - region honeypot (§0.1)
+    // MARK: - region honeypot
 
     @Test func regionHoneypotIsNeverOnTheWire() async {
         let c = CapturingHTTPClient()
@@ -44,7 +44,7 @@ struct FreeREGQueryModelTests {
                 "search_query[region] is a bot honeypot and must never reach the wire")
     }
 
-    // MARK: - county cap (§0.2, resolves FT-27)
+    // MARK: - county cap (, resolves FT-27)
 
     @Test func chapmanCodesCappedAtThree() {
         #expect(FreeREGParams.cappedChapmanCodes(["DBY", "NTT", "LEI", "STS", "YKS"]) == ["DBY", "NTT", "LEI"])

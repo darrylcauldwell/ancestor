@@ -4,7 +4,7 @@ import GRDB
 @testable import Ancestor_Research
 import AncestorKit
 
-/// IMPORT_DEDUPE_SPEC — orphan-stub detection + cleanse, reproducing the
+/// Import dedupe — orphan-stub detection + cleanse, reproducing the
 /// live Ancestry-export case (Carter / Mary Ward / Keyworth) as a
 /// synthetic fixture (no real family data).
 @MainActor

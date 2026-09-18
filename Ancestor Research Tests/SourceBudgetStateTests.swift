@@ -3,7 +3,7 @@ import Foundation
 import AncestorKit
 @testable import Ancestor_Research
 
-/// ENGINE_FOUNDATION_SPEC §Change5 — daily-budget awareness, acceptance (5).
+/// Engine foundation Change 5 — daily-budget awareness, acceptance (5).
 ///
 /// Simulate FreeBMD quota exhaustion → FreeBMD pauses while FreeREG/CWGC/others
 /// continue; resume time is queryable; the budget-vs-throttle distinction is

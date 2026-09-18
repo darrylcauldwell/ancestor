@@ -10,7 +10,7 @@ import Foundation
 @MainActor
 struct ResearchViewModelProseCorpusTests {
 
-    // MARK: - K-per-mode mapping (spec §9.3)
+    // MARK: - K-per-mode mapping (spec)
 
     @Test func proseCorpusLimitMatchesSpecForVerifyAndExtend() {
         #expect(ResearchViewModel.proseCorpusLimit(for: .verify) == 3)

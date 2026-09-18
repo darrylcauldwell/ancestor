@@ -1,6 +1,6 @@
 import Foundation
 
-// MARK: - FreeREG typed record detail (FREEREG_INTEGRATION_SPEC §2)
+// MARK: - FreeREG typed record detail (FreeREG integration)
 //
 // Typed model of a FreeREG parish-register entry, derived from the AUTHORITATIVE
 // schema — FreeUKGen/MyopicVicar `app/models/freereg1_csv_entry.rb` (Apache-2.0),
@@ -330,7 +330,7 @@ public nonisolated struct FreeREGBurial: Codable, Sendable, Equatable {
 }
 
 /// Register/archive reference — where the original page lives.
-/// `imageFileName` is a media lead (SOURCE_MEDIA_SPEC).
+/// `imageFileName` is a media lead (Source media).
 public nonisolated struct FreeREGRegisterReference: Codable, Sendable, Equatable {
     public var register: String?
     /// `register_type` — CofE / Nonconformist / RC etc.; a tiering +

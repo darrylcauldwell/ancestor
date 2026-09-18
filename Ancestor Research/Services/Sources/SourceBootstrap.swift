@@ -13,7 +13,7 @@ func bootstrapSources(registry: SourceRegistry) {
     // Tier 2: CSRF token (session per search batch)
     registry.register(FreeBMDSource())
     registry.register(FreeCenSource())
-    // FreeREG is registered under the SAME ADR-008 §Decision-2 interim-use
+    // FreeREG is registered under the SAME ADR-008 Decision 2 interim-use
     // posture as its two identical-terms siblings FreeBMD/FreeCEN (all three
     // are one charity, Free UK Genealogy, under the same "front end programs…
     // strictly forbidden" terms). Owner decision 2026-07-29: this is a personal
@@ -29,7 +29,7 @@ func bootstrapSources(registry: SourceRegistry) {
     registry.register(FreeREGSource())
 
     // Memorial inscriptions (Wishful Thinking), Chapman-templated: one on-demand
-    // parish page per lookup, never a crawl (TEMPLATED_NARRATIVE_SOURCE_SPEC).
+    // parish page per lookup, never a crawl (Templated narrative source).
     // Terms permit personal research; the firewall keeps verbatim prose out of
     // the Publisher. Only fires when a subject resolves to a parish + county.
     registry.register(MemorialInscriptionRecordSource())
@@ -51,7 +51,7 @@ func bootstrapSources(registry: SourceRegistry) {
     // Tier 4: User-added prose corpora (parish records, local-history sites).
     // Failure to resolve Application Support is non-fatal — the user just
     // loses prose-corpus retrieval for this launch, structured sources
-    // continue to work. See PROSE_CORPUS_SPEC.md §6, §9.
+    // continue to work. See Prose corpus,.
     if let proseSource = try? ProseCorpusSource.makeForProduction() {
         registry.register(proseSource)
     }

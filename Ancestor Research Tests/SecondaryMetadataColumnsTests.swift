@@ -6,8 +6,8 @@ import AncestorKit
 
 /// FAMILYSEARCH_READ_LEG_PLAN #Change7 — the secondary-metadata data-model
 /// commits: RecordCommon's placeARK / collectionCompleteness /
-/// volatilityScore columns (§12.4), the v43 evidence external-ARK
-/// migration (§17.1), and FS promoting completeness + place ARK to
+/// volatilityScore columns, the v43 evidence external-ARK
+/// migration, and FS promoting completeness + place ARK to
 /// first-class fields.
 struct SecondaryMetadataColumnsTests {
 

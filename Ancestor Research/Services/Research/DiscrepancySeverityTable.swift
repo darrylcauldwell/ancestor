@@ -15,7 +15,7 @@ nonisolated struct DiscrepancySeverityTable {
     /// Compute severity for a year-valued discrepancy from a given source.
     ///
     /// `sourceID` and `recordType` narrow the tolerance to the specific
-    /// source (§10.3) — CWGC is ±0 while FreeBMD births tolerate a ±2
+    /// source — CWGC is ±0 while FreeBMD births tolerate a ±2
     /// registration-quarter slip; sources without a specific band fall back
     /// to the trust-tier band.
     static func severity(
@@ -32,7 +32,7 @@ nonisolated struct DiscrepancySeverityTable {
         return (upgraded, reasoning)
     }
 
-    // MARK: - Base Severity — per-source band (§10.3), tier fallback
+    // MARK: - Base Severity — per-source band, tier fallback
 
     private static func baseSeverity(sourceID: String, tier: SourceTrustTier, recordType: RecordType?, absDelta: Int) -> DiscrepancySeverity {
         switch sourceID.lowercased() {
@@ -69,7 +69,7 @@ nonisolated struct DiscrepancySeverityTable {
         return exceedance
     }
 
-    /// Fallback band for sources without a specific §10.3 entry
+    /// Fallback band for sources without a specific entry
     /// (FreeREG, Wirksworth, FamilySearch, field-researcher submissions).
     private static func tierBand(tier: SourceTrustTier, absDelta: Int) -> DiscrepancySeverity {
         switch (tier, absDelta) {

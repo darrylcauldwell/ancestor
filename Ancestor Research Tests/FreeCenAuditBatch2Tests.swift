@@ -3,7 +3,7 @@ import Foundation
 import AncestorKit
 @testable import Ancestor_Research
 
-/// Connector-audit batch 2 for FreeCen (CONNECTOR_AUDIT_2026-07 §2.2/§2.4):
+/// Connector-audit batch 2 for FreeCen (the 2026-07 connector audit/):
 ///
 /// - FT-11: `search_query[birth_chapman_codes][]` — the BIRTH-county axis,
 ///   distinct from the residence filter. One birth-county query reaches

@@ -263,7 +263,7 @@ final class ResearchViewModel {
 
     /// Start research for a profile. `focus` (when set) narrows the
     /// dispatched record types to the focus's set — see
-    /// RESEARCH_PIPELINE_SPEC §11.4.
+    /// Research pipeline.
     func startResearch(
         profile: Profile,
         snapshot: FamilyGraphSnapshot,
@@ -434,12 +434,12 @@ final class ResearchViewModel {
         // `activitySubscription` is still alive, so the user sees
         // "Prose corpora Cauldwell — searching… → 5 results".
         //
-        // K-per-mode mirrors spec §9.3: verify/extend keep the
+        // K-per-mode mirrors spec: verify/extend keep the
         // shortlist small (no MLX cost yet), discover widens to 5
         // and `.all` to 8.
         proseCandidates = await fetchProseCandidates(subject: subject, registry: registry, mode: selectedMode)
 
-        // Prose-corpus MLX extraction (P6, spec §11) — only fires in
+        // Prose-corpus MLX extraction (P6, spec) — only fires in
         // `.discover` / `.all` modes. Reads each candidate's body
         // from disk, runs the local reasoning model, routes
         // extracted facts through `pending_facts` and narratives
@@ -623,7 +623,7 @@ final class ResearchViewModel {
         return await proseSource.searchCandidates(query: query, limit: limit)
     }
 
-    /// K-per-mode mapping per PROSE_CORPUS_SPEC.md §9.3. Verify and
+    /// K-per-mode mapping per Prose corpus. Verify and
     /// extend keep the shortlist small; discover widens to 5; .all
     /// runs through 8.
     nonisolated static func proseCorpusLimit(for mode: ResearchMode) -> Int {
@@ -902,7 +902,7 @@ final class ResearchViewModel {
     /// citation source.
     ///
     /// Overwrite rule: never replace an existing field value (see memory
-    /// `feedback_check_before_overwrite.md` — BMD year-only data is often
+    /// `the Check Before Overwrite rule` — BMD year-only data is often
     /// less precise than what the user entered manually). When the column is
     /// already populated, the record is recorded via `recordAlternativeFact`
     /// so the citation lands in `field_sources` while the column value stays.
@@ -947,7 +947,7 @@ final class ResearchViewModel {
         if let snap = persist("Refresh tree snapshot", { try db.buildSnapshot() }) {
             appState.snapshot = snap
         }
-        // CONFLICT_LAYER_SPEC CL2 (T-C trigger): post-apply-batch sweep —
+        // Conflict layer CL2 (T-C trigger): post-apply-batch sweep —
         // conflicts introduced by this batch surface immediately.
         appState.runConflictSweep(force: true)
     }
@@ -1426,7 +1426,7 @@ final class ResearchViewModel {
     }
 
     /// Accept a `.supported` `.birthYearCandidate` hypothesis (slice 5 of
-    /// `project_multi_hypothesis_birth_year_plan`). Writes the chosen year
+    /// the multi-hypothesis birth-year plan). Writes the chosen year
     /// to `Profile.birthDate`, reusing the matching `Profile.sources[.birthDate]`
     /// entry's `raw` + `origin` so provenance is preserved (e.g. the
     /// freebmd "Dec 1883" source becomes the canonical attestation
@@ -1581,7 +1581,7 @@ final class ResearchViewModel {
         guard let lead = selectedLead,
               let db = appState.currentDatabase else { return nil }
 
-        // Create-on-accept FORK (TRIAGE_UX_DATA_QUALITY_SPEC 3d): before minting
+        // Create-on-accept FORK (Triage UX data quality 3d): before minting
         // a ghost, check whether the researched candidate already exists in the
         // tree. If it matches an existing profile, ATTACH the evidence there
         // (no duplicate); otherwise CREATE a new ghost. `.multipleMatches`

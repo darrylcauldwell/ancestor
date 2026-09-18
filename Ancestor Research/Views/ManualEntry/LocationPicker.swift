@@ -113,7 +113,7 @@ struct LocationPicker: View {
             // Deliberately NOT an error, and deliberately not shown for text
             // that arrived uncoded from an import — only for a field the user
             // edited in this session and left unmatched. Unresolved places must
-            // keep working (LOCATION_MODEL_SPEC "Never block"); the point is
+            // keep working (Location model "Never block"); the point is
             // that the user should know it happened.
             if userEdited, !isFocused, locationCode == nil,
                !text.trimmingCharacters(in: .whitespaces).isEmpty {

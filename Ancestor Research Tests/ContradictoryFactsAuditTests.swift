@@ -2,7 +2,7 @@ import Testing
 import Foundation
 @testable import Ancestor_Research
 
-// DECISION_CORE_PAIR_SPEC follow-up — the tree-wide static twin of the
+// Decision-core pair follow-up — the tree-wide static twin of the
 // run-time exclusivity pass. The audit must agree EXACTLY with what a
 // re-research run would do to the store: same slots, same registration-twin
 // candidates, same discriminator, same ghost rivals.

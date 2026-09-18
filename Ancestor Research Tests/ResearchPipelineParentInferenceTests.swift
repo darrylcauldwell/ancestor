@@ -277,7 +277,7 @@ struct ResearchPipelineParentInferenceTests {
             existingParents: [],
             sourceInfoMap: transcriptionSources
         )
-        // RESEARCH_CONFIDENCE_SPEC Change 5 — proposal.confidence (legacy
+        // Research confidence Change 5 — proposal.confidence (legacy
         // ClusterConfidence) removed. Equivalent assertion in the three-axis
         // model: a fact-verdict birth record proposes parents whose
         // match-quality is .confirmed.

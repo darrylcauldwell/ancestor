@@ -4,7 +4,7 @@ import AncestorKit
 @testable import Ancestor_Research
 
 /// FamilySearch client — Slice 6. The enrichment leg: record hints → lead-shaped
-/// items (§18 confidence orders only), the ARK helper, and the link-only
+/// items ( confidence orders only), the ARK helper, and the link-only
 /// memories pointer decode. Serialized + MainActor for the mock-client flow and
 /// the actor's MainActor-isolated init.
 @Suite(.serialized)
@@ -56,7 +56,7 @@ struct FamilySearchEnrichmentTests {
         #expect(FamilySearchEnrichmentService.bareArk(from: nil) == nil)
     }
 
-    // MARK: §18 ordering (mock-client flow)
+    // MARK: ordering (mock-client flow)
 
     @Test func recordHintsOrderByConfidenceHighestFirst() async throws {
         FSMockURLProtocol.reset()

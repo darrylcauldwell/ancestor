@@ -12,7 +12,7 @@ public nonisolated struct Profile: Codable, Identifiable, Sendable {
     public let id: String
 
     /// Typed external identifiers with a deprecation lifecycle
-    /// (MODEL_EVOLUTION_SPEC §Change1 / ADR-004 E1). This is the source of
+    /// (Model evolution Change 1 / ADR-004 E1). This is the source of
     /// truth; `externalIDs` is now a derived projection over it. A profile can
     /// carry, per system, a primary ID plus any number of deprecated IDs that
     /// forward to it — the untyped `[String: String]` dict this replaced could
@@ -69,7 +69,7 @@ public nonisolated struct Profile: Codable, Identifiable, Sendable {
     /// fact is "about" the mother — research workflows look it up here.
     public var mothersMaidenName: String?
 
-    /// Typed, repeatable name forms (MODEL_EVOLUTION_SPEC §Change2 / ADR-004 E2).
+    /// Typed, repeatable name forms (Model evolution Change 2 / ADR-004 E2).
     /// An **additive sidecar** — the flat name fields above stay the canonical
     /// search keys with unchanged engine semantics, and `displayName` still
     /// derives from `firstName`/`middleName`/`lastName` only. `nameForms` is the
@@ -93,7 +93,7 @@ public nonisolated struct Profile: Codable, Identifiable, Sendable {
     public var birthLocationCode: String?
     /// Structured registration-district `PlaceAuthority` id (e.g.
     /// "DBY:Ashbourne-RD") derived from an applied BMD birth record's `district`
-    /// field via `RegistrationDistrictResolver` (LOCATION_MODEL_SPEC Part II,
+    /// field via `RegistrationDistrictResolver` (Location model Part II,
     /// Slice C). Distinct from `birthLocationCode` (the *place* of birth): this is
     /// the GRO *registration district* the birth was registered in, the axis
     /// FreeBMD indexes and the unit sibling-by-RD clustering keys on. Derived

@@ -2,7 +2,7 @@ import Testing
 import Foundation
 @testable import Ancestor_Research
 
-/// M13 — research goals (per DESIGN.md §5.16). Foundation tests for the
+/// M13 — research goals (by design). Foundation tests for the
 /// DB layer (CRUD round-trip, status enum coverage). View-level tests are
 /// out of scope per project conventions.
 struct ResearchGoalTests {

@@ -4,7 +4,7 @@ import Foundation
 @testable import Ancestor_Research
 
 /// Unit tests for the E2 typed repeatable name forms
-/// (MODEL_EVOLUTION_SPEC §Change2 / ADR-004 E2). Pure value-type logic — no
+/// (Model evolution Change 2 / ADR-004 E2). Pure value-type logic — no
 /// database (migration/persistence is pinned separately in
 /// `MigrationV35NameFormsTests`).
 ///

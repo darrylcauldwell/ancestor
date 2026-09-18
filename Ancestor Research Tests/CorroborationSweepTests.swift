@@ -4,7 +4,7 @@ import GRDB
 import AncestorKit
 @testable import Ancestor_Research
 
-/// #CPC-Change2 acceptance tests (`AncestorApp/CROSS_PROFILE_CORROBORATION_SPEC.md`
+/// #CPC-Change2 acceptance tests (`AncestorApp/Cross-profile corroboration`
 /// Change 2): the CorroborationSweep end-to-end on the demonstrator fixture —
 /// Mary Ellen Thompson × William Holmes, FreeBMD Dec 1915 Bakewell 7b/2130a,
 /// William d. 1919 — plus rejection memory, dispute refusal, edge-conflict

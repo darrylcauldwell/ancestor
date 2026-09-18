@@ -2,7 +2,7 @@ import Testing
 import Foundation
 @testable import Ancestor_Research
 
-/// Acceptance tests for RESEARCH_CONFIDENCE_SPEC.md Change 1 — confidence
+/// Acceptance tests for Research confidence Change 1 — confidence
 /// model types. Purely additive; no behaviour change to existing code.
 struct EvidenceConfidenceTests {
 

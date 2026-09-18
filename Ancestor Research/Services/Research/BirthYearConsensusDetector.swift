@@ -13,7 +13,7 @@ nonisolated struct BirthYearConsensus: Sendable {
     /// proposal. Reflects how rich the cross-source evidence is —
     /// not the engine's certainty that the year is *correct* (the
     /// 4-gate scorer still owns that question). Per
-    /// `SUBJECT_SELF_NARROWING_SPEC.md` §3.5.
+    /// `Subject self-narrowing`.
     nonisolated enum ConfidenceTier: String, Sendable {
         /// ≥4 supporting records (plus the MUST floor of ≥2 sources
         /// and ≥1 location-aligned). Renders with one-click Apply.
@@ -33,7 +33,7 @@ nonisolated struct BirthYearConsensus: Sendable {
     /// Distinct sourceIDs across supporting records. Floor is 2.
     let distinctSourceCount: Int
     /// One supporting-evidence row per record. Slice B3 renders the
-    /// list inline in the review surface (§3.4) so the user can audit
+    /// list inline in the review surface so the user can audit
     /// for off-by-one census drift or unrelated records sneaking in.
     let supportingEvidence: [SupportingEvidence]
 }
@@ -41,8 +41,8 @@ nonisolated struct BirthYearConsensus: Sendable {
 extension BirthYearConsensus {
     /// Build a `PendingFact` carrying this consensus so the user
     /// reviews it on the same path as MCP-submitted evidence and
-    /// prose-extractor output. Per `SUBJECT_SELF_NARROWING_SPEC.md`
-    /// §3.3 (Evidence Firewall routing) and §3.4 (inline evidence).
+    /// prose-extractor output. Per `Subject self-narrowing`
+    /// (Evidence Firewall routing) and (inline evidence).
     ///
     /// `verificationStatus` is `.verified` at write time because this
     /// proposal isn't a URL-backed external claim — it's an aggregation
@@ -55,7 +55,7 @@ extension BirthYearConsensus {
     /// The `reasoning` field carries the formatted supporting-evidence
     /// block that slice B3 renders verbatim in the review UI. Stored
     /// as text (not a separate column) to avoid a schema migration —
-    /// `SUBJECT_SELF_NARROWING_SPEC.md` §7.2 calls the migration
+    /// `Subject self-narrowing` calls the migration
     /// optional.
     func toPendingFact(
         profileID: String,
@@ -122,7 +122,7 @@ nonisolated struct SupportingEvidence: Sendable {
     /// and renders as the bullet's location suffix.
     let location: String?
     /// True when this record's location overlaps with the subject's
-    /// known birth/death location per the locality guard (§3.2).
+    /// known birth/death location per the locality guard.
     /// At least one supporter must have this true for the consensus
     /// to surface at all.
     let isLocationAligned: Bool
@@ -137,7 +137,7 @@ nonisolated struct SupportingEvidence: Sendable {
 ///
 /// Determinism contract: this is rule-driven, not MLX-driven. It looks
 /// at typed record fields, buckets implied years, applies the
-/// `SUBJECT_SELF_NARROWING_SPEC.md` §3 guards, and returns the result.
+/// `Subject self-narrowing` guards, and returns the result.
 /// No model involvement.
 nonisolated enum BirthYearConsensusDetector {
 
@@ -145,13 +145,13 @@ nonisolated enum BirthYearConsensusDetector {
     /// already-anchored — narrowing doesn't help and we don't fire.
     private static let wideSpanThreshold: Int = 5
 
-    /// Floor for the MUST §3.0 record count.
+    /// Floor for the MUST record count.
     private static let minAgreement: Int = 3
 
-    /// Floor for the MUST §3.1 source-diversity guard.
+    /// Floor for the MUST source-diversity guard.
     private static let minDistinctSources: Int = 2
 
-    /// Threshold for promotion from Medium to High tier (§3.5).
+    /// Threshold for promotion from Medium to High tier.
     /// Above this many records *and* the other MUSTs already passed,
     /// the cluster is confident enough for the one-click Apply UI.
     private static let highTierRecordThreshold: Int = 4
@@ -160,11 +160,11 @@ nonisolated enum BirthYearConsensusDetector {
     /// strongly enough to surface as a profile-update proposal. Returns
     /// nil when the subject's window is already tight, when no
     /// year-bearing cluster reaches the floor, or when any MUST guard
-    /// (§3.0 record count, §3.1 source diversity, §3.2 locality, §3.6
+    /// ( record count, source diversity, locality,
     /// user rejections) fails.
     ///
     /// `rejectedRecordIDs` is the set of `SourceRecord.id`s the user has
-    /// explicitly discarded for this subject's profile (per spec §3.6 —
+    /// explicitly discarded for this subject's profile (per spec —
     /// "Honor user record rejections"). Records in this set are
     /// excluded from the evidence pool even when they would otherwise
     /// pass the other guards. This stops a discarded "wrong person"
@@ -189,17 +189,17 @@ nonisolated enum BirthYearConsensusDetector {
             return nil
         }
 
-        // MUST §3.0 — record count floor.
+        // MUST — record count floor.
         guard supporters.count >= minAgreement else { return nil }
 
-        // MUST §3.1 — source diversity. Multiple records from the same
+        // MUST — source diversity. Multiple records from the same
         // source (e.g. 4 FreeCen census ages) often trace back to a
         // single underlying birth registration. Counting them as
         // independent confirmations is the classic false-positive mode.
         let distinctSources = Set(supporters.map(\.sourceID))
         guard distinctSources.count >= minDistinctSources else { return nil }
 
-        // MUST §3.2 — locality alignment. At least one supporter must
+        // MUST — locality alignment. At least one supporter must
         // overlap with the subject's known birth/death location.
         // Closes the "right surname + year, wrong region" gap.
         guard supporters.contains(where: \.isLocationAligned) else { return nil }
@@ -220,7 +220,7 @@ nonisolated enum BirthYearConsensusDetector {
 
     /// Pulls implied birth years out of every typed record shape we
     /// know how to read. Skips records with verdict `.impossible` and
-    /// records whose `id` is in `rejectedRecordIDs` (§3.6 guard).
+    /// records whose `id` is in `rejectedRecordIDs` ( guard).
     private static func collectEvidence(
         from scored: [ScoredRecord],
         subject: ResearchSubject,
@@ -367,12 +367,12 @@ nonisolated enum BirthYearConsensusDetector {
         return best
     }
 
-    // MARK: - Locality alignment (§3.2)
+    // MARK: - Locality alignment
 
     /// Subject's known place tokens, lowercased and stripped of common
     /// noise words. Drawn from `region` (birth location) and
     /// `deathLocation`. Empty when the subject is a placeholder with
-    /// no location data — which by spec §3.2 means we can't verify
+    /// no location data — which by spec means we can't verify
     /// alignment and the proposal won't surface.
     private static func subjectKnownPlaceTokens(
         _ subject: ResearchSubject

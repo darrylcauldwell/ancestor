@@ -3,7 +3,7 @@ import Foundation
 import GRDB
 @testable import Ancestor_Research
 
-/// Pins the prose-corpus retrieval contract from spec §9 — surname is
+/// Pins the prose-corpus retrieval contract from spec — surname is
 /// the gate, year + place add to the score, top-K is deterministic,
 /// dispatch fans out across every registered corpus.
 @MainActor

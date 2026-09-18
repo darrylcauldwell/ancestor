@@ -2,7 +2,7 @@ import Testing
 import Foundation
 @testable import Ancestor_Research
 
-/// Acceptance tests for RESEARCH_CONFIDENCE_SPEC.md Change 2 — wiring the
+/// Acceptance tests for Research confidence Change 2 — wiring the
 /// three confidence axes through `ConvergenceEngine`, `ParentInferenceEngine`,
 /// and `LifeCluster`. No behaviour change observable from existing UI; the
 /// new properties simply become available.

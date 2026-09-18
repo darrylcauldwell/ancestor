@@ -5,7 +5,7 @@ import Foundation
 // Disambiguate from Swift Testing's own `Attachment` type.
 private typealias Attachment = Ancestor_Research.Attachment
 
-/// Tests for the `.ancestor` archive round-trip (M13 / DESIGN.md §5.15).
+/// Tests for the `.ancestor` archive round-trip (M13 / the design).
 /// The archive bundles a project's SQLite file plus its media + thumbnail
 /// directories into a zip, then unpacks it back into a fresh project on
 /// import. These tests share the global `ProjectStore.projectsDirectory`

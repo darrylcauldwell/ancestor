@@ -2,7 +2,7 @@ import Foundation
 import AncestorKit
 import os
 
-/// LOCATION_MODEL_SPEC Part II Slice E's deferred tier — the local-model proposer
+/// Location model Part II Slice E's deferred tier — the local-model proposer
 /// for places the deterministic resolver cannot settle.
 ///
 /// The catalogue lists *parishes*. A tree is full of hamlets, farms and bridges

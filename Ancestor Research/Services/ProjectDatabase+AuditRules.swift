@@ -1,7 +1,7 @@
 import Foundation
 import GRDB
 
-/// Audit rule override persistence (M18, DESIGN.md §13).
+/// Audit rule override persistence (M18, the design).
 ///
 /// The override surface is small: insert/upsert one row per (ruleID, scope)
 /// pair, load all, delete. Loading is O(N) where N = override count; in

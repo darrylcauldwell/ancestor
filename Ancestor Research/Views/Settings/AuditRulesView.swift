@@ -1,6 +1,6 @@
 import SwiftUI
 
-/// Settings → Audit Rules. M18 (DESIGN.md §13).
+/// Settings → Audit Rules. M18 (by design).
 ///
 /// For each built-in rule, exposes:
 ///   - Enable/disable toggle (global override)

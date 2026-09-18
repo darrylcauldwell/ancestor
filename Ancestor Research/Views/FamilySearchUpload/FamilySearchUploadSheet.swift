@@ -1,8 +1,8 @@
 import SwiftUI
 import AncestorKit
 
-// FamilySearch User Tree upload wizard (WL5 — FAMILYSEARCH_TREES_WRITE_SPEC
-// §6). Clones the PublishReviewSheet idiom: an @Observable model with a Phase
+// FamilySearch User Tree upload wizard (WL5 — FamilySearch tree write
+//). Clones the PublishReviewSheet idiom: an @Observable model with a Phase
 // enum, review-then-confirm before anything leaves the machine, live progress
 // during the run, and an honest summary (including per-entity failures) after.
 // The two irreversibles — the one-way hidden flip and the lifetime-fixed
@@ -159,7 +159,7 @@ final class FamilySearchUploadModel {
 
 /// Identifiable wrapper so presentation uses `.sheet(item:)` (the
 /// `isPresented` + `if let` shape renders an EmptyView rectangle — project
-/// memory feedback_sheet_isPresented_race).
+/// memory the sheet(isPresented:) EmptyView race).
 struct FamilySearchUploadContext: Identifiable {
     let id = UUID()
     let database: ProjectDatabase

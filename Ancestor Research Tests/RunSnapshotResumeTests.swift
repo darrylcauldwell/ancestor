@@ -3,7 +3,7 @@ import Foundation
 import GRDB
 @testable import Ancestor_Research
 
-/// ENGINE_FOUNDATION_SPEC §Change6 — checkpoint/resume hardening, acceptance
+/// Engine foundation Change 6 — checkpoint/resume hardening, acceptance
 /// (6). The run queue (`research_run_requests`) IS the checkpoint: one row per
 /// profile, walked queued → running → completed. A request left in `running`
 /// by a dead process is orphaned today; `RunResumeCoordinator` reclaims it on

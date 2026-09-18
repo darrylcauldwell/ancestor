@@ -3,7 +3,7 @@ import Foundation
 import AncestorKit
 @testable import Ancestor_Research
 
-/// LOCATION_MODEL_SPEC Part III, Slice A — the scored place inventory.
+/// Location model Part III, Slice A — the scored place inventory.
 ///
 /// The property that matters most is the last one: **nothing may score high
 /// that cannot be justified**. Ruth Brailsford's "Middleton, Derbyshire"

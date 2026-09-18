@@ -3,8 +3,8 @@ import Foundation
 import GRDB
 @testable import Ancestor_Research
 
-/// Pins migration `v32_user_hypothesis_seeds` (RESEARCH_PIPELINE_SPEC
-/// §5.15.2, Decision E2 — user-seeded hypotheses, Slice 1).
+/// Pins migration `v32_user_hypothesis_seeds` (Research pipeline
+///, Decision E2 — user-seeded hypotheses, Slice 1).
 ///
 /// Two schema changes ship together:
 ///   • `user_hypothesis_seeds` — the staging table external surfaces

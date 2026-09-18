@@ -3,7 +3,7 @@ import Foundation
 /// Match quality — answers "does this record describe the right person?"
 ///
 /// One of three independent axes that together describe confidence in a piece
-/// of research evidence. See `RESEARCH_CONFIDENCE_SPEC.md` for the full model.
+/// of research evidence. See Research confidence for the full model.
 ///
 /// Match quality is a thin façade over `RecordVerdict`:
 ///   - `.confirmed` — `RecordVerdict.fact` (all 4 gates pass, no soft fails)
@@ -50,7 +50,7 @@ nonisolated extension RecordVerdict {
 /// same event count as one lineage; a FreeBMD birth + a FindAGrave grave +
 /// a parish baptism count as three.
 ///
-/// Display rules (see `RESEARCH_CONFIDENCE_SPEC.md` §3.2):
+/// Display rules (see Research confidence):
 ///   - `sourceCount == 1`                                → "1 source"
 ///   - `sourceCount > 1, independentLineageCount == 1`   → "N sources · same lineage"
 ///   - `sourceCount > 1, independentLineageCount >= 2`   → "N sources · cross-referenced"

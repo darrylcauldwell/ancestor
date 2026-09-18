@@ -1,7 +1,7 @@
 import Foundation
 import AncestorKit
 
-/// FREEBMD_CITATION_BACKFILL_SPEC Change 5 — the targeted, budget-light backfill.
+/// FreeBMD citation backfill Change 5 — the targeted, budget-light backfill.
 ///
 /// For one profile's link-less applied FreeBMD records it runs **one narrow,
 /// vol/page-scoped FreeBMD query per record** — a *re-location* of a record we

@@ -3,7 +3,7 @@ import Foundation
 /// Pure HTML → markdown converter for the prose-corpus subsystem.
 ///
 /// Hand-rolled rather than wrapping `NSAttributedString(data:options:)` or a
-/// third-party DOM parser because spec §7.5 requires byte-identical output
+/// third-party DOM parser because spec requires byte-identical output
 /// across OS updates. NSAttributedString's HTML reader changes behaviour with
 /// Foundation releases; a content-hash diff per page across two OS versions
 /// would trigger spurious re-indexes. A tiny purpose-built tokeniser stays
@@ -193,7 +193,7 @@ nonisolated struct HTMLToMarkdownConverter {
 
     /// Final pass over emitter output: decode entities, normalise
     /// whitespace OUTSIDE fenced code blocks (pre content must survive
-    /// verbatim per spec §7.1), trim trailing whitespace per line,
+    /// verbatim per spec), trim trailing whitespace per line,
     /// collapse 3+ blank lines to 2.
     private static func cleanup(_ s: String) -> String {
         var out = decodeEntities(s)
@@ -308,7 +308,7 @@ private nonisolated struct MarkdownEmitter {
     /// Buffer for link text — collected between `<a>` and `</a>`.
     private var linkTextStack: [String] = []
     /// Class/id substrings that mark navigation chrome we skip entirely.
-    /// "header" and "footer" included alongside the spec §7.2 list because
+    /// "header" and "footer" included alongside the spec list because
     /// genealogy sites overwhelmingly use class="footer-row" or
     /// id="header-banner" rather than semantic `<header>`/`<footer>` tags.
     private static let chromeKeywords = ["nav", "menu", "sidebar", "breadcrumb", "header", "footer"]

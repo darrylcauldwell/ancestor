@@ -6,7 +6,7 @@ import SwiftUI
 /// import-duplicate scan, and the open-disputes list. `.research` findings
 /// (missing-X, completeness — "go research this person") are NOT shown here:
 /// Health is for defects and apply-gaps; research prompts live in the
-/// Workbench suggestions (HEALTH_RECATEGORISATION_SPEC #HR2). Wired to the `.health` sidebar tab. (Formerly the tab-less
+/// Workbench suggestions (Health recategorisation #HR2). Wired to the `.health` sidebar tab. (Formerly the tab-less
 /// AuditPlaceholderView.)
 struct HealthView: View {
     /// Navigate to a finding's profile (Tree → Full Detail). Injected by
@@ -105,7 +105,7 @@ struct HealthView: View {
                 // they don't need to sit out on the bar competing for space.
                 Menu {
                     Button {
-                        // CONFLICT_LAYER_SPEC CL2 — manual conflict sweep.
+                        // Conflict layer CL2 — manual conflict sweep.
                         // Refresh the ROWS as well as the count: the ladder,
                         // the Conflicts chip and the dispute rows all read
                         // `openDisputeRows`, so refreshing only the count
@@ -864,7 +864,7 @@ struct HealthView: View {
                                 .font(AppTypography.badge)
                                 .foregroundStyle(disputeSeverityColor(sev))
                         }
-                        // Mirrors the §14.3 gate EXACTLY — which ignores
+                        // Mirrors the gate EXACTLY — which ignores
                         // severity (a cosmetic refinement blocks its field
                         // too) and does NOT refuse on a deferred dispute.
                         // Deliberately independent of the pin (review

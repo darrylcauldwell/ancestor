@@ -4,7 +4,7 @@ import Foundation
 @testable import Ancestor_Research
 
 /// Unit tests for the E1 typed external-identifier records
-/// (MODEL_EVOLUTION_SPEC §Change1 / ADR-004 E1): the `externalIDs` legacy
+/// (Model evolution Change 1 / ADR-004 E1): the `externalIDs` legacy
 /// projection, the deprecation-chain resolver, idempotent upsert, and the
 /// full-URL guard. Pure value-type logic — no database.
 nonisolated struct ExternalIdentifierTests {

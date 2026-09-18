@@ -92,7 +92,7 @@ final class PendingFactsProcessor {
             // verdicts), the synthetic re-score below would strip the GRO
             // tuple — the entire evidence — and a live re-fetch would
             // re-hit volunteer sources on every review load (ToS posture,
-            // `feedback_verify_source_terms_first`).
+            // the verify-source-terms-first rule).
             if finding.agentID == CorroborationSweep.agentID {
                 processed.append(ProcessedFinding(
                     finding: finding, status: .readyForReview,
@@ -260,7 +260,7 @@ final class PendingFactsProcessor {
         let delta = abs(existingYear - findingYear)
         // Firewall submissions are graded by trust tier (no genealogy-source
         // identifier survives the pending-fact boundary), so the per-source
-        // §10.3 bands don't apply — pass an empty sourceID to use the tier band.
+        // bands don't apply — pass an empty sourceID to use the tier band.
         let severity = DiscrepancySeverityTable.severity(
             sourceID: "", sourceTier: tierEntry.trustTier, recordType: nil,
             absDelta: delta, convergence: .singleSource

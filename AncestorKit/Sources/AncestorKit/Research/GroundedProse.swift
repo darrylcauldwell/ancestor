@@ -1,15 +1,15 @@
 import Foundation
 import CryptoKit
 
-// DOSSIER_SPEC #T9-Change1 — the grounding machinery for the investigation
+// Dossier #T9-Change1 — the grounding machinery for the investigation
 // dossier, placed in AncestorKit so PROSE_CORPUS bio synthesis reuses it
-// later (spec §4 component table). Governing invariant (a): the dossier is a
+// later (spec component table). Governing invariant (a): the dossier is a
 // pure deterministic projection — every statement carries ≥1 provenance ref
 // resolving to a live row; invariant (d): confidence language comes ONLY
 // from `ConfidenceVocabulary`, narrating deterministic verdicts verbatim.
 
 /// A typed reference to the database row (or computed criterion) a dossier
-/// sentence is grounded in. Spec §3, plus two additive cases the profile-page
+/// sentence is grounded in. Spec, plus two additive cases the profile-page
 /// door needs (`.researchRun` — D0 renders the stored last-run GPS summary
 /// when no live run is in memory; `.profileField` — structural-gap sentences
 /// anchor to the profile values that bound them).
@@ -47,7 +47,7 @@ public nonisolated enum ProvenanceRef: Sendable, Equatable, Hashable, Codable {
 }
 
 /// A sentence that cannot exist without provenance — the failable init is
-/// the constructor-level enforcement of grounding rule 1 (spec §5): a
+/// the constructor-level enforcement of grounding rule 1 (spec): a
 /// sentence with an empty ref set cannot be constructed.
 public nonisolated struct GroundedSentence: Sendable, Equatable, Codable {
     public let text: String
@@ -92,13 +92,13 @@ public nonisolated enum ConfidenceVocabulary {
     }
 
     /// Words the dossier may never emit — they overclaim beyond any
-    /// deterministic verdict (spec §7.2 check 5; permanent unit-tested list).
+    /// deterministic verdict (spec check 5; permanent unit-tested list).
     public static let bannedLexicon: [String] = [
         "proves", "certainly", "undoubtedly", "must have",
     ]
 }
 
-/// Deterministic zero-hallucination gate for model-smoothed text (spec §7.2).
+/// Deterministic zero-hallucination gate for model-smoothed text (spec).
 /// Change-1 ships the core checks; smoothing itself arrives with #T9-Change5
 /// — until then the verifier exists so the contract is testable and shared.
 public nonisolated enum GroundedProseVerifier {

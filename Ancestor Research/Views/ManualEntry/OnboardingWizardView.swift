@@ -88,7 +88,7 @@ struct OnboardingWizardView: View {
             structureChoice(.divorced, title: "My parents divorced or remarried",
                              subtitle: "We'll record one couple now; add the other later")
             // Fourth option: skip the wizard entirely. Phrased as a peer choice
-            // (per spec §7.5.1) so users with non-standard structures don't feel
+            // (per spec) so users with non-standard structures don't feel
             // shoehorned. The flexible Add Family flow handles arbitrary shapes.
             complicatedChoice
         }
@@ -162,7 +162,7 @@ struct OnboardingWizardView: View {
                     personFields(input: $input.mother, defaultGender: .female, includeLocation: true)
                 }
             }
-            // DESIGN.md §7.5.1 — divorced/remarried families need a third
+            // the design — divorced/remarried families need a third
             // parent slot. Surfaced as a button so the row is opt-in; when
             // tapped the third row appears and routes through the builder
             // with RelationshipSubtype.step pre-set.
@@ -248,7 +248,7 @@ struct OnboardingWizardView: View {
                 columnTitle("Maternal grandmother")
                 personFields(input: $input.maternalGrandmother, defaultGender: .female, includeLocation: false)
                 // Maternal grandmother surname is her maiden name — suggest from
-                // existing female profiles' surnames (per DESIGN.md §7.5.8).
+                // existing female profiles' surnames (by design).
                 maidenSurnameSuggestions(target: $input.maternalGrandmother.lastName)
             }
         }

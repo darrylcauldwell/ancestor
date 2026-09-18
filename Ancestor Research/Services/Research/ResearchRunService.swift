@@ -6,11 +6,11 @@ import os
 /// (retired 2026-08-25), and MCP-requested watcher runs
 /// (`RunRequestWatcher`) — builds its pipeline here, so run behaviour
 /// cannot diverge by trigger (Phase 1 slice 6,
-/// ARCHITECTURE_REVIEW_2026-07.md).
+/// the 2026-07 architecture review).
 ///
 /// History note: before this existed each site hand-rolled construction,
 /// and the watcher's copy omitted `rejectionLookup` — so MCP-triggered
-/// runs did not honour user record discards across runs (the §3.6
+/// runs did not honour user record discards across runs (the
 /// guard). Exactly the divergence class this service exists to prevent.
 @MainActor
 enum ResearchRunService {
@@ -98,7 +98,7 @@ enum ResearchRunService {
     /// (ENGINE_FOUNDATION #Change5). Policies come from each registered
     /// source's declared `budgetPolicy`; the current request counts are
     /// rehydrated from `source_budget_state` so a budget spent before a
-    /// restart is still spent after (§Change6). The persistence sink writes
+    /// restart is still spent after (Change 6). The persistence sink writes
     /// every counted request back to the same table. Returns nil when there
     /// is no database (nothing to persist to / restore from) — callers then
     /// run without budget tracking, exactly as before this Change.
@@ -149,7 +149,7 @@ enum ResearchRunService {
     ///   enrichment, wanted on autonomous hops; UI runs leave it to the
     ///   human reviewing clusters.
     /// - `resultJSON`: the watcher's eval envelope
-    ///   (SWIFT_MCP_EVAL_BACKEND_SPEC #Change3) stored on the run row.
+    ///   (MCP eval backend #Change3) stored on the run row.
     struct PersistOptions {
         var emitParentInferredLeads = false
         var runPlaceholderWriteback = false
@@ -186,11 +186,11 @@ enum ResearchRunService {
 
         if let profileID {
             // Run id generated up front so evidence rows carry their run
-            // linkage (CAMPAIGN_REVIEW_SPEC Change 2) — the same id the
+            // linkage (Campaign review Change 2) — the same id the
             // research_runs row is saved under below.
             let runID = UUID()
 
-            // DECISION_CORE_PAIR_SPEC Fix A, cross-run extension: compete this
+            // Decision-core pair Fix A, cross-run extension: compete this
             // run's facts against the STORED facts the caches kept out of the
             // batch, and demote stored rivals in place. Without this, a
             // cache-suppressed rival makes a namesake look unrivalled.
@@ -253,7 +253,7 @@ enum ResearchRunService {
             }
             logger.info("Persisted \(saved)/\(result.allScoredRecords.count) evidence records for \(profileID)")
 
-            // FREEBMD_CITATION_BACKFILL_SPEC Change 3 — enrich-in-place: a run
+            // FreeBMD citation backfill Change 3 — enrich-in-place: a run
             // that re-found a FreeBMD entry with its link now heals any
             // link-less applied record of the same GRO entry (cross-transcription
             // case; the same-transcription case self-heals via saveEvidence's
@@ -262,7 +262,7 @@ enum ResearchRunService {
                 logger.info("Enriched \(enriched) FreeBMD citation link(s) for \(profileID) from re-found siblings")
             }
 
-            // CAMPAIGN_REVIEW_SPEC Change 3 — persist the evidence chain's
+            // Campaign review Change 3 — persist the evidence chain's
             // convergence per asserted fact value. Upsert per
             // (profile, value_key): the level upgrades as independent
             // lineages accumulate across runs; a level DROP (registry/tier
@@ -286,7 +286,7 @@ enum ResearchRunService {
 
             // T12-sibling Phase 1: persist pipeline-generated hypotheses
             // alongside evidence. Upsert preserves created_at and the
-            // user_rejected flag across re-runs (V2 spec §4.3).
+            // user_rejected flag across re-runs (V2 spec).
             if !result.hypotheses.isEmpty {
                 do {
                     try db.upsertHypotheses(result.hypotheses)
@@ -505,7 +505,7 @@ enum ResearchRunService {
             do {
                 // upsertLead — saveLead (INSERT OR IGNORE) never lands this
                 // flip for a lead already in the DB, which is every lead
-                // reaching this path (CAMPAIGN_REVIEW_SPEC Change 1).
+                // reaching this path (Campaign review Change 1).
                 try db.upsertLead(updated)
                 finalisedLead = updated
             } catch {

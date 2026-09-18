@@ -2,7 +2,7 @@ import Testing
 import Foundation
 @testable import Ancestor_Research
 
-/// RESEARCH_PIPELINE_SPEC §5.15 Slice 1 — the `.parentCandidates` kind
+/// Research pipeline Slice 1 — the `.parentCandidates` kind
 /// (Decision E1) and the `origin` provenance field. Covers:
 ///   • Codable round-trip for the new kind (full and partial hints).
 ///   • identityKey composition: nil-hint normalisation, case folding,
@@ -72,14 +72,14 @@ struct ParentCandidatesHypothesisTests {
 
     @Test func kindRoundTripsWithNilHints() throws {
         // "Sue, maiden surname unknown" — partial hints are the honest
-        // encoding the interim placeholder path can't express (§5.15.9).
+        // encoding the interim placeholder path can't express.
         let kind = makeKind(fatherGiven: nil, fatherSurname: nil, motherMaidenSurname: nil)
         let data = try JSONEncoder().encode(kind)
         let decoded = try JSONDecoder().decode(HypothesisKind.self, from: data)
         #expect(decoded == kind)
     }
 
-    // MARK: - identityKey (§5.15.1)
+    // MARK: - identityKey
 
     @Test func identityKeyComposesAllHintsUppercased() {
         let key = makeKind().identityKey(subjectProfileID: "subj-1")
@@ -160,7 +160,7 @@ struct ParentCandidatesHypothesisTests {
     }
 
     @Test func upsertNeverFlipsUserOriginBackToEngine() throws {
-        // §5.15.1: the engine's regeneration cycle never reshapes `.user`
+        //: the engine's regeneration cycle never reshapes `.user`
         // rows. Even if an engine-side copy loses the origin in memory,
         // the upsert's ON CONFLICT clause must not overwrite the column.
         let db = try makeTempDB()

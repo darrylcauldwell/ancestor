@@ -3,7 +3,7 @@ import Foundation
 @testable import Ancestor_Research
 @testable import AncestorKit
 
-/// DECISION_CORE_PAIR_SPEC — characterization corpus from the 2026-07-30/31
+/// Decision-core pair — characterization corpus from the 2026-07-30/31
 /// live specimens (Elizabeth Shaw's 11 mutually exclusive birth "facts" and
 /// 3 simultaneous 1891 censuses; Harry Marshall's namesake probates; Mary E
 /// Land's namesake marriages; WHK's genuinely corroborated pair). Fix A: the
@@ -199,7 +199,7 @@ struct DecisionCorePairExclusivityTests {
     }
 }
 
-/// DECISION_CORE_PAIR_SPEC Fix B — the geography gate derives the research
+/// Decision-core pair Fix B — the geography gate derives the research
 /// area from the SUBJECT's own places (not just tree home), walks the place
 /// hierarchy when the district resolves, and never lets ABSENCE of geographic
 /// knowledge veto a family-confirmed record.
@@ -312,7 +312,7 @@ struct DecisionCorePairGeographyTests {
     }
 }
 
-/// DECISION_CORE_PAIR_SPEC Fix A, cross-RUN extension — the live 2026-07-31
+/// Decision-core pair Fix A, cross-RUN extension — the live 2026-07-31
 /// screenshot specimen: a re-run re-promoted the 1891 Ilkeston census as an
 /// "unrivalled" fact because its Hayfield/Belper rivals were cache-suppressed
 /// from the batch and sat in the store as yesterday's facts.
@@ -451,7 +451,7 @@ struct DecisionCorePairRegistrationTwinTests {
     }
 }
 
-// DECISION_CORE_PAIR_SPEC — ghost-rival extension (fourth dogfood round).
+// Decision-core pair — ghost-rival extension (fourth dogfood round).
 // Live specimen: after the 2026-07-30 Elizabeth Shaw run the store held ZERO
 // census-1891 facts and three exclusivity-demoted leads (Ilkeston "born
 // Eastwood" / Belper / Hayfield). With only stored FACTS counting as rivals,

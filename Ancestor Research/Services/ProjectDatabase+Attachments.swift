@@ -1,7 +1,7 @@
 import Foundation
 import GRDB
 
-/// Attachment persistence (M13). Per DESIGN.md §5.15. The DB row stores
+/// Attachment persistence (M13). By design The DB row stores
 /// metadata + a relative path; the actual file lives in the project's
 /// media directory.
 nonisolated extension ProjectDatabase {

@@ -3,7 +3,7 @@ import os
 import AncestorKit
 
 /// The typed place-authority hierarchy for the app, **derived** from the three
-/// existing seed sources (MODEL_EVOLUTION_SPEC §Change3 / ADR-004 E3):
+/// existing seed sources (Model evolution Change 3 / ADR-004 E3):
 ///
 ///   1. `LocationGazetteer` — countries, ~56 counties, ~205 towns/parishes
 ///      (the `uk-places.json` entries, with their optional E3 hierarchy fields).

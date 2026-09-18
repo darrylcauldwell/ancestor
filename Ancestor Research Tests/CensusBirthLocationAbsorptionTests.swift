@@ -3,7 +3,7 @@ import Foundation
 import AncestorKit
 @testable import Ancestor_Research
 
-/// EVIDENCE_ABSORPTION_SPEC Change 1 — a census carries the subject's
+/// Evidence absorption Change 1 — a census carries the subject's
 /// birthplace off-agenda. `ApplyEngine.censusBirthLocation` composes it into
 /// the *anchor-able* string that `applyFactToSubject` routes to the
 /// birthLocation field, so a discovered "Alport" can finally anchor the

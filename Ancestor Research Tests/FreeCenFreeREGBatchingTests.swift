@@ -4,7 +4,7 @@ import AncestorKit
 @testable import Ancestor_Research
 
 /// FT-25 / FT-28 — dispatcher-side batching wiring for FreeCen/FreeREG
-/// (CONNECTOR_AUDIT_2026-07 §2.4). The transport primitive
+/// (the 2026-07 connector audit). The transport primitive
 /// (`postForm(multiFields:)`, preserving repeated keys) shipped separately;
 /// these tests pin the connector + dispatcher + cache wiring that rides it:
 ///

@@ -3,7 +3,7 @@ import Foundation
 /// `.birthYearCandidate(profileID, year)` kind — generator, grader, and
 /// expansiveness ladder.
 ///
-/// **Slices 1 + 2 + 4 of `project_multi_hypothesis_birth_year_plan`.**
+/// **Slices 1 + 2 + 4 of the multi-hypothesis birth-year plan.**
 /// Slice 1 shipped the generator. Slice 2 wired `BiographicalFitEvaluator`
 /// into the grader. Slice 4 wires the expansiveness ladder: level 1
 /// emits one FreeCen census probe per applicable UK census year (the
@@ -47,7 +47,7 @@ nonisolated extension HypothesisEngine {
     /// agreeing on a specific year is the minimum bar — a single
     /// census record could be transcription error; two from different
     /// years can't be the same error. Mirrors the "≥ 2 independent
-    /// signals" pattern in V2 spec §5.8.
+    /// signals" pattern in V2 spec.
     fileprivate static let birthYearCandidateCorroborationMargin: Int = 2
 
     /// Emit one `.birthYearCandidate` per distinct precise (span-0)

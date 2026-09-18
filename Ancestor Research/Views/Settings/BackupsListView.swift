@@ -1,6 +1,6 @@
 import SwiftUI
 
-/// Settings → Backups section (M14 / DESIGN.md §7.15.3).
+/// Settings → Backups section (M14 / the design).
 ///
 /// Lists every backup for the currently-open project. Each row carries a
 /// timestamp, a file size, and a Restore button that runs the standard

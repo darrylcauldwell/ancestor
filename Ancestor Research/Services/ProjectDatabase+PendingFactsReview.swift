@@ -3,7 +3,7 @@ import CryptoKit
 import GRDB
 
 /// Persistence for the pending-facts review flow (`PendingFactsReviewView`).
-/// Extracted from the view (Phase 1 slice 1, ARCHITECTURE_REVIEW_2026-07.md)
+/// Extracted from the view (Phase 1 slice 1, the 2026-07 architecture review)
 /// so no SwiftUI view executes SQL directly — ProjectDatabase(+extensions)
 /// is the single persistence seam.
 extension ProjectDatabase {
@@ -53,7 +53,7 @@ extension ProjectDatabase {
     /// reviewed this exact value); unifying it with the ApplyEngine
     /// overwrite policy is Phase 1 slice 3+ scope, not this seam move.
     ///
-    /// CONFLICT_LAYER_SPEC §4.4 T-A (pending-fact producer): because this
+    /// Conflict layer T-A (pending-fact producer): because this
     /// path bypasses the overwrite policy, the F1/F2 incompatibility test
     /// runs *after* the write — the displaced value (still attested in
     /// `field_sources` and captured from the canonical column here) opens

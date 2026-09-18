@@ -28,7 +28,7 @@ final class ResearchPipeline {
     private var runSupplementalRegionCodes: [String] = []
     let sourceInfoMap: [String: SourceInfo]
 
-    /// Q2 Option B fallback (RESEARCH_PIPELINE_SPEC §5.14.1 clause 5).
+    /// Q2 Option B fallback (Research pipeline clause 5).
     /// Optional lookup that returns a child profile's MMN sourced from
     /// the child's persisted research records when the child's
     /// `Profile.mothersMaidenName` field is empty. Pipeline call sites
@@ -45,7 +45,7 @@ final class ResearchPipeline {
     /// annotation step is a deterministic no-op.
     let spouseEvidenceLookup: ((String) -> [EvidenceRecord])?
 
-    /// Firewall-respecting pending-fact writer (§5.14.5). Nil means no
+    /// Firewall-respecting pending-fact writer. Nil means no
     /// persistence — `state.subject.givenName` still mutates in memory
     /// so the iteration loop sees the rich subject for this run, but
     /// nothing reaches the user's pending-facts queue. Pipeline call
@@ -62,12 +62,12 @@ final class ResearchPipeline {
     /// gesture sticks across research runs.
     let rejectionLookup: ((String) -> Set<String>)?
 
-    /// Per-profile user-seeded hypothesis lookup (RESEARCH_PIPELINE_SPEC
-    /// §5.15 Slice 2). Returns the persisted `origin == .user`
+    /// Per-profile user-seeded hypothesis lookup (Research pipeline
+    /// Slice 2). Returns the persisted `origin == .user`
     /// `research_hypotheses` rows for a profile — the hunches
     /// `HypothesisSeedService` materialised from the v32 seeds table.
     /// Backed by `ProjectDatabase.loadHypotheses(forProfile:)`, which
-    /// excludes `user_rejected = 1` rows — §5.15.6: no deficit level is
+    /// excludes `user_rejected = 1` rows —: no deficit level is
     /// ever dispatched for a rejected row. Nil means no database (unit
     /// tests, read-only runs) — the user-hunch flow is a no-op.
     let userHypothesisLookup: ((String) -> [ResearchHypothesis])?
@@ -167,10 +167,10 @@ final class ResearchPipeline {
     }
 
     /// Build a `userHypothesisLookup` closure backed by
-    /// `ProjectDatabase.loadHypotheses(forProfile:)` (§5.15 Slice 2).
+    /// `ProjectDatabase.loadHypotheses(forProfile:)` ( Slice 2).
     /// Read-only; filters to `origin == .user`. Rejected rows never
     /// surface — `loadHypotheses` excludes `user_rejected = 1` by
-    /// default, which is the §5.15.6 dispatch-suppression contract.
+    /// default, which is the dispatch-suppression contract.
     /// Load failures fall through to an empty list.
     static func makeUserHypothesisLookup(database: ProjectDatabase?) -> ((String) -> [ResearchHypothesis])? {
         guard let database else { return nil }
@@ -230,7 +230,7 @@ final class ResearchPipeline {
             forceRefresh: config.forceRefreshNegatives
         )
 
-        // Pre-iteration phase (RESEARCH_PIPELINE_SPEC §5.14). For thin
+        // Pre-iteration phase (Research pipeline). For thin
         // placeholder subjects (surname only, no given name, ≥1 linked
         // child with usable MMN anchor), probe the marriage index to
         // recover the given name *before* the iteration loop runs —
@@ -239,7 +239,7 @@ final class ResearchPipeline {
             state: &state, scope: config.scope, cache: queryCache
         )
 
-        // Storm-guard (§5.14.2). When the pre-iteration probe ran and
+        // Storm-guard. When the pre-iteration probe ran and
         // left the subject thin (no name recovered — match was ambiguous,
         // no match found, or gender unresolved), running the iteration
         // loop would fan out surname-only queries across 8 record types
@@ -349,7 +349,7 @@ final class ResearchPipeline {
             // Cross-source enrichment: when FamilySearch's aggregator
             // surfaces a Find a Grave memorial without the inscribed dates,
             // schedule a follow-up FAG detail fetch so the inscription /
-            // bio mining can recover the death year. Spec §22.
+            // bio mining can recover the death year. Spec.
             let records = await enrichFagBridge(
                 dispatchedRecords,
                 existingIDs: priorRecordIDs
@@ -371,7 +371,7 @@ final class ResearchPipeline {
                 scope: config.scope,
                 cache: queryCache
             )
-            // FINDAGRAVE_DEATH_SEARCH_SPEC Fix 2 — the Find a Grave twin of the
+            // Find a Grave death search Fix 2 — the Find a Grave twin of the
             // directed fetch: recover the subject's own memorial by following a
             // tree-spouse's memorial spouse-link, for a memorial that name+year
             // search misses (Ernest 216193076 via Mary 216193100).
@@ -505,7 +505,7 @@ final class ResearchPipeline {
             // Logging-only for now; slice B will surface this as a one-click
             // profile-update proposal.
             // Resolve user-discarded record IDs for this profile so the
-            // detector can honor them per spec §3.6. Empty set when the
+            // detector can honor them per spec. Empty set when the
             // subject isn't a profile (lead-only runs) or no lookup is
             // installed — keeping the previous behaviour for those paths.
             let rejectedIDs: Set<String> = {
@@ -540,7 +540,7 @@ final class ResearchPipeline {
             }
 
             // Parent inference + marriage enrichment now run post-loop
-            // via `runParentHypothesisFlow` (V2 spec §5.2 T12-parent
+            // via `runParentHypothesisFlow` (V2 spec T12-parent
             // Phase 2). They were here in the iteration loop until the
             // framework path took over as the source of truth.
 
@@ -944,14 +944,14 @@ final class ResearchPipeline {
         // parents' marriage as e.g. a "DAVID N CAULDWELL" orphan cluster.
         // A record the user has DISCARDED must not be resurrected by a later
         // research run. The pipeline's own doctrine — "a hunch cannot resurrect
-        // records the user discarded" (§5.15.6, `excludingRejected`) — applies
+        // records the user discarded" (, `excludingRejected`) — applies
         // equally to the MAIN pass; without this, a namesake the user discarded
         // (e.g. George Herbert Brooks's "George Brooks, Mar 1884" twin)
         // re-clusters into the review every single run. Uses the rejection
         // memory already loaded via `rejectionLookup` (record_rejections +
         // evidence_records.user_status='discarded').
         let rejectedRecordIDs: Set<String> = subject.profileID.flatMap { rejectionLookup?($0) } ?? []
-        // DECISION_CORE_PAIR_SPEC Fix A — the cross-record exclusivity pass
+        // Decision-core pair Fix A — the cross-record exclusivity pass
         // runs over the ACCUMULATED record set before clustering and final
         // assembly, competing against STORED facts too (cross-run extension:
         // cache-suppressed rivals live in the store, not the batch). Running
@@ -999,7 +999,7 @@ final class ResearchPipeline {
         let confirmed = clusters.filter { $0.matchQuality == .confirmed }.count
         logger.info("Clustering: \(clusters.count) clusters — \(confirmed) with confirmed match quality")
 
-        // DETERMINISTIC: sibling hypothesis flow (V2 spec §5.2,
+        // DETERMINISTIC: sibling hypothesis flow (V2 spec,
         // T12-sibling — engine is the sole source of truth as of Phase 4).
         // generate → for each draft, dispatch the level-1 deficit query,
         // append candidates to state (marked for exclusion from
@@ -1008,7 +1008,7 @@ final class ResearchPipeline {
         // `ResearchViewModel.visibleSiblings(snapshot:)`.
         let siblingHypotheses = await runSiblingHypothesisFlow(state: &state, cache: queryCache)
 
-        // DETERMINISTIC: parent hypothesis flow (V2 spec §5.2,
+        // DETERMINISTIC: parent hypothesis flow (V2 spec,
         // T12-parent — engine is the sole source of truth as of
         // Phase 2). Generates `.parentInferred` + `.parentMarriage`,
         // fans out marriage queries across `config.scope`, grades,
@@ -1033,12 +1033,12 @@ final class ResearchPipeline {
             state: &state, cache: queryCache
         )
 
-        // DETERMINISTIC: user-seeded hypothesis flow (RESEARCH_PIPELINE_SPEC
-        // §5.15 Slice 2). Loads the subject's persisted `origin == .user`
+        // DETERMINISTIC: user-seeded hypothesis flow (Research pipeline
+        // Slice 2). Loads the subject's persisted `origin == .user`
         // `.parentCandidates` rows, dispatches ONE unconditional level-1
         // parent-marriage probe for never-probed rows (T7 stall-gate
         // carve-out, Decision E4 — a user directive is not engine
-        // speculation), and grades per §5.15.4 (Decision E5 — supported
+        // speculation), and grades per (Decision E5 — supported
         // requires the marriage + linkage chain). Ladder levels 2–3 ride
         // the normal T7 stall gate below.
         let userSeededHypotheses = await runUserSeededHypothesisFlow(
@@ -1047,7 +1047,7 @@ final class ResearchPipeline {
 
         let firstPassHypotheses = preIterationHypotheses + siblingHypotheses + parentHypotheses + birthYearCandidateHypotheses + userSeededHypotheses
 
-        // T7 second pass (V2 spec §5.3). At most once per research()
+        // T7 second pass (V2 spec). At most once per research()
         // call; only fires when there's at least one inconclusive
         // hypothesis whose per-kind ladder has headroom. Right now
         // that's principally `.parentMarriage` rows whose first-pass
@@ -1084,7 +1084,7 @@ final class ResearchPipeline {
         let hitRate = total > 0 ? Double(cacheStats.hits) / Double(total) : 0
         logger.info("QueryCache for \(subject.displayName): \(cacheStats.hits) hits / \(cacheStats.misses) misses (\(Int(hitRate * 100))%), \(cacheStats.entries) entries")
 
-        // SWIFT_MCP_EVAL_BACKEND_SPEC #Change3 — emit the three per-run
+        // MCP eval backend #Change3 — emit the three per-run
         // verdicts after clustering / hypothesis flows have settled, so
         // they see the final clusters and confirmedFacts. Verdicts
         // depend only on the result + snapshot + subject identity.
@@ -1110,7 +1110,7 @@ final class ResearchPipeline {
             subjectProfileID: subject.profileID
         )
 
-        // ENGINE_FOUNDATION_SPEC #Change4: attrition summary across
+        // Engine foundation #Change4: attrition summary across
         // this run's scored records + bus publish so the activity
         // feed shows "the brake is engaged" (rich subject, high
         // attrition) vs "everything passed" (thin subject, the
@@ -1137,10 +1137,10 @@ final class ResearchPipeline {
         )
     }
 
-    // MARK: - Subject-Spouse Marriage Flow (V2 spec §5.14 — pre-iteration)
+    // MARK: - Subject-Spouse Marriage Flow (V2 spec — pre-iteration)
 
     /// Run the `.subjectSpouseMarriage` strategy *before* the iteration
-    /// loop (RESEARCH_PIPELINE_SPEC §5.14). For thin placeholder
+    /// loop (Research pipeline). For thin placeholder
     /// subjects (no given name) with at least one linked child whose
     /// MMN can be resolved, the marriage index is the right anchor —
     /// not the birth index. A `.unique` match recovers the subject's
@@ -1158,7 +1158,7 @@ final class ResearchPipeline {
     ///      marriage queries across the scope's districts (mirrors
     ///      `.parentMarriage` dispatch).
     ///   4. Grade each draft — `.supported` / `.inconclusive` /
-    ///      `.contradicted` per §5.14.4 outcomes.
+    ///      `.contradicted` per outcomes.
     private func runSubjectSpouseMarriageFlow(
         state: inout ResearchState,
         scope: ResearchScope,
@@ -1235,7 +1235,7 @@ final class ResearchPipeline {
             )
         }
 
-        // Slice 2 write-back (§5.14.5). Cross-hypothesis reconciliation
+        // Slice 2 write-back. Cross-hypothesis reconciliation
         // decides whether to mutate state.subject.givenName and emit a
         // pending fact. Runs only when at least one row is
         // `.supported`; the reconciliation handles the Q4 four cases
@@ -1247,7 +1247,7 @@ final class ResearchPipeline {
         return graded
     }
 
-    /// Apply the §5.14.4 cross-hypothesis reconciliation: pick the
+    /// Apply the cross-hypothesis reconciliation: pick the
     /// recovered given name (if any), mutate `state.subject.givenName`
     /// so the iteration loop sees it, and (if a writer is configured)
     /// emit one pending fact citing every contributing marriage. Pure
@@ -1260,7 +1260,7 @@ final class ResearchPipeline {
         state: inout ResearchState,
         subjectID: String
     ) -> Bool {
-        // Resolve gender via the §5.14.4 ladder. The ladder is
+        // Resolve gender via the ladder. The ladder is
         // deterministic over snapshot + childMMNs; at this point the
         // child profile fields are baked into the snapshot, so passing
         // `[:]` for childMMNs is the slice-1 default.
@@ -1317,7 +1317,7 @@ final class ResearchPipeline {
         }
     }
 
-    // MARK: - Parent Hypothesis Flow (V2 spec §5.2 — engine is the
+    // MARK: - Parent Hypothesis Flow (V2 spec — engine is the
     //         sole source of truth as of Phase 2)
 
     /// Run the `.parentInferred` + `.parentMarriage` framework path:
@@ -1330,7 +1330,7 @@ final class ResearchPipeline {
     ///   3. generate `.parentMarriage` drafts — the generator gates on
     ///      "both parents linked" OR "subject identity resolved" so a
     ///      non-specific subject doesn't fan out marriage queries
-    ///      across every MMN (V2 spec §5.2.1),
+    ///      across every MMN (V2 spec),
     ///   4. for each draft, fan out groom-side + bride-side FreeBMD
     ///      marriage queries across the scope's districts, append the
     ///      returned records to `state.scoredRecords` (also added to
@@ -1440,7 +1440,7 @@ final class ResearchPipeline {
 
     /// Project a `.supported` `.parentInferred` hypothesis to the
     /// `ProposedRelative` shape the UI's accept / reject flow expects.
-    /// Mirrors the legacy `ParentInferenceEngine` output (V2 spec §5.2.1).
+    /// Mirrors the legacy `ParentInferenceEngine` output (V2 spec).
     ///
     /// Call sites: `ResearchViewModel.visibleProposedRelatives` and
     /// `RunRequestWatcher`'s auto-accept gate. T12-parent Phase 4
@@ -1628,7 +1628,7 @@ final class ResearchPipeline {
         return nil
     }
 
-    // MARK: - Sibling Hypothesis Flow (V2 spec §5.2 Phase 2)
+    // MARK: - Sibling Hypothesis Flow (V2 spec Phase 2)
 
     /// Run the `.siblingExists` framework path:
     ///   1. generate drafts (engine checks preconditions),
@@ -1888,17 +1888,17 @@ final class ResearchPipeline {
         }
     }
 
-    // MARK: - User-seeded hypothesis flow (RESEARCH_PIPELINE_SPEC §5.15)
+    // MARK: - User-seeded hypothesis flow (Research pipeline)
 
-    /// Run the `.parentCandidates` user-hunch path (§5.15.3, Decision E4).
+    /// Run the `.parentCandidates` user-hunch path (, Decision E4).
     ///
     /// User rows are never generated — `HypothesisSeedService`
     /// materialised them from the v32 seeds table (regeneration
-    /// exemption, §5.15.1); this flow only dispatches and re-grades:
+    /// exemption,); this flow only dispatches and re-grades:
     ///
     ///   1. load the subject's `origin == .user` rows via
     ///      `userHypothesisLookup` (rejected rows are already excluded
-    ///      at the lookup — §5.15.6: no deficit level is ever dispatched
+    ///      at the lookup —: no deficit level is ever dispatched
     ///      for a rejected row);
     ///   2. for never-probed rows (`attempts == 0`), dispatch the
     ///      level-1 parent-marriage probe **unconditionally** — the T7
@@ -1906,15 +1906,15 @@ final class ResearchPipeline {
     ///      engine speculation, and a user directive is not speculation.
     ///      Exception: a row the pre-dispatch grade already refutes
     ///      against the current tree/state (confirmed-parent conflict,
-    ///      MMN conflict — the §5.15.2 immediate-contradiction cases)
+    ///      MMN conflict — the immediate-contradiction cases)
     ///      is graded without dispatch: the user learns now instead of
     ///      after a wasted fan-out;
     ///   3. filter probe results through `record_rejections` before they
-    ///      reach state (§5.15.6 — a hunch cannot resurrect records the
+    ///      reach state ( — a hunch cannot resurrect records the
     ///      user discarded), tag them as enrichment (they describe the
     ///      candidate parents' marriage, not a candidate life of the
     ///      subject — same convention as `.parentMarriage`);
-    ///   4. grade per §5.15.4 (Decision E5 — supported requires the
+    ///   4. grade per (Decision E5 — supported requires the
     ///      marriage + linkage chain; couple attestation alone stays
     ///      inconclusive).
     ///
@@ -1927,7 +1927,7 @@ final class ResearchPipeline {
     /// Storm guards are untouched: the level-1 fan-out rides the same
     /// `dispatchMarriageQuery` → `SearchDispatcher.freeBMDGeoAxes` path
     /// as `.parentMarriage` (empty chapman → honest no-fan-out), and
-    /// the §5.14.2 thin-subject storm guard returns from `research()`
+    /// the thin-subject storm guard returns from `research()`
     /// before this flow is ever reached.
     private func runUserSeededHypothesisFlow(
         state: inout ResearchState,
@@ -1949,7 +1949,7 @@ final class ResearchPipeline {
         let now = Date()
         for row in userRows {
             var attempts = row.attempts
-            // Pre-dispatch grade: catches the §5.15.2 immediate
+            // Pre-dispatch grade: catches the immediate
             // contradictions (tree conflict / MMN conflict) so a
             // refuted hunch never burns queries.
             let preGrade = HypothesisEngine.grade(row, state: state, snapshot: snapshot)
@@ -1984,7 +1984,7 @@ final class ResearchPipeline {
 
             // Final grade — against post-dispatch state when we
             // dispatched, else the pre-grade stands (the engine only
-            // re-grades `.user` rows, §5.15.1).
+            // re-grades `.user` rows,).
             let gradeResult: HypothesisEngine.GradeResult
             let transitionReason: String
             if attempts != row.attempts {
@@ -2019,16 +2019,16 @@ final class ResearchPipeline {
         return results
     }
 
-    /// Decision E4 predicate (§5.15.3): `origin == .user` rows with
+    /// Decision E4 predicate: `origin == .user` rows with
     /// `attempts == 0` get ONE unconditional level-1 dispatch in the
     /// post-loop phase — the user asked; the two-condition stall gate
     /// exists to stop the engine burning queries on its own
     /// speculations, and a user directive is not speculation. The
     /// carve-out fires once: the dispatch sets `attempts = 1`, so
-    /// subsequent levels ride the normal T7 gate and the §5.11
+    /// subsequent levels ride the normal T7 gate and the
     /// "investigate further" gesture. Rows the pre-dispatch grade
     /// already refutes (`.contradicted` against tree/state) skip the
-    /// dispatch — the answer exists without burning queries (§5.15.2).
+    /// dispatch — the answer exists without burning queries.
     nonisolated static func shouldDispatchUserSeededLevelOne(
         _ hypothesis: ResearchHypothesis,
         preGradeVerdict: ResearchHypothesis.Verdict
@@ -2038,7 +2038,7 @@ final class ResearchPipeline {
             && preGradeVerdict != .contradicted
     }
 
-    /// §5.15.6 — `record_rejections` filters probe results before they
+    /// — `record_rejections` filters probe results before they
     /// reach state/scoring, as everywhere: a hunch cannot resurrect
     /// records the user already discarded.
     nonisolated static func excludingRejected(
@@ -2064,7 +2064,7 @@ final class ResearchPipeline {
         }
     }
 
-    // MARK: - T7 second pass (V2 spec §5.3)
+    // MARK: - T7 second pass (V2 spec)
 
     /// Hypothesis-guided second pass. Runs at most once per
     /// `research(...)` call, after the first pass has assembled its
@@ -2081,7 +2081,7 @@ final class ResearchPipeline {
     /// added here are tagged with `enrichmentRecordIDs` so default
     /// clustering excludes them — matches the first-pass convention).
     ///
-    /// Stall-detection (V2 spec §5.3 Decision 4) is a two-condition
+    /// Stall-detection (V2 spec Decision 4) is a two-condition
     /// gate; T7 first-cut uses the looser condition (b) only —
     /// "deficit-eligible inconclusive hypothesis exists." Condition
     /// (a) "dispatcher walked the full strictness ladder" needs
@@ -2205,7 +2205,7 @@ final class ResearchPipeline {
         case .subjectSpouseMarriage(let groomSurname, let brideSurname, _):
             // Same two-sided fan-out shape as .parentMarriage — the
             // wider window from the deficit query lives in yearFrom/yearTo;
-            // (groomSurname × brideSurname) is the pair (RESEARCH_PIPELINE_SPEC §5.14.9).
+            // (groomSurname × brideSurname) is the pair (Research pipeline).
             let yearFrom = query.yearFrom ?? 0
             let yearTo = query.yearTo ?? 0
             async let groomSide = dispatchMarriageQuery(
@@ -2220,7 +2220,7 @@ final class ResearchPipeline {
             let b = await brideSide
             return g + b
         case .parentCandidates(_, _, _, let motherMaidenSurname, _):
-            // §5.15.3 probe routing — the ladder level is encoded in the
+            // probe routing — the ladder level is encoded in the
             // query's record type:
             //   .marriage (level 1) → parent-marriage index probe.
             //     Two-sided fan-out when the bride's maiden surname is
@@ -2229,9 +2229,9 @@ final class ResearchPipeline {
             //     `.parentMarriage`); groom-side only when unknown —
             //     the bride's maiden surname is recovered at grading
             //     from the post-1912 spouseSurname column / same-page
-            //     pairing (Part I §11.5).
+            //     pairing (Part I).
             //   .birth (level 2) → the subject's own birth-index search
-            //     with the MMN axis (Part I §11.4 `.birth` focus shape).
+            //     with the MMN axis (Part I `.birth` focus shape).
             //   .census (level 3) → FreeCen household probe.
             switch query.recordType {
             case .marriage:
@@ -2287,7 +2287,7 @@ final class ResearchPipeline {
     //
     // The legacy `enrichParentsWithMarriage` gate-and-pair pipeline
     // was deleted in T12-parent Phase 2. Its gating moved into
-    // `HypothesisEngine.generateParentMarriage` (V2 spec §5.2.1
+    // `HypothesisEngine.generateParentMarriage` (V2 spec
     // gating policy); its matching is now `gradeParentMarriage`;
     // its cross-validation is `reconcileParentMarriages`. The
     // FreeBMD-fan-out helpers below survive because the framework's
@@ -2296,7 +2296,7 @@ final class ResearchPipeline {
 
     /// Build and dispatch a FreeBMD marriage query through the existing source.
     /// Honours scope by fanning out across the same district set as the main pipeline.
-    /// `spouseSurname` is optional for the §5.15 user-hunch probe where the
+    /// `spouseSurname` is optional for the user-hunch probe where the
     /// bride's maiden surname is unknown — nil omits the spouse-surname
     /// axis (groom-side-only search); the bride side is recovered at
     /// grading time from the spouseSurname column / same-page pairing.
@@ -2311,7 +2311,7 @@ final class ResearchPipeline {
         // Build geographic axes for this scope. Marriage enrichment is
         // FreeBMD-only — shares SearchDispatcher.freeBMDGeoAxes with the
         // main fan-out (FT-01/FT-02) so this flow cannot drift from it;
-        // see RESEARCH_AXES_SPEC §5.3. Under `.national` this is now ONE
+        // see Research axes. Under `.national` this is now ONE
         // districtid="" query instead of the old 632–996-request
         // year-filtered catalogue loop (FT-02). Empty chapman → empty
         // axes → honest no-fan-out degradation, as before.
@@ -2444,7 +2444,7 @@ final class ResearchPipeline {
         }
     }
 
-    // MARK: - FamilySearch → Find a Grave bridge (spec §22)
+    // MARK: - FamilySearch → Find a Grave bridge (spec)
     //
     // When `FamilySearchSource` surfaces a Find a Grave memorial via the
     // FS aggregator endpoint, the GEDCOMx persona carries the FAG memorial
@@ -2466,7 +2466,7 @@ final class ResearchPipeline {
     // `existingIDs` (a prior iteration's bridge ran): keeps the FAG
     // 500ms-per-request rate-limit happy.
     //
-    // Connector-audit T1-17 (§6.3): the bridge previously fetched a
+    // Connector-audit T1-17: the bridge previously fetched a
     // detail page for *every* qualifying FS burial persona in the
     // batch with no per-iteration cap — unlike FreeCen's cap-1
     // detail-enrichment pattern and contrary to the volunteer-budget
@@ -2476,7 +2476,7 @@ final class ResearchPipeline {
     // would fire a dozen serial browser loads. The cap bounds the
     // bridge to `maxFagBridgeFetchesPerIteration` detail fetches per
     // call (the approved 2–3 kernel; the always-enrich variant was
-    // value-rejected in §7). Records past the cap are still returned
+    // value-rejected in). Records past the cap are still returned
     // unenriched — the FS persona keeps its place in the cluster, it
     // just doesn't get an inscription-mined death year this iteration.
 
@@ -2631,7 +2631,7 @@ final class ResearchPipeline {
 
     // MARK: - Cross-profile Find a Grave spouse-link recovery
 
-    /// FINDAGRAVE_DEATH_SEARCH_SPEC Fix 2 — recover the subject's own Find a Grave
+    /// Find a Grave death search Fix 2 — recover the subject's own Find a Grave
     /// memorial by following the SPOUSE link on a tree-spouse's memorial, for the
     /// subject whose memorial a name+year search misses (birth-unknown memorials,
     /// indexing gaps). Dogfood: Mary's memorial 216193100 links to Ernest's

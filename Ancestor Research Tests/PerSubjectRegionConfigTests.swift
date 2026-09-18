@@ -2,7 +2,7 @@ import Testing
 import Foundation
 @testable import Ancestor_Research
 
-/// Acceptance tests for RESEARCH_AXES_SPEC.md Change 1 — per-subject RegionConfig.
+/// Acceptance tests for Research axes Change 1 — per-subject RegionConfig.
 struct PerSubjectRegionConfigTests {
 
     // MARK: - AC1.1 — districts(forChapmanCode:) returns the Derbyshire map for "DBY"
@@ -156,7 +156,7 @@ struct PerSubjectRegionConfigTests {
         // to "DBY". Callers must handle empty chapman gracefully (the
         // chapman-anchor filter in BiographicalFitEvaluator skips when
         // empty; SearchDispatcher degrades / skips chapman-coded probes).
-        // See feedback_no_hardcoded_regions.
+        // See the no-hardcoded-regions rule.
         let legacy = Project(
             id: UUID(),
             name: "Test",
@@ -194,7 +194,7 @@ struct PerSubjectRegionConfigTests {
         // pass the project setting (or rely on `fromProfile`'s derivation
         // chain to extract chapman from profile birth-location data).
         // Empty means "no anchor known" — downstream callers handle
-        // that explicitly. See feedback_no_hardcoded_regions.
+        // that explicitly. See the no-hardcoded-regions rule.
         let subject = ResearchSubject(
             profileID: nil,
             surname: "Test",

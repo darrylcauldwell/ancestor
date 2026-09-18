@@ -2,8 +2,8 @@ import Foundation
 import AncestorKit
 
 /// Thrown when a lead is refused promotion because its generator sits
-/// outside the project's Discovery expansion bound (ENGINE_FOUNDATION_SPEC
-/// §Change7). Carries the queryable reason so callers can answer
+/// outside the project's Discovery expansion bound (Engine foundation
+/// Change 7). Carries the queryable reason so callers can answer
 /// "why didn't this lead promote?".
 nonisolated struct ExpansionBoundExceeded: Error, Sendable {
     let leadID: String
@@ -25,7 +25,7 @@ nonisolated struct ExpansionBoundExceeded: Error, Sendable {
 nonisolated extension ProjectDatabase {
 
     /// Evaluate the Discovery expansion bound for a lead without mutating
-    /// anything (ENGINE_FOUNDATION_SPEC §Change7). Answers "why didn't —
+    /// anything (Engine foundation Change 7). Answers "why didn't —
     /// or would — this lead promote?" by measuring the lead's *generator*
     /// (`lead.profileID`, the existing profile the new node attaches to)
     /// against the project's `ExpansionPolicy`. Seeds are the project's
@@ -60,7 +60,7 @@ nonisolated extension ProjectDatabase {
     /// in the tree. Marks `lead.status = .promoted`. Returns the new ghost
     /// Profile ID so the caller can persist evidence under it.
     ///
-    /// `enforceBound` gates on the §Change7 expansion bound BEFORE the
+    /// `enforceBound` gates on the Change 7 expansion bound BEFORE the
     /// INSERT. The autonomous/engine expansion path passes `true` so a run
     /// stops digging at the periphery; a deliberate user "Promote" action
     /// passes `false` (the default) — a human override is always honoured,
@@ -102,7 +102,7 @@ nonisolated extension ProjectDatabase {
                fromLead: lead, ghostID: ghostID, generatorID: generatorID
            ) {
             relationships.append(edge)
-            // E4 (§Change4): this edge exists because the user promoted an
+            // E4 (Change 4): this edge exists because the user promoted an
             // investigated lead. A lead is a research *hint*, not a record
             // snapshot — it has no citable URL — so provenance is recorded
             // honestly as an origin note rather than a fabricated citation.
@@ -143,7 +143,7 @@ nonisolated extension ProjectDatabase {
         // the resolution and the same lead doesn't reappear in the queue.
         // MUST be upsertLead: saveLead is INSERT OR IGNORE, which silently
         // no-ops for a row that already exists — i.e. every lead reaching
-        // this path — so the status flip never landed (CAMPAIGN_REVIEW_SPEC
+        // this path — so the status flip never landed (Campaign review
         // Change 1).
         let promoted = Lead(
             id: lead.id, profileID: lead.profileID,

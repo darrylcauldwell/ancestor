@@ -6,7 +6,7 @@ import Foundation
 private typealias Attachment = Ancestor_Research.Attachment
 
 /// Tests for OBJE multimedia emission in GEDCOM 5.5.1 export. Per
-/// DESIGN.md §5.15, every attachment whose target is a profile (or one
+/// the design, every attachment whose target is a profile (or one
 /// of its field sources) becomes a `1 OBJE` block under the individual
 /// record, with `2 FILE`, `2 FORM`, and (when present) `2 TITL` children.
 struct GEDCOMOBJETests {

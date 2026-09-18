@@ -68,7 +68,7 @@ nonisolated struct ResearchRequest: Sendable {
 ///   deliberately returns zero queries; sources declaring
 ///   `.inherentlyNational` / `.anchorPinned` / `.localCorpus` scope
 ///   handling ignore the picker by declaration — see `ScopeHandling`
-///   (SOURCE_WEIGHTING Change 1) and SCOPE_AUDIT_2026-07.md.
+///   (SOURCE_WEIGHTING Change 1) and the 2026-07 scope audit.
 /// - `district`: subject's home registration district. Sources without a
 ///   district axis (FreeREG, FreeCen) widen to `.county` for that source only.
 /// - `county`: all districts in the subject's home county. The old `.local`.
@@ -79,7 +79,7 @@ nonisolated struct ResearchRequest: Sendable {
 ///
 /// Transitional: until `Profile.birthLocationCode` ships (prior spec's Change 2),
 /// `.parish` and `.district` silently widen to `.county` for any subject lacking
-/// a structured location code. See RESEARCH_AXES_SPEC §3.2.
+/// a structured location code. See Research axes.
 nonisolated enum ResearchScope: String, Comparable, Sendable, CaseIterable {
     case parish
     case district
@@ -207,25 +207,25 @@ nonisolated struct ResearchSubject: Sendable {
     /// scorer's geography gate to validate record-side evidence whose own
     /// location data is missing — e.g. UK Probate Calendar records, which
     /// often carry only registry name + grant type with no estate address.
-    /// First slice of the broader location-code plumbing (spec §23, prior
+    /// First slice of the broader location-code plumbing (spec, prior
     /// "Change 2"); structured `deathLocationCode` follows when that lands.
     var deathLocation: String?
     var mode: ResearchMode
     /// Optional record-type narrowing — when set, `ResearchState.init`
     /// uses `focus.recordTypes` instead of the full default record-type
-    /// set. See RESEARCH_PIPELINE_SPEC §11.4.
+    /// set. See Research pipeline.
     var focus: ResearchFocus? = nil
     var familyContext: FamilyContext?
     /// Chapman code of the subject's home county — drives per-subject scoring,
     /// dispatch lookups, and the `BiographicalFitEvaluator` chapman anchor
-    /// (slice 4 of [[project_multi_hypothesis_birth_year_plan]]).
+    /// (slice 4 of [[the multi-hypothesis birth-year plan]]).
     ///
     /// Empty string when no anchor is derivable. Callers must handle the
     /// empty case gracefully — the evaluator skips its chapman filter,
     /// SearchDispatcher should degrade to national scope or skip the
     /// chapman-coded probe. **No hardcoded Derbyshire default** — earlier
     /// builds defaulted to "DBY", which silently misfiltered non-DBY
-    /// subjects (`feedback_no_hardcoded_regions`). The right value flows
+    /// subjects (the no-hardcoded-regions rule). The right value flows
     /// through `fromProfile`'s derivation chain (profile birthLocationCode
     /// → birthLocation → project setting → "").
     var homeChapmanCode: String = ""
@@ -356,7 +356,7 @@ nonisolated struct ResearchSubject: Sendable {
     /// unaffected.
     var supplementalRegionAxes: [RegionAxis] = []
 
-    /// SUBJECT_PLACE_MODEL_SPEC Slice 2 — every place we know about this
+    /// Subject place model Slice 2 — every place we know about this
     /// person, in one shape, in precedence order (birth, death, burial,
     /// marriage, then residence and census by event window).
     ///
@@ -1405,7 +1405,7 @@ nonisolated extension ResearchSubject {
                 ?? derivedBurialPlace.flatMap { Self.chapmanCode(forPlaceText: $0) }
         }
 
-        // SUBJECT_PLACE_MODEL_SPEC Slice 2 — the same facts, one shape.
+        // Subject place model Slice 2 — the same facts, one shape.
         //
         // Built in PRECEDENCE order, and that order is the contract: it
         // reproduces `deriveHomeChapmanCode`'s chain (birth → death → …), so

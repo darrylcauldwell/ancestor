@@ -4,7 +4,7 @@ import GRDB
 import AncestorKit
 @testable import Ancestor_Research
 
-/// CAMPAIGN_REVIEW_SPEC Changes 2+3 — the evidence chain is PERSISTED, not
+/// Campaign review Changes 2+3 — the evidence chain is PERSISTED, not
 /// recomputed-only. Change 2: evidence_records carries the full scorer
 /// output (gates_json, summary, is_enrichment, last_run_id) so a DB
 /// reconstruction yields complete ScoredRecords. Change 3:

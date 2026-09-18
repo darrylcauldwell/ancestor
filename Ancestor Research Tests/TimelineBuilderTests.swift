@@ -3,7 +3,7 @@ import Foundation
 @testable import Ancestor_Research
 
 /// Tests for M9 TimelineBuilder — pure transformation from snapshot + workbench
-/// data into derived timeline events (DESIGN.md §7.8).
+/// data into derived timeline events (by design).
 struct TimelineBuilderTests {
 
     // MARK: - Fixtures

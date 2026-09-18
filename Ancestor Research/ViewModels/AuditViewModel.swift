@@ -25,7 +25,7 @@ final class AuditViewModel {
     /// toggles (category, severity) then narrow.
     ///
     /// `.research` findings are excluded here at the single choke point
-    /// (HEALTH_RECATEGORISATION_SPEC #HR2): Health shows defects and
+    /// (Health recategorisation #HR2): Health shows defects and
     /// apply-gaps only. Research prompts stay in `AuditSummary` for MCP and
     /// surface through the Workbench research suggestions instead — so the
     /// category pills, severity badges, rule chips and rows all agree.

@@ -1,7 +1,7 @@
 import Foundation
 import SwiftUI
 
-/// Pedigree chart renderer (DESIGN.md §7.9.2).
+/// Pedigree chart renderer (by design).
 ///
 /// Layout: subject on the left, ancestors fanning right. Each generation
 /// column doubles in row count (1 → 2 → 4 → 8 → 16). 4-gen ships 15 cells
@@ -97,7 +97,7 @@ enum PedigreeChartReport {
 
     /// Render the hourglass pedigree layout to PDF — subject in the vertical
     /// middle of the page with ancestors flowing upward and descendants
-    /// flowing downward (DESIGN.md §7.9.2). The `generations` parameter
+    /// flowing downward (by design). The `generations` parameter
     /// applies independently to each half (4-gen ⇒ 4 ancestor generations
     /// AND 4 descendant generations).
     static func renderHourglassPDF(

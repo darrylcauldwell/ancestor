@@ -2,7 +2,7 @@ import SwiftUI
 import AppKit
 
 /// Sheet for viewing a single photo attachment full-size, with caption + EXIF
-/// metadata + edit/remove actions. Per DESIGN.md §5.15.
+/// metadata + edit/remove actions. By design
 struct AttachmentPhotoViewer: View {
     @Environment(AppState.self) private var appState
     @Environment(\.dismiss) private var dismiss

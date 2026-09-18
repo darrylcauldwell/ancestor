@@ -12,7 +12,7 @@ nonisolated enum ResearchActivityEvent: Sendable {
     case sourceQueryCompleted(sourceID: String, summary: String, resultCount: Int, strictness: SearchStrictness = .strict)
     case sourceError(sourceID: String, summary: String, reason: String, strictness: SearchStrictness = .strict)
     case pipelineStage(message: String)
-    /// Per-run scorer attrition summary (ENGINE_FOUNDATION_SPEC
+    /// Per-run scorer attrition summary (Engine foundation
     /// #Change4). Published once per research run after the scorer
     /// settles. Lets the UI / eval harness see whether the brake is
     /// engaged at the periphery.

@@ -1,7 +1,7 @@
 import SwiftUI
 import AncestorKit
 
-// WikiTree contribution preview (WT3 — WIKITREE_MERGEEDIT_SPEC §5).
+// WikiTree contribution preview (WT3 — WikiTree MergeEdit).
 //
 // Shows EXACTLY what a MergeEdit contribution will propose — field diffs
 // (WikiTree's last-known value → the app's research-backed value), the
@@ -9,7 +9,7 @@ import AncestorKit
 // opening WikiTree's own review page in the browser. Nothing is saved until
 // Darryl confirms there; the sheet says so in as many words.
 
-/// Identifiable wrapper for `.sheet(item:)` (feedback_sheet_isPresented_race).
+/// Identifiable wrapper for `.sheet(item:)` (the sheet(isPresented:) EmptyView race).
 struct WikiTreeContributeContext: Identifiable {
     let id = UUID()
     let profile: Profile

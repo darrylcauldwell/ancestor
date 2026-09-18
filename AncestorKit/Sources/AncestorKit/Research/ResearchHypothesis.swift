@@ -20,7 +20,7 @@ import Foundation
 /// `LifeCluster.swift` (which grades clusters with `.stronglySupported`
 /// / `.supported` / `.weak` / `.contradicted` — a different concept).
 ///
-/// See `AncestorApp/RESEARCH_PIPELINE_V2_SPEC.md` Part II §4.1.
+/// See `AncestorApp/Research pipeline V2` Part II.
 public nonisolated struct ResearchHypothesis: Identifiable, Sendable, Codable, Equatable {
 
     /// The three possible verdicts a grader can return. "Supported" =
@@ -34,7 +34,7 @@ public nonisolated struct ResearchHypothesis: Identifiable, Sendable, Codable, E
 
     /// Who asserted this hypothesis. `.engine` (default) for rows the
     /// generate switches produce; `.user` for seeded hunches
-    /// (RESEARCH_PIPELINE_SPEC §5.15.1, Decision E1). The engine's
+    /// (Research pipeline, Decision E1). The engine's
     /// regeneration cycle never creates, deletes, or reshapes `.user`
     /// rows — only re-grades them. Only the user dismisses one.
     public enum Origin: String, Sendable, Codable, CaseIterable, Equatable {
@@ -74,7 +74,7 @@ public nonisolated struct ResearchHypothesis: Identifiable, Sendable, Codable, E
     /// Nil for non-candidate kinds and legacy rows.
     public var candidateGroupID: String?
 
-    /// Who asserted this hypothesis (§5.15.1). Orthogonal to `kind` so
+    /// Who asserted this hypothesis. Orthogonal to `kind` so
     /// every future user-seedable kind reuses it unchanged. Legacy
     /// persisted rows (pre-v32) decode as `.engine`.
     public let origin: Origin
@@ -116,13 +116,13 @@ public nonisolated struct ResearchHypothesis: Identifiable, Sendable, Codable, E
     /// Trail of (verdict, timestamp, isModelAssisted, reason) so the
     /// UI can show "this hypothesis was inconclusive last run,
     /// supported now." Append-only on verdict change (skip
-    /// identity-grade no-change events — see §10 residual question on
+    /// identity-grade no-change events — see residual question on
     /// growth policy).
     public let history: [Transition]
 
     /// Public memberwise init — synthesized inits are internal
     /// outside the package, so cross-module construction needs this.
-    /// `origin` defaults to `.engine` so the pre-§5.15 call sites
+    /// `origin` defaults to `.engine` so the pre- call sites
     /// (all engine-generated) stay source-compatible; copy sites that
     /// rebuild an existing hypothesis must pass the original's origin.
     public init(id: String, subjectProfileID: String? = nil, kind: HypothesisKind, origin: Origin = .engine, verdict: Verdict, isModelAssisted: Bool, supportingEvidence: [String], contradictingEvidence: [String], reasoning: String, createdAt: Date, lastTestedAt: Date, attempts: Int, history: [Transition]) {
@@ -150,7 +150,7 @@ public nonisolated struct ResearchHypothesis: Identifiable, Sendable, Codable, E
     }
 
     /// Custom decoder solely so `origin` decode-defaults to `.engine`:
-    /// JSON encoded before the §5.15 field existed (v26–v31 rows, old
+    /// JSON encoded before the field existed (v26–v31 rows, old
     /// backups) has no `origin` key and must keep decoding. Encoding
     /// stays synthesized.
     public init(from decoder: Decoder) throws {
@@ -212,7 +212,7 @@ public nonisolated enum HypothesisKind: Sendable, Codable, Equatable, Hashable {
     /// gender) pair. Grader is purely BMD-birth-evidence; marriage
     /// given-name enrichment lands as a cross-reference from
     /// `.parentMarriage` via `HypothesisEngine.reconcileParentMarriages`
-    /// (V2 spec §5.2.1). Bundled coupling rejected in the design pass.
+    /// (V2 spec). Bundled coupling rejected in the design pass.
     case parentInferred(gender: Gender, surname: String)
 
     /// "A sibling of the subject exists in this district, sharing this
@@ -223,7 +223,7 @@ public nonisolated enum HypothesisKind: Sendable, Codable, Equatable, Hashable {
 
     /// "The thin placeholder subject's marriage exists in this year
     /// window, with this groom × bride surname pair — pin it to recover
-    /// the subject's given name." See RESEARCH_PIPELINE_SPEC §5.14.
+    /// the subject's given name." See Research pipeline.
     ///
     /// **BMD role labelling (slice 5).** The payload stores the BMD
     /// index's natural marriage shape: groomSurname = the man's surname
@@ -244,7 +244,7 @@ public nonisolated enum HypothesisKind: Sendable, Codable, Equatable, Hashable {
     case subjectSpouseMarriage(groomSurname: String, brideSurname: String, childYearWindow: ClosedRange<Int>)
 
     /// "This life cluster is the subject." T7's working hypothesis for
-    /// lead-only clusters; user-facing via §5.11.
+    /// lead-only clusters; user-facing via.
     case clusterIsSubject(clusterID: UUID)
 
     /// "Among the precise (span-0) birth-year values currently attested
@@ -256,8 +256,8 @@ public nonisolated enum HypothesisKind: Sendable, Codable, Equatable, Hashable {
     /// in `Profile` apply-paths deliberately *refuses* to perform on its
     /// own (refusing is the right call — silent "most-recent wins"
     /// would seed the wrong year half the time). See
-    /// `project_multi_hypothesis_birth_year_plan` memory and
-    /// RESEARCH_PIPELINE_SPEC.md Part II §5 (V2 hypothesis framework).
+    /// the multi-hypothesis birth-year plan memory and
+    /// Research pipeline Part II (V2 hypothesis framework).
     ///
     /// Generator fires only when ≥ 2 distinct precise candidates compete
     /// for one profile. A single precise candidate is handled by
@@ -265,7 +265,7 @@ public nonisolated enum HypothesisKind: Sendable, Codable, Equatable, Hashable {
     /// range alone needs neither path.
     case birthYearCandidate(profileID: String, year: Int)
 
-    /// CL5 (CONFLICT_LAYER_SPEC §4.7) — the death-year twin of
+    /// CL5 (Conflict layer) — the death-year twin of
     /// `.birthYearCandidate`: emitted when ≥ 2 distinct precise death-year
     /// values compete (typically from an open deathDate dispute the R2
     /// ladder correctly refused to decide). Same discipline: hypothesis
@@ -281,13 +281,13 @@ public nonisolated enum HypothesisKind: Sendable, Codable, Equatable, Hashable {
     case parentIdentityCandidate(profileID: String, role: String, candidateName: String)
 
     /// "The subject's parents might have been this couple" — the
-    /// user-seeded hunch kind (RESEARCH_PIPELINE_SPEC §5.15, Decision
+    /// user-seeded hunch kind (Research pipeline, Decision
     /// E1). A hunch is a search directive, never data: it creates no
     /// profile, no edge, no field, no citation — it biases WHERE the
     /// engine looks, never WHAT it concludes. Rows of this kind carry
     /// `origin == .user`; the engine never generates them itself.
     ///
-    /// Payload semantics (§5.15.1): hints record **exactly what the
+    /// Payload semantics: hints record **exactly what the
     /// user asserted** — nothing is defaulted into the payload. At
     /// least one of the four name hints is non-empty (validated at
     /// intake). Effective values are resolved at probe time (e.g.
@@ -295,7 +295,7 @@ public nonisolated enum HypothesisKind: Sendable, Codable, Equatable, Hashable {
     /// paternal-naming convention) and the resolution is recorded in
     /// `reasoning`. `marriageWindow` defaults at intake to
     /// `subjectBirthYear − 30 … subjectBirthYear + 1` (mirrors
-    /// `.parentMarriage` and §5.14.3); the user may narrow it.
+    /// `.parentMarriage` and); the user may narrow it.
     case parentCandidates(
         fatherGiven: String?,
         fatherSurname: String?,
@@ -361,7 +361,7 @@ public nonisolated enum HypothesisKind: Sendable, Codable, Equatable, Hashable {
         case .parentIdentityCandidate(let profileID, let role, let candidateName):
             return "parentIdentityCandidate:\(profileID):\(role):\(candidateName.uppercased())"
         case .parentCandidates(let fg, let fs, let mg, let mms, let w):
-            // nil hints normalise to "" (§5.15.1) — same hunch re-seeded
+            // nil hints normalise to "" — same hunch re-seeded
             // with the same hints collides on this key and upserts.
             return "parentCandidates:\(subject):\(fg?.uppercased() ?? "")x\(fs?.uppercased() ?? "")x\(mg?.uppercased() ?? "")x\(mms?.uppercased() ?? ""):\(w.lowerBound)-\(w.upperBound)"
         case .burialAtParish(let parish, let window):

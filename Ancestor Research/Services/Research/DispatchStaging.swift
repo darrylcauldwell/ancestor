@@ -1,6 +1,6 @@
 import Foundation
 
-/// SOURCE_WEIGHTING_SPEC Change 5 — staged dispatch.
+/// Source weighting Change 5 — staged dispatch.
 ///
 /// Replaces the flat all-sources fan-out with an escalation ladder:
 /// local free sources first, geographic widening on miss, FamilySearch

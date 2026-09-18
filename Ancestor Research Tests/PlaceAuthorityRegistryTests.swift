@@ -4,7 +4,7 @@ import Foundation
 @testable import Ancestor_Research
 
 /// Acceptance tests for the E3 place-authority *seeding* and the equivalence
-/// guarantees (MODEL_EVOLUTION_SPEC §Change3 / ADR-004 E3): the hierarchy is
+/// guarantees (Model evolution Change 3 / ADR-004 E3): the hierarchy is
 /// DERIVED from the existing seed data (gazetteer + FreeBMD district catalogue),
 /// nothing regresses, and the new resolution paths produce the same answers the
 /// flat path always did.
@@ -162,7 +162,7 @@ struct PlaceAuthorityRegistryTests {
     @Test func deriveProducesLeicestershireHierarchyFromSyntheticSeed() {
         // Feed derive() a Leicestershire-only gazetteer + catalogue. It must
         // produce a working LEI hierarchy with no Derbyshire dependency —
-        // proving the derivation is data-driven (feedback_no_hardcoded_regions).
+        // proving the derivation is data-driven (the no-hardcoded-regions rule).
         let gaz = [
             GazetteerEntry(id: "LEI", name: "Leicestershire", county: "Leicestershire",
                            country: "England", aliases: [], kind: "county"),

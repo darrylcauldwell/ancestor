@@ -1,13 +1,13 @@
 import SwiftUI
 
-/// DOSSIER_SPEC #T9-Change1 — the investigation dossier, rendered.
+/// Dossier #T9-Change1 — the investigation dossier, rendered.
 ///
 /// Pure display of `DossierAssembler`'s deterministic skeleton: what we
 /// know, what conflicts, what's honestly missing, what's being
 /// investigated. Every sentence carries its provenance refs (shown as
 /// small keys); the D7 footer narrates the process honestly. Challenges
 /// (D6) and steering arrive with #T9-Change2/3; smoothing with Change 5.
-/// One-line profile-page door to the dossier (spec §4.3 surface (a)) —
+/// One-line profile-page door to the dossier (spec surface (a)) —
 /// self-contained so `SharedProfileLayout` gains a single embed. Uses
 /// `.sheet(item:)` with an Identifiable wrapper (the `.sheet(isPresented:)`
 /// + `if let` EmptyView-rectangle pitfall is documented in memory).

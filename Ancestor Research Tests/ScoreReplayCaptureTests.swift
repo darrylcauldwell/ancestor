@@ -3,7 +3,7 @@ import Foundation
 import AncestorKit
 @testable import Ancestor_Research
 
-/// SUBJECT_PLACE_MODEL_SPEC Slice 1.5 — the driver that runs the replay against
+/// Subject place model Slice 1.5 — the driver that runs the replay against
 /// a REAL project.
 ///
 /// The spec's open question was "fixture corpus or the live project?" — the

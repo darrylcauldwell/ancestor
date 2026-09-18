@@ -3,7 +3,7 @@ import Foundation
 import GRDB
 @testable import Ancestor_Research
 
-/// CAMPAIGN_REVIEW_SPEC Change 1 — lead status integrity.
+/// Campaign review Change 1 — lead status integrity.
 ///
 /// `saveLead` is INSERT OR IGNORE (deliberate: run-created leads must not
 /// clobber user decisions), but three production status flips called it and

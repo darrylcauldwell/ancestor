@@ -2,7 +2,7 @@ import Testing
 import Foundation
 @testable import Ancestor_Research
 
-/// Acceptance tests for RESEARCH_AXES_SPEC.md Change 5 —
+/// Acceptance tests for Research axes Change 5 —
 /// per-source strictness handling + surname-variants fan-out.
 @MainActor
 struct PerSourceStrictnessTests {

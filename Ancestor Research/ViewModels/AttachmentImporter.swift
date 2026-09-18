@@ -3,7 +3,7 @@ import SwiftUI
 
 /// Copies a user-chosen file into the project's media directory, extracts
 /// EXIF metadata for photos, generates a thumbnail, and records the
-/// `Attachment` row through `AppState`. Per DESIGN.md §5.15.
+/// `Attachment` row through `AppState`. By design
 @MainActor
 @Observable
 final class AttachmentImporter {

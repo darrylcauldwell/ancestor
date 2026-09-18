@@ -1,6 +1,6 @@
 import Foundation
 
-/// DECISION_CORE_PAIR_SPEC follow-up — the tree-wide static twin of the
+/// Decision-core pair follow-up — the tree-wide static twin of the
 /// run-time exclusivity pass.
 ///
 /// The pipeline's exclusivity pass only heals a profile when that profile is

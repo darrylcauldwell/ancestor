@@ -3,7 +3,7 @@ import Foundation
 import AncestorKit
 @testable import Ancestor_Research
 
-/// Header-keyed census household parsing (FREEREG_INTEGRATION_SPEC recon
+/// Header-keyed census household parsing (FreeREG integration recon
 /// 2026-07-29). The member table's columns vary by census year — 1841 has
 /// 7, 1851–1891 E&W has 11, 1911 E&W has 20 (fertility block) — and the
 /// FreeCEN2 CSV render path stacks THREE tables (census header, address,

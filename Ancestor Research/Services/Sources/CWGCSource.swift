@@ -206,7 +206,7 @@ struct CWGCSource: RecordSource {
         // Strictness: .strict keeps Tab=exact (canonical match);
         // .loose and .variant both drop Tab so CWGC's server-side
         // soundex fires. CWGC has no distinct .variant axis — per
-        // RESEARCH_AXES_SPEC §7 it falls back to .loose.
+        // Research axes it falls back to .loose.
         if query.strictness == .strict {
             items.append(URLQueryItem(name: "Tab", value: "exact"))
         }
@@ -305,7 +305,7 @@ struct CWGCSource: RecordSource {
     /// knowledge. Gender gate is unchanged — CWGC coverage stays male-only
     /// (nil gender falls through, matching the dispatcher's existing
     /// `gender == .male || gender == nil` predicate and the spec-pinned
-    /// male military scope; the women/Civilian-War-Dead widening in §7 is
+    /// male military scope; the women/Civilian-War-Dead widening in is
     /// explicitly out of scope). Pure and side-effect-free so the dispatcher
     /// can call it directly (follow-up) and it can be unit-tested in isolation.
     nonisolated static func isMilitaryEligible(

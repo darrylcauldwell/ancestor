@@ -1,7 +1,7 @@
 import SwiftUI
 
-/// User-seeded hunch surface (RESEARCH_PIPELINE_SPEC §5.15.7 phase b +
-/// §5.15.8 refuted/exhausted UX). Lists the hunches the user asked the
+/// User-seeded hunch surface (Research pipeline phase b +
+/// refuted/exhausted UX). Lists the hunches the user asked the
 /// engine to test for one subject, each with its verdict; refuted hunches
 /// sort to the top so an answered-and-refuted question is never buried,
 /// and exhausted hunches collapse into a revivable archive.

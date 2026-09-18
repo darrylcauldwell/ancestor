@@ -1,7 +1,7 @@
 import Foundation
 
 /// Where a `PlaceAuthority` sits in the UK jurisdictional hierarchy
-/// (MODEL_EVOLUTION_SPEC §Change3 / ADR-004 E3). The chain the v14 migration
+/// (Model evolution Change 3 / ADR-004 E3). The chain the v14 migration
 /// rationale already promised — "parish → district → county → national"
 /// (`ProjectDatabase.swift`) — is finally a *typed* ladder rather than a flat
 /// `COUNTY:Place` string namespace.
@@ -35,7 +35,7 @@ public nonisolated enum PlaceKind: String, Codable, Hashable, Sendable, CaseIter
 }
 
 /// A place as a first-class entity: a node in the UK jurisdictional hierarchy
-/// with temporal validity (MODEL_EVOLUTION_SPEC §Change3 / ADR-004 E3).
+/// with temporal validity (Model evolution Change 3 / ADR-004 E3).
 ///
 /// **A sidecar, not a rebuild** — the same additive-record philosophy as E1
 /// (`ExternalIdentifier`) and E2 (`NameForm`). `Profile.birthLocation` (a

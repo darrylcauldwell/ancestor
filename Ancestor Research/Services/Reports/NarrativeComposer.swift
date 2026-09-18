@@ -12,7 +12,7 @@ nonisolated struct NarrativeDocument: Sendable {
 }
 
 /// Pure narrative composition logic for the M10 narrative report
-/// (DESIGN.md §7.9.4). Reads a profile's fields, parents, marriages,
+/// (by design). Reads a profile's fields, parents, marriages,
 /// children, and attached workbench notes and emits a `NarrativeDocument`
 /// with structured prose plus citation footnotes.
 ///

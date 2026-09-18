@@ -1,7 +1,7 @@
 import Foundation
 import SwiftUI
 
-/// Narrative report renderer (DESIGN.md §7.9.4). Composes a biographical
+/// Narrative report renderer (by design). Composes a biographical
 /// summary with citation footnotes for one profile in either PDF or
 /// Markdown form. The actual prose is built by `NarrativeComposer`; this
 /// type owns the rendering pipelines.

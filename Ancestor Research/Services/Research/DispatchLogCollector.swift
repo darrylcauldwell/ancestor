@@ -4,7 +4,7 @@ import Foundation
 /// and accumulates a compact per-query log for the eval envelope's
 /// `_dispatch_log` field.
 ///
-/// Why this exists (2026-05-24): the §5.8 parity report showed Ernest's
+/// Why this exists (2026-05-24): the parity report showed Ernest's
 /// FreeBMD marriage (Q1 1915 Ashbourne, well within his home county's
 /// district set) had zero records in `evidence_records` — the search
 /// either never fired or returned 0 inexplicably. Without per-query

@@ -2,7 +2,7 @@ import Testing
 import Foundation
 @testable import Ancestor_Research
 
-/// Pins the prose-extractor contract from spec §10:
+/// Pins the prose-extractor contract from spec:
 ///
 /// - User prompt shape (subject + source + content with 24 KB body cap).
 /// - JSON parsing across the standard LLM-output shapes (raw, fenced).

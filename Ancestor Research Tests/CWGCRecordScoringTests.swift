@@ -3,7 +3,7 @@ import Foundation
 @testable import Ancestor_Research
 
 /// Connector-audit T1-02 + T1-06 (score side) + T1-11
-/// (CONNECTOR_AUDIT_2026-07.md §6.1/§6.2) — CWGC fields the scorer and
+/// (the 2026-07 connector audit/) — CWGC fields the scorer and
 /// projection previously parsed but ignored.
 struct CWGCRecordScoringTests {
 

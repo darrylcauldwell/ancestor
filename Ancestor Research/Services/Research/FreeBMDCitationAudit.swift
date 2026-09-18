@@ -1,7 +1,7 @@
 import Foundation
 import AncestorKit
 
-/// FREEBMD_CITATION_BACKFILL_SPEC Change 2 — surfaces applied FreeBMD evidence
+/// FreeBMD citation backfill Change 2 — surfaces applied FreeBMD evidence
 /// that predates the detail-link capture (commit c194066): records saved with
 /// no direct entry link, and births additionally missing the mother's maiden
 /// name (the parent-inference blocker).

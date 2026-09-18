@@ -3,7 +3,7 @@ import Foundation
 import AncestorKit
 @testable import Ancestor_Research
 
-/// #CPC-Change3 acceptance tests (`AncestorApp/CROSS_PROFILE_CORROBORATION_SPEC.md`
+/// #CPC-Change3 acceptance tests (`AncestorApp/Cross-profile corroboration`
 /// Change 3): the in-run annotation step — spouse's persisted evidence →
 /// pre-scoring `corroborating*` stamps on candidate marriage records — plus
 /// the new gate-4 arm and the load-bearing property that THIS change moves

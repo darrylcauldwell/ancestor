@@ -438,7 +438,7 @@ struct ProjectPickerView: View {
         }
     }
 
-    /// PUBLISHER_SPEC Change 5 — Apple's cloud-sharing window for the
+    /// Publisher Change 5 — Apple's cloud-sharing window for the
     /// published tree (invite + manage participants; read-only enforced
     /// server-side). Requires a prior publish.
     private func presentFamilySharing(_ project: Project) {
@@ -456,7 +456,7 @@ struct ProjectPickerView: View {
         }
     }
 
-    /// PUBLISHER_SPEC Change 5 — unpublish (GDPR-erasure path). Zone
+    /// Publisher Change 5 — unpublish (GDPR-erasure path). Zone
     /// deletion evicts all participants server-side; identity and
     /// generation survive locally so a republish stays monotonic.
     private func runUnpublish(_ project: Project) {
@@ -470,7 +470,7 @@ struct ProjectPickerView: View {
         }
     }
 
-    /// PUBLISHER_SPEC Change 2 — offline family bundle (redacted §4
+    /// Publisher Change 2 — offline family bundle (redacted
     /// schema as JSON + media). Same permanent record UUIDs the CloudKit
     /// publish will use; never touches published_state/publish_meta.
     private func exportFamilyBundle(_ project: Project) {

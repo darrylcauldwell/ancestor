@@ -2,7 +2,7 @@ import Testing
 import Foundation
 @testable import Ancestor_Research
 
-/// Acceptance tests for RESEARCH_AXES_SPEC.md Change 2 — county adjacency.
+/// Acceptance tests for Research axes Change 2 — county adjacency.
 struct RegionConfigAdjacencyTests {
 
     // MARK: - AC2.1 — county-adjacency.json ships with the expected coverage

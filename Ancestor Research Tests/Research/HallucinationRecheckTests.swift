@@ -2,7 +2,7 @@ import Testing
 import Foundation
 @testable import Ancestor_Research
 
-/// §14.B.1 defensive hallucination re-check (ENGINE_FOUNDATION #Change8).
+///.B.1 defensive hallucination re-check (ENGINE_FOUNDATION #Change8).
 ///
 /// Security-sensitive: this is the guard that stops the local MLX model's
 /// hallucinated facts from auto-writing to the tree. These tests exercise the

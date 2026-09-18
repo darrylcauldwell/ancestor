@@ -1,7 +1,7 @@
 import Foundation
 
-/// Phase 5 of the lead-discovery pivot (`AncestorApp/LEAD_DISCOVERY_SPEC.md`
-/// §7 + §9): the identity-constraint core, SHARED between the two clustering
+/// Phase 5 of the lead-discovery pivot (`AncestorApp/Lead discovery`
+/// +): the identity-constraint core, SHARED between the two clustering
 /// roles — acceptance (`ClusteringEngine`, rich per-subject records) and
 /// discovery (the retired `LeadDiscoveryEngine`; kept general for reuse).
 ///
@@ -54,7 +54,7 @@ nonisolated enum IdentityConstraints {
     static let sameDeathYearTolerance = 1
 
     /// Youngest legal age at marriage, for REFUSAL guards (#CPC-Change1,
-    /// `CROSS_PROFILE_CORROBORATION_SPEC.md` Decision 12). Pre-1929 England
+    /// `Cross-profile corroboration` Decision 12). Pre-1929 England
     /// & Wales minima were 14 (male) / 12 (female) — Victorian marriages at
     /// 14–15 are real — so this sits deliberately below the scorer's
     /// plausibility check (`ScoringRules.checkMarriageAge`, 16): the gate
@@ -97,7 +97,7 @@ nonisolated enum IdentityConstraints {
         return abs(a - b) > sameDeathYearTolerance
     }
 
-    /// §7 geography sanity: two evidences resolved to DIFFERENT known counties
+    /// geography sanity: two evidences resolved to DIFFERENT known counties
     /// describe different people; unknown geography is permissive. (Each engine
     /// resolves geography from its own data shape — registration districts via
     /// the national catalogue, or lead place tokens — but the principle decided

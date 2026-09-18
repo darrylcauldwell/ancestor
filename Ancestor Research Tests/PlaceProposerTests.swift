@@ -3,7 +3,7 @@ import Foundation
 import AncestorKit
 @testable import Ancestor_Research
 
-/// LOCATION_MODEL_SPEC Part II Slice E's deferred local-model tier.
+/// Location model Part II Slice E's deferred local-model tier.
 ///
 /// The model is never asked an open question. It is handed the closed list of
 /// parishes in the county the text names and told to pick one or decline —

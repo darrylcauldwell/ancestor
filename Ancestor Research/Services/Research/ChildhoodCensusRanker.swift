@@ -1,6 +1,6 @@
 import Foundation
 
-/// CENSUS_PARENT_UNLOCK_SPEC Change 1 — the disambiguation that cracks the
+/// Census parent unlock Change 1 — the disambiguation that cracks the
 /// pre-1911 parent deadlock.
 ///
 /// A frontier ancestor's *childhood* census (them as a child in the parental

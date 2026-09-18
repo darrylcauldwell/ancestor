@@ -2,7 +2,7 @@ import Foundation
 import GRDB
 import AncestorKit
 
-/// CONFLICT_LAYER_SPEC §4.4 T-C — the standing consistency sweep
+/// Conflict layer T-C — the standing consistency sweep
 /// (`detected_by = 'consistencySweep'`).
 ///
 /// Runs `ConflictDetector` over every profile: attested field_sources vs
@@ -11,7 +11,7 @@ import AncestorKit
 /// census duplicates (T-D tree-state arm ⟨G13⟩), parent-role duplicates
 /// (F4a), and fact-grade marriage attestations vs spouse edges (F4b).
 ///
-/// Properties: idempotent (dispute upsert identity, §4.3 — a second run
+/// Properties: idempotent (dispute upsert identity, — a second run
 /// adds zero rows), read-only except dispute rows, skippable via the
 /// `project_meta.conflict_sweep_high_water` mark when the project is
 /// unchanged since the last sweep.
@@ -190,7 +190,7 @@ nonisolated struct ConflictSweep {
                 else { continue }
                 // Identity and competing-source RAWS reproduced verbatim from
                 // `ProjectDatabase.recordParentRoleDispute`, so a re-derivation
-                // JOINS the open row as a no-op (§4.3 upsert identity) instead
+                // JOINS the open row as a no-op ( upsert identity) instead
                 // of appending a duplicate witness on every sweep.
                 conflicts.append(ConflictDetector.parentRoleReassignmentConflict(
                     subjectID: profile.id, currentRole: current,
@@ -286,7 +286,7 @@ nonisolated struct ConflictSweep {
         return report
     }
 
-    /// One-shot v41 backfill (§4.4): existing trees get their latent
+    /// One-shot v41 backfill: existing trees get their latent
     /// contradictions surfaced on first launch after the migration.
     /// Patterned on `reconcileProfileDateFields` — runs exactly once,
     /// guarded by `project_meta.v41_conflict_backfill_done`.

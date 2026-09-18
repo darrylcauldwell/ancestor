@@ -3,7 +3,7 @@ import Foundation
 import AncestorKit
 @testable import Ancestor_Research
 
-/// ENGINE_FOUNDATION_SPEC §Change7 — "stop digging here" expansion bound.
+/// Engine foundation Change 7 — "stop digging here" expansion bound.
 /// Verifies the deterministic gate on WHICH leads promote: generational
 /// distance and collateral depth, the queryable reason, and per-project
 /// override. Pure graph tests — no DB, no scorer.

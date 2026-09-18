@@ -1,6 +1,6 @@
 import SwiftUI
 
-/// SwiftUI page view for a narrative report (DESIGN.md §7.9.4). Consumes
+/// SwiftUI page view for a narrative report (by design). Consumes
 /// a `NarrativeDocument` produced by `NarrativeComposer.compose(...)` and
 /// renders the prose paragraphs followed by a footnotes section.
 ///

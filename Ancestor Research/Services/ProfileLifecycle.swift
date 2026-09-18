@@ -1,6 +1,6 @@
 import Foundation
 
-/// PROFILE_LIFECYCLE_SPEC Change 3 — a person's stage on the journey from raw
+/// Profile lifecycle Change 3 — a person's stage on the journey from raw
 /// GEDCOM import to a verified, evidence-backed profile. Always DERIVED from
 /// data already present (never stored, so it can't go stale), and paired with a
 /// plain-language next step so the app guides rather than leaves the user to

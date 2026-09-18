@@ -2,8 +2,8 @@ import Testing
 import Foundation
 @testable import Ancestor_Research
 
-/// Pins the registry + manifest data-layer contract from spec §3.1 and
-/// §3.3 — JSON shape, source_id derivation with collision suffixes,
+/// Pins the registry + manifest data-layer contract from spec and
+/// — JSON shape, source_id derivation with collision suffixes,
 /// atomic load/save semantics, and per-corpus manifest round-trip.
 ///
 /// All tests target a fresh temp directory so the suite leaves no trace
@@ -22,7 +22,7 @@ struct ProseCorpusRegistryTests {
         try? FileManager.default.removeItem(at: url)
     }
 
-    // MARK: - source_id derivation (spec §3.3)
+    // MARK: - source_id derivation (spec)
 
     @Test func deriveSourceIDStripsWWWPrefix() {
         let url = URL(string: "http://www.wirksworth.org.uk/")!
@@ -229,7 +229,7 @@ struct ProseCorpusRegistryTests {
         #expect(!FileManager.default.fileExists(atPath: storage.corpusDirectory.path))
     }
 
-    // MARK: - JSON shape matches spec §3.3
+    // MARK: - JSON shape matches spec
 
     @Test func registryJSONUsesSnakeCaseKeys() throws {
         let (registry, tmp) = makeTempRegistry()
@@ -315,7 +315,7 @@ struct ProseCorpusRegistryTests {
         )
         try storage.writeManifest(manifest)
         let raw = try String(contentsOf: storage.manifestURL, encoding: .utf8)
-        // Spec §3.1 calls out these exact keys.
+        // Spec calls out these exact keys.
         for key in [
             "\"source_id\"",
             "\"display_title\"",

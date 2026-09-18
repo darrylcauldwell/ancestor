@@ -9,7 +9,7 @@ nonisolated struct BackupInfo: Identifiable, Sendable, Hashable {
     let sizeBytes: Int64
 }
 
-/// Per-project SQLite backup management. Per DESIGN.md §7.15.3:
+/// Per-project SQLite backup management. By design:
 ///  - Snapshot the project SQLite on every successful open.
 ///  - Keep the 10 most recent (LRU trim).
 ///  - Detect corruption on open and surface a manual restore flow.

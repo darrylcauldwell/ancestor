@@ -4,7 +4,7 @@ struct SidebarView: View {
     @Environment(AppState.self) private var appState
     @Binding var selectedTab: SidebarTab
 
-    /// Per DESIGN.md §7.7 + §7.16: progressive disclosure. The sidebar
+    /// By design +: progressive disclosure. The sidebar
     /// reveals tabs as the project earns them — Workbench on first note,
     /// Tasks once a manual project crosses the 5-profile threshold (always
     /// visible for imported projects), Sourcing once any citation exists.

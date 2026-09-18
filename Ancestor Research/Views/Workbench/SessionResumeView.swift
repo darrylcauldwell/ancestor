@@ -2,7 +2,7 @@ import SwiftUI
 
 /// Launch-time prompt shown when there's a recent session within the resume
 /// window (>30 min ago and <7 days old, with recorded activity). Mirrors
-/// DESIGN.md §7.7.6 — turns the app from a tree editor into a research
+/// the design — turns the app from a tree editor into a research
 /// tool you can return to.
 struct SessionResumeView: View {
     @Environment(AppState.self) private var appState
@@ -48,7 +48,7 @@ struct SessionResumeView: View {
                     .foregroundStyle(.secondary)
             }
 
-            // M13 §5.16 — surface active research goals so users see where
+            // M13 — surface active research goals so users see where
             // they were heading when they return to the app.
             let activeGoals = activeResearchGoals
             if !activeGoals.isEmpty {
@@ -100,7 +100,7 @@ struct SessionResumeView: View {
     }
 
     /// Active research goals, sorted with most-recently-created first. Per
-    /// DESIGN.md §5.16 — surface "where am I trying to get to?" on resume.
+    /// the design — surface "where am I trying to get to?" on resume.
     private var activeResearchGoals: [ResearchGoal] {
         appState.loadGoals()
             .filter { $0.status == .active }

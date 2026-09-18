@@ -1,6 +1,6 @@
 import Foundation
 
-/// User customization of an audit rule, stored per-project (M18, DESIGN.md §13).
+/// User customization of an audit rule, stored per-project (M18, the design).
 ///
 /// Three knobs:
 /// - `enabled` — the rule fires at all (false = silenced).

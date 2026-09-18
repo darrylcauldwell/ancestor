@@ -1,6 +1,6 @@
 import Foundation
 
-/// TEMPLATED_NARRATIVE_SOURCE_SPEC Stage 2 — the live Chapman-templated
+/// Templated narrative source Stage 2 — the live Chapman-templated
 /// memorial-inscription source. Given a subject's county Chapman code + resolved
 /// parish (passed as `.memorialInscription` query params), it templates ONE
 /// parish page via `TemplatedURLResolver`, fetches it, parses the stones with

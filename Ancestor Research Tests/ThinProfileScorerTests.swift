@@ -2,7 +2,7 @@ import Testing
 import Foundation
 @testable import Ancestor_Research
 
-/// ENGINE_FOUNDATION_SPEC #Change1 — verdict-cap behaviour for thin
+/// Engine foundation #Change1 — verdict-cap behaviour for thin
 /// subjects, plus the `InformationDensity` classifier.
 ///
 /// The empirical motivator: a surname-only HOLMES placeholder with a

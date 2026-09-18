@@ -2,7 +2,7 @@ import Foundation
 
 /// Deterministic gate that answers: *may Discovery promote this lead, or
 /// is the generator it attaches to too far out on the periphery?*
-/// ENGINE_FOUNDATION_SPEC §Change7.
+/// Engine foundation Change 7.
 ///
 /// This is a bound on WHICH leads promote — it sits before the INSERT on
 /// the expansion path and never touches the scorer/convergence verdicts.

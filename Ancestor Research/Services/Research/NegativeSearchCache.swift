@@ -1,7 +1,7 @@
 import Foundation
 
 /// Cross-run persistent negative-search reader (connector-audit
-/// CONNECTOR_AUDIT_2026-07 §6.1 T1-04 / §5.2). The honesty envelope
+/// the 2026-07 connector audit T1-04 /). The honesty envelope
 /// (a6e9c6d) made `negative_searches` a genuine WRITER — one durable
 /// row per clean-zero WIRE query, keyed by `QueryCache.cacheKey`. This
 /// is the READER: before the dispatcher re-fires a query on a later

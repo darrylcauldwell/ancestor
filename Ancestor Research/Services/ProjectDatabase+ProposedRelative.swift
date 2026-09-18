@@ -35,7 +35,7 @@ nonisolated extension ProjectDatabase {
             divorceDate: nil
         )
 
-        // E4 (§Change4): this parent edge exists because of the record that
+        // E4 (Change 4): this parent edge exists because of the record that
         // implied the parent's surname — the child's birth record, the first
         // entry in the proposal's evidence. Cite it. If somehow no evidence is
         // attached (defensive; a ProposedRelative is by construction derived
@@ -115,7 +115,7 @@ nonisolated extension ProjectDatabase {
         var marriageYear: Int?
         var marriageQuarter: String?
         var marriageDistrict: String?
-        // E4 (§Change4): remember the marriage record that drives this spouse
+        // E4 (Change 4): remember the marriage record that drives this spouse
         // edge so its existence can cite it. First cited record carrying a year
         // wins — the same one whose (year, quarter, district) fill the edge.
         var drivingMarriageRecord: ScoredRecord?
@@ -155,7 +155,7 @@ nonisolated extension ProjectDatabase {
             marriageLocation: marriageDistrict,
             divorceDate: nil
         )
-        // E4 (§Change4): the spouse edge exists because of the parents'
+        // E4 (Change 4): the spouse edge exists because of the parents'
         // marriage record. Cite it. `drivingMarriageRecord` is guaranteed
         // non-nil here — we already proved a marriage year came from it above.
         let existence: RelationshipExistenceEvidence? = drivingMarriageRecord.map { .record($0) }
@@ -232,7 +232,7 @@ nonisolated extension ProjectDatabase {
             divorceDate: nil
         )
 
-        // E4 (§Change4): both parent edges exist because of the sibling's own
+        // E4 (Change 4): both parent edges exist because of the sibling's own
         // birth record — the same record whose mother's-maiden-name matched
         // the known family. Cite it on both edges. If evidence is somehow
         // absent, the edges are created bare rather than fabricating a source.

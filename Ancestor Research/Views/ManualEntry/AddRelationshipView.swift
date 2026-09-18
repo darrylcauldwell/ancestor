@@ -52,7 +52,7 @@ struct AddRelationshipView: View {
     @State private var marriageDateText: String = ""
     @State private var marriageLocation: String = ""
     @State private var marriageLocationCode: String? = nil
-    /// DESIGN.md §7.5.7 — when the saved edge would be the third (or later)
+    /// the design — when the saved edge would be the third (or later)
     /// parent on the receiving profile, the user must explicitly confirm
     /// the subtype. Set to true once they pick a value in the prompt.
     @State private var thirdParentSubtypeConfirmed: Bool = false

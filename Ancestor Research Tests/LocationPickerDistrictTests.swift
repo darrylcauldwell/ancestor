@@ -3,7 +3,7 @@ import Foundation
 import AncestorKit
 @testable import Ancestor_Research
 
-/// LOCATION_MODEL_SPEC Part II Slice D deferred items — the picker's district line.
+/// Location model Part II Slice D deferred items — the picker's district line.
 ///
 /// The line was a first-match over the county's districts in file order with no
 /// year, so it displayed "Crich · Amber Valley" (Amber Valley RD began in 1994)

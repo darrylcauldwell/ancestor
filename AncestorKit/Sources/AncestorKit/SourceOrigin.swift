@@ -23,7 +23,7 @@ public nonisolated struct SourceOrigin: Codable, Hashable, Sendable {
     public static let manualRecord = SourceOrigin(identifier: "manual.record")
     public static let manualEstimate = SourceOrigin(identifier: "manual.estimate")
     /// Internal engine-derived enrichment — used by the thin-placeholder
-    /// write-back path (ENGINE_FOUNDATION_SPEC #Change2). Honest about
+    /// write-back path (Engine foundation #Change2). Honest about
     /// provenance: the value was not asserted by any external source
     /// directly; the engine inferred it from consensus across multiple
     /// scored records.
@@ -37,7 +37,7 @@ public nonisolated struct SourceOrigin: Codable, Hashable, Sendable {
     /// Three-tier model used by the apply-path overwrite policy for string
     /// fields (see ApplyEngine.shouldOverwriteStringField). The
     /// directional "Check Before Overwrite" rule (per
-    /// feedback_check_before_overwrite.md) needs a precision axis to compare
+    /// the Check Before Overwrite rule) needs a precision axis to compare
     /// against — strings have none, so we substitute provenance:
     ///   - `userAuthoritative` (manual.*) — user investigated and decided.
     ///   - `researchSource` (freebmd, freecen, freereg, familysearch, cwgc,

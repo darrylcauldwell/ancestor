@@ -762,7 +762,7 @@ nonisolated struct ScoringRules {
     // (parishes, non-local map) return empty / nil — the scorer downgrades
     // local-boosting accordingly rather than mis-classifying everything as
     // "local-Derbyshire" the way it did before parameterisation.
-    // See RESEARCH_AXES_SPEC.md §3 / §8 Change 1.
+    // See Research axes / Change 1.
 
     /// Check if a district is in the subject's home county.
     /// Two-tier lookup: the rich per-county RegionConfig (only DBY today)

@@ -3,7 +3,7 @@ import Foundation
 import AncestorKit
 @testable import Ancestor_Research
 
-/// EVIDENCE_ABSORPTION_SPEC Change 3 — records that carry a birth/death signal
+/// Evidence absorption Change 3 — records that carry a birth/death signal
 /// off-agenda (an age, a FindAGrave date, a probate age) must corroborate the
 /// profile's date fields, not vanish. The implied date is routed through the
 /// existing directional policy, so it fills empty / corroborates compatible /

@@ -2,8 +2,8 @@ import Testing
 import Foundation
 @testable import Ancestor_Research
 
-/// Pins the add-corpus orchestrator from spec §6.2 (verification) and
-/// §3 (registry + manifest writes). Tests the two halves separately —
+/// Pins the add-corpus orchestrator from spec (verification) and
+/// (registry + manifest writes). Tests the two halves separately —
 /// `verify(...)` against a `FixtureHTTPClient` returning canned seed
 /// and robots responses; `commitAdd(...)` against a real on-disk
 /// registry rooted at a temp directory; `sync(...)` end-to-end with

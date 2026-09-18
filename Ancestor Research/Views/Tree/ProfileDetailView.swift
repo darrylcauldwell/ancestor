@@ -7,7 +7,7 @@ import SwiftUI
 /// machinery (per-field source picker, Correct/Alternative, citation)
 /// slides in below.
 ///
-/// Step 4 of `AncestorApp/PROFILE_VIEW_UNIFY_SPEC.md`: removes the modal
+/// Step 4 of `AncestorApp/Profile view unification`: removes the modal
 /// `EditPersonView` sheet from the inspector flow. External callsites
 /// (audit / tree-graph context menu) still open `EditPersonView`, which is
 /// now a thin sheet wrapper that hosts this view with
@@ -25,7 +25,7 @@ struct ProfileDetailView: View {
     /// `EditPersonView` (the sheet wrapper) so the audit / context-menu
     /// edit flows still land directly on the form.
     var startInEditMode: Bool = false
-    /// RETIRE_POPOVER_SPEC Change 2 — tree-hosted navigation: tap a relative
+    /// Popover retirement Change 2 — tree-hosted navigation: tap a relative
     /// row to jump the tree to that person. Nil in sheet contexts (no tree).
     var onNavigateToProfile: ((String) -> Void)? = nil
     /// Pass-through for SharedProfileLayout's mode-switch hint.
@@ -74,24 +74,24 @@ struct ProfileDetailView: View {
     @State private var showingRelationshipCalculator: Bool = false
     @State private var cleansePresentation: CleansePresentation?
     /// WT3 — WikiTree contribution preview (.sheet(item:) per
-    /// feedback_sheet_isPresented_race).
+    /// the sheet(isPresented:) EmptyView race).
     @State private var wikiTreeContribute: WikiTreeContributeContext?
     /// Count of active leads this profile's research surfaced — feeds the
     /// lifecycle chip's pending-review signal. (Formerly also badged the
     /// "Possible People (N)" section, retired with the surface
     /// consolidation — review M9.)
     @State private var surfacedLeadCount: Int = 0
-    // PROFILE_SOURCES_LEDGER_SPEC Change 2 — the records backing this person,
+    // Profile sources ledger Change 2 — the records backing this person,
     // read from evidence_records with no research run.
     @State private var ledgerEntries: [ProfileSourcesLedger.Entry] = []
     @State private var ledgerExpanded: Bool = false
-    // PROFILE_SOURCES_LEDGER_SPEC Change 3 — the entry pending removal
+    // Profile sources ledger Change 3 — the entry pending removal
     // confirmation (nil = no dialog).
     @State private var ledgerRemovalCandidate: ProfileSourcesLedger.Entry?
-    // PROFILE_SOURCES_LEDGER_SPEC Change 5 — the scroll anchor a muddle
+    // Profile sources ledger Change 5 — the scroll anchor a muddle
     // finding's "Review records" deep-link targets.
     private static let ledgerAnchorID = "sourcesLedgerSection"
-    // PROFILE_LIFECYCLE_SPEC Change 3 — the derived import→verified stage.
+    // Profile lifecycle Change 3 — the derived import→verified stage.
     @State private var lifecycle: ProfileLifecycle?
 
     var body: some View {
@@ -185,7 +185,7 @@ struct ProfileDetailView: View {
         .sheet(item: $wikiTreeContribute) { context in
             WikiTreeContributeSheet(context: context)
         }
-        // PROFILE_SOURCES_LEDGER_SPEC Change 3 — per-record removal confirm.
+        // Profile sources ledger Change 3 — per-record removal confirm.
         // presenting: pattern (not isPresented + force-unwrap) per the
         // sheet(isPresented:)+if-let race memory.
         .confirmationDialog(
@@ -213,7 +213,7 @@ struct ProfileDetailView: View {
                 Text("Takes “\(target.value)” off this profile. If another source still attests \(ProfileSourcesLedger.fieldLabel(target.field)), the field falls back to that source's value; otherwise it is cleared. The fact is marked rejected in review so it won't be re-applied.")
             }
         }
-        // PROFILE_SOURCES_LEDGER_SPEC Change 5 — a "Review records" deep-link
+        // Profile sources ledger Change 5 — a "Review records" deep-link
         // may land after this card is already mounted for the profile, so
         // consume the intent on change too (not only on appear / switch).
         .onChange(of: appState.requestLedgerReviewProfileID) { _, _ in
@@ -231,7 +231,7 @@ struct ProfileDetailView: View {
 
     // MARK: - Layout pieces
 
-    /// Marriage switcher (RETIRE_POPOVER_SPEC Change 2, moved from the
+    /// Marriage switcher (Popover retirement Change 2, moved from the
     /// popover): when the person has 2+ marriages, choose which one the tree
     /// shows (spouse + that marriage's children). Ordered earliest-first.
     /// Rendered only when the host wires the callback (tree contexts).
@@ -310,7 +310,7 @@ struct ProfileDetailView: View {
         }.count
     }
 
-    // MARK: - Sources & Records ledger (PROFILE_SOURCES_LEDGER_SPEC Change 2)
+    // MARK: - Sources & Records ledger (Profile sources ledger Change 2)
 
     private func reloadLedger() {
         guard let db = appState.currentDatabase else { ledgerEntries = []; lifecycle = nil; return }
@@ -482,7 +482,7 @@ struct ProfileDetailView: View {
         .background(.secondary.opacity(0.06), in: RoundedRectangle(cornerRadius: 8))
     }
 
-    /// PROFILE_SOURCES_LEDGER_SPEC Change 3 — confirm-then-remove for one
+    /// Profile sources ledger Change 3 — confirm-then-remove for one
     /// applied record: reverts its absorption, feeds rejection memory, and
     /// refreshes the ledger. The record itself stays in research history, so
     /// removal is reversible by re-applying from research.
@@ -512,7 +512,7 @@ struct ProfileDetailView: View {
         reloadLedger()
     }
 
-    /// PROFILE_SOURCES_LEDGER_SPEC Change 5 — honour a muddle finding's
+    /// Profile sources ledger Change 5 — honour a muddle finding's
     /// "Review records" deep-link when it targets THIS profile: expand the
     /// Sources & Records section and scroll it into view (it sits near the
     /// bottom of a long card), then clear the intent. The scroll waits a
@@ -600,7 +600,7 @@ struct ProfileDetailView: View {
                     // the SAME set as the right-click menu (kept in a compact
                     // "More" menu rather than a 7th/8th full-width button).
                     Menu {
-                        // RETIRE_POPOVER_SPEC Change 1 — add-relative + remove
+                        // Popover retirement Change 1 — add-relative + remove
                         // move here (and to the right-click menu) off the popover.
                         // The tree owns the add sheets, so these set intents it
                         // observes, mirroring "Compare with…".
@@ -630,7 +630,7 @@ struct ProfileDetailView: View {
                         Button("Compare with…") { raiseTreeIntent { appState.requestCompareProfileID = profile.id } }
                         Button("Set as Home Person") { appState.setHomePerson(id: profile.id) }
                             .disabled(profile.id == appState.currentProject?.homePersonID)
-                        // RETIRE_POPOVER_SPEC Change 2 — W3 focus toggle,
+                        // Popover retirement Change 2 — W3 focus toggle,
                         // moved from the popover. Only shown while a focus
                         // set is active (same gating the popover used).
                         if appState.activeFocusSet != nil {

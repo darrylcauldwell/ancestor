@@ -16,7 +16,7 @@ nonisolated struct Lead: Identifiable, Codable, Sendable {
     /// no birth year of their own (deaths, burials, marriages) — the dominant
     /// over-merge the Phase 0 probe surfaced, where hundreds of same-name
     /// death leads with no birth window chain-merged into one false person
-    /// (LEAD_DISCOVERY_SPEC §9). nil when unknown.
+    /// (Lead discovery). nil when unknown.
     let ageAtDeath: Int?
     /// Best-effort event place / district for the lead — a geographic
     /// discriminator so two leads with no birth signal never merge on name
@@ -92,7 +92,7 @@ nonisolated struct Lead: Identifiable, Codable, Sendable {
     /// (`IdentityConstraints.impliedBirthYear`, which also guards against
     /// nonsense ages). This is what keeps no-birth-year death/burial leads
     /// carrying a birth window instead of over-merging on name alone
-    /// (LEAD_DISCOVERY_SPEC §9).
+    /// (Lead discovery).
     var effectiveBirthYear: Int? {
         birthYear ?? IdentityConstraints.impliedBirthYear(deathYear: deathYear, ageAtDeath: ageAtDeath)
     }

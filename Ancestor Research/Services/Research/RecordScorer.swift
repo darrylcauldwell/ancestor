@@ -10,7 +10,7 @@ import AncestorKit
 /// path) applies the identical bar; it previously lived on
 /// `ResearchViewModel` with a "if you change one, change both" comment.
 ///
-/// Distinct from the MCP §14.3 auto-approval gate and the run-watcher's
+/// Distinct from the MCP auto-approval gate and the run-watcher's
 /// proposal-promotion gate — those govern *autonomy* (may the machine act
 /// without a human?) and are deliberately stricter; this governs record
 /// quality only.
@@ -64,7 +64,7 @@ extension RecordScorer {
 
         // Same-ish year but a different registration district is a different
         // birth event (Chesterfield confirmed vs Basford on the record).
-        // Slice B(i) (LOCATION_MODEL_SPEC Part II) — resolve BOTH the record's
+        // Slice B(i) (Location model Part II) — resolve BOTH the record's
         // district and the subject's birthplace to registration-district ids and
         // compare by IDENTITY: Hognaston resolves to Ashbourne-RD, so a Bakewell/
         // Basford birth is a different event while an Ashbourne birth is NOT —
@@ -172,7 +172,7 @@ nonisolated struct RecordScorer {
         // All gates pass with no softFails → fact.
         // All gates pass but has softFails (geography unknown-district /
         // family-context noise) → lead.
-        // Fix B.3 (DECISION_CORE_PAIR_SPEC) — a geography softFail that means
+        // Fix B.3 (Decision-core pair) — a geography softFail that means
         // "we don't KNOW where this is" (unknown district / no location
         // data) does not demote a record whose familyContext gate scored a
         // genuine match: family evidence outranks missing geo data. A WRONG
@@ -188,8 +188,8 @@ nonisolated struct RecordScorer {
         }
 
         // #CPC-Change4 — bounded cross-profile elevation
-        // (CROSS_PROFILE_CORROBORATION_SPEC Decision 10; RESEARCH_PIPELINE
-        // §4.2 amendment). Applies only when a reciprocal-tier,
+        // (Cross-profile corroboration Decision 10; RESEARCH_PIPELINE
+        // amendment). Applies only when a reciprocal-tier,
         // STRONG-anchor cross-profile annotation identifies this marriage
         // via a tree-linked spouse's persisted record, every other gate is
         // a clean pass, and the sole blocker is insufficient SUBJECT
@@ -217,7 +217,7 @@ nonisolated struct RecordScorer {
             baseVerdict = .lead
         }
 
-        // Thin-subject verdict cap (ENGINE_FOUNDATION_SPEC #Change1).
+        // Thin-subject verdict cap (Engine foundation #Change1).
         // When the subject has no given name (or a 25+-year birth-year
         // window), the gates can't meaningfully discriminate — a passing
         // record is one of many surname-sharers. Refuse to assert .fact;
@@ -293,7 +293,7 @@ nonisolated struct RecordScorer {
         return dateGate.outcome == .fail && dateGate.reason == insufficientDateInfoReason
     }
 
-    // MARK: - Cross-record exclusivity pass (DECISION_CORE_PAIR_SPEC Fix A)
+    // MARK: - Cross-record exclusivity pass (Decision-core pair Fix A)
 
     /// The slot a record occupies among facts a person can hold at most once.
     /// nil = the record type carries no exclusivity semantics.
@@ -1122,7 +1122,7 @@ nonisolated struct RecordScorer {
             // year. Without this branch a 2017 probate record on a 1919-
             // born subject failed the default birth-window check by 98
             // years → impossible. With this branch the same record passes
-            // when ageAtDeath is plausible. Spec §22 follow-up.
+            // when ageAtDeath is plausible. Spec follow-up.
 
             // DS-15: the tree's own accepted evidence already places the
             // subject alive AFTER this record's death year → the record is a
@@ -1384,7 +1384,7 @@ nonisolated struct RecordScorer {
         }
     }
 
-    /// Cross-RUN exclusivity (DECISION_CORE_PAIR_SPEC Fix A, cross-run
+    /// Cross-RUN exclusivity (Decision-core pair Fix A, cross-run
     /// extension). The in-run pass can only see the current batch — but the
     /// negative/dedup caches mean a rival from an earlier run often is NOT
     /// re-fetched, so a namesake could return as an "unrivalled" fact while
@@ -1424,7 +1424,7 @@ nonisolated struct RecordScorer {
         return CrossRunExclusivity(batch: newBatch, demotedStored: demotedStored)
     }
 
-    // MARK: - Subject research area (DECISION_CORE_PAIR_SPEC Fix B.1)
+    // MARK: - Subject research area (Decision-core pair Fix B.1)
 
     /// The subject's accepted counties: the tree's home Chapman code PLUS the
     /// counties of the subject's OWN recorded places (birth region, death
@@ -1643,7 +1643,7 @@ nonisolated struct RecordScorer {
             // anywhere in the UK would auto-promote to .fact for any
             // Cauldwell subject. Use record-side registry data first (most
             // specific), then subject-side death-location context as a
-            // fallback. Spec §23.
+            // fallback. Spec.
             if case .probate(let r) = record {
                 // Registry catchment — strongest signal when known.
                 // Manchester registry covers DBY/LAN/CHS/CUL/WES/GTM;
@@ -2196,7 +2196,7 @@ nonisolated struct RecordScorer {
         // so the given is the discriminating token) against the subject's
         // linked parents. Corroborate on a match, soft-fail on a clear
         // contradiction, skip when there's nothing to compare.
-        // Event-type guard (FREEREG_INTEGRATION_SPEC §2 / consumer-map
+        // Event-type guard (FreeREG integration / consumer-map
         // hardening 2026-07-29): only a BAPTISM's fatherName/motherName are
         // the SUBJECT's parents. On a marriage they would be the groom's or
         // bride's father (a stranger to a bride-subject); on a burial, the

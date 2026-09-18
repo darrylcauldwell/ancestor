@@ -13,7 +13,7 @@ import os
 //
 // HTTP status is DATA, not an error: `execute` returns a `FamilySearchResponse`
 // for any 2xx/3xx/4xx and throws only on no-auth / transport / retry-exhaustion.
-// See `AncestorApp/FAMILYSEARCH_CLIENT_SPEC.md`.
+// See `AncestorApp/FamilySearch client`.
 
 // MARK: - Media types
 
@@ -74,7 +74,7 @@ nonisolated struct FamilySearchResponse: Sendable {
     /// The ID of an entity created by a POST: `X-entity-id` when present, else
     /// the last path component of `Location`. The beta reference for person
     /// create documents only `Location`, so the fallback is load-bearing
-    /// (see FS_WRITE_WIRE_CONTRACTS.md §unresolved).
+    /// (see the FamilySearch write wire contracts).
     var createdEntityID: String? {
         if let id = headers["x-entity-id"], !id.isEmpty { return id }
         if let location = headers["location"],
@@ -153,7 +153,7 @@ actor FamilySearchClient {
     /// refresh token, so a fresh sign-in rotates the bearer while a fan-out of
     /// requests is in flight — the ones that raced the rotation come back 409 and
     /// succeed once retried with the settled token. Bounded so a genuine
-    /// persistent 409 still surfaces. (Memory: reference_familysearch_409_token_race.)
+    /// persistent 409 still surfaces. (Memory: the FamilySearch 409 token race.)
     private let maxConflictRetries: Int
     /// Bounded retry for gateway-level 502/503 (beta intermittently answers
     /// "503 upstream" before the request reaches the service).

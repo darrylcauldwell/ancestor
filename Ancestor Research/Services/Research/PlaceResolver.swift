@@ -3,7 +3,7 @@ import AncestorKit
 
 /// Resolves free-text places (and registration-district names) to typed
 /// `PlaceAuthority` ids — the Stage-2 primitive of the location-model pass
-/// (`AncestorApp/LOCATION_MODEL_SPEC.md`). The dormant `PlaceAuthority`
+/// (`AncestorApp/Location model`). The dormant `PlaceAuthority`
 /// hierarchy was queryable only from an already-structured id; nothing turned
 /// a raw "Turnditch, Derbyshire" — or a record's "Belper" district field —
 /// into an id. This is that missing resolver, and it is what the rebuilt

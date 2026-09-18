@@ -5,7 +5,7 @@ import Foundation
 /// Verifies the chapman-code derivation chain in `ResearchSubject.fromProfile`
 /// and `fromUserInput`. The chain replaced the hardcoded `"DBY"` default
 /// that silently misanchored non-Derbyshire profiles in any project that
-/// hadn't been explicitly configured (see `feedback_no_hardcoded_regions`).
+/// hadn't been explicitly configured (see the no-hardcoded-regions rule).
 @MainActor
 struct ResearchSubjectHomeChapmanDerivationTests {
 

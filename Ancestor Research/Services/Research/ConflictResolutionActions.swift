@@ -1,7 +1,7 @@
 import Foundation
 import AncestorKit
 
-/// CONFLICT_LAYER_SPEC — the deterministic logic behind every conflict-
+/// Conflict layer — the deterministic logic behind every conflict-
 /// resolution control in the UI pass (choose-parent, discard-event,
 /// clear-death, G12 proposal derivation). Views call these; tests pin
 /// them. Every action resolves the owning dispute in the same user

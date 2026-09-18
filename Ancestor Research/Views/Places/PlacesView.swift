@@ -1,7 +1,7 @@
 import SwiftUI
 import AncestorKit
 
-/// LOCATION_MODEL_SPEC Part III, Slice A — the Places tab.
+/// Location model Part III, Slice A — the Places tab.
 ///
 /// Every distinct location string the tree uses, scored, worst first. Not an
 /// audit: an audit reports a rule's verdict and the app decides what counts as a

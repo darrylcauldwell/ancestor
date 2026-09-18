@@ -4,7 +4,7 @@ import GRDB
 @testable import Ancestor_Research
 
 /// Pins migration `v31_purge_hash_based_record_ids` (FT-16 follow-up,
-/// CONNECTOR_AUDIT_2026-07 §2.3).
+/// the 2026-07 connector audit).
 ///
 /// FreeREG and Wirksworth previously built record IDs from `String.hashValue`
 /// (per-process seeded), so rows keyed on them — user rejections, evidence

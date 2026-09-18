@@ -3,7 +3,7 @@ import Foundation
 import SwiftUI
 @testable import Ancestor_Research
 
-/// Acceptance tests for RESEARCH_CONFIDENCE_SPEC.md Change 3 —
+/// Acceptance tests for Research confidence Change 3 —
 /// ConfidenceBadgeView primitive. Snapshot-of-rendered-pixels testing
 /// isn't wired into this project, so the tests assert on the badge's
 /// contract: the strings, colours, and visibility rules it produces
@@ -42,7 +42,7 @@ struct ConfidenceBadgeViewTests {
     @Test func ac3_2_matchQualityColorMapping() {
         // The view's match colour is a private computed property; the
         // contract is that it maps confirmed→green / possible→amber / wrong→red.
-        // We assert via the contract documented in §4 — colour vocabulary
+        // We assert via the contract documented in — colour vocabulary
         // locked, must match per-quality.
         // (Snapshot tests would assert the rendered pixel; absent that
         // infrastructure, we verify the mapping is well-defined by
@@ -59,7 +59,7 @@ struct ConfidenceBadgeViewTests {
         }
     }
 
-    // MARK: - AC3.3 — sourcing chip text matches §3.2 table
+    // MARK: - AC3.3 — sourcing chip text matches table
 
     @Test func ac3_3_sourcingTextOneSource() {
         let text = sourcingText(SourcingStrength(sourceCount: 1, independentLineageCount: 1, topTrustTier: .transcription))

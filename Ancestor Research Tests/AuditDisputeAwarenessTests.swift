@@ -6,7 +6,7 @@ import Foundation
 /// When a date field has competing sources, rules see the union range
 /// across all of them, not just the stored point value. Rule fires only
 /// when the violation holds across the entire range — the conservative
-/// bound promise from DESIGN.md §5.7.
+/// bound promise from the design
 struct AuditDisputeAwarenessTests {
 
     // MARK: - Helpers

@@ -2,8 +2,8 @@ import Foundation
 import Observation
 import os
 
-/// View-model for user-seeded hunches (RESEARCH_PIPELINE_SPEC §5.15,
-/// Slice 4 — phase (b) Workbench UI + §5.15.8 refuted/exhausted UX).
+/// View-model for user-seeded hunches (Research pipeline,
+/// Slice 4 — phase (b) Workbench UI + refuted/exhausted UX).
 ///
 /// **This is the app-side seam the Workbench "Add a hunch" form drives
 /// through, and the testable unit for Slice 4.** Submission delegates to
@@ -36,7 +36,7 @@ final class UserHypothesisViewModel {
     var snapshot: FamilyGraphSnapshot = .empty
 
     /// User-seeded hunches for the most recently loaded profile, already
-    /// sorted for the §5.15.8 surface: `.contradicted` first (the user
+    /// sorted for the surface: `.contradicted` first (the user
     /// asked a question; a refutation must not be buried), then
     /// `.supported`, `.inconclusive`; ties broken by most-recently
     /// tested. Populated by `load`; the view resets it to `[]` when no
@@ -55,7 +55,7 @@ final class UserHypothesisViewModel {
     // MARK: - Presentation model
 
     /// A user hunch flattened for display: the raw hypothesis plus the
-    /// derived verdict presentation and exhaustion flag (§5.15.8). Pure
+    /// derived verdict presentation and exhaustion flag. Pure
     /// value type so tests can assert the derived fields without a live
     /// database or SwiftUI.
     struct Hunch: Identifiable, Equatable, Sendable {
@@ -67,7 +67,7 @@ final class UserHypothesisViewModel {
         var lastTestedAt: Date { hypothesis.lastTestedAt }
         var history: [ResearchHypothesis.Transition] { hypothesis.history }
 
-        /// Human-facing verdict label (§5.15.8 vocabulary — the four
+        /// Human-facing verdict label ( vocabulary — the four
         /// user-visible states are supported / inconclusive / refuted /
         /// exhausted). "Refuted" is the user-facing word for
         /// `.contradicted`; "Exhausted" is an `.inconclusive` hunch whose
@@ -80,7 +80,7 @@ final class UserHypothesisViewModel {
             }
         }
 
-        /// Ladder exhausted (§5.15.8): every deficit level has been
+        /// Ladder exhausted: every deficit level has been
         /// dispatched and none moved the verdict. Only meaningful for an
         /// unresolved (`.inconclusive`) hunch — a supported/refuted one
         /// has its answer regardless of remaining ladder budget.
@@ -170,10 +170,10 @@ final class UserHypothesisViewModel {
         }
     }
 
-    // MARK: - Load / list (§5.15.8 surface)
+    // MARK: - Load / list ( surface)
 
     /// Load the user-seeded hunches for `profileID` and sort them for the
-    /// §5.15.8 surface. Excludes user-rejected rows (they were dismissed;
+    /// surface. Excludes user-rejected rows (they were dismissed;
     /// `loadHypotheses` filters them). Engine-origin hypotheses are
     /// filtered out — this surface is only the user's own hunches.
     func load(profileID: String) {
@@ -193,7 +193,7 @@ final class UserHypothesisViewModel {
         }
     }
 
-    /// §5.15.8 sort: `.contradicted` (refuted) hunches to the TOP so the
+    /// sort: `.contradicted` (refuted) hunches to the TOP so the
     /// user's answered-and-refuted question is never buried, then
     /// supported, then inconclusive; each group most-recently-tested
     /// first. Pure + static so tests can assert ordering directly.
@@ -213,10 +213,10 @@ final class UserHypothesisViewModel {
     }
 
     /// The refuted (`.contradicted`) hunches — surfaced at the top of the
-    /// Triage list per §5.15.8. Derived from the already-sorted `hunches`.
+    /// Triage list per. Derived from the already-sorted `hunches`.
     var refutedHunches: [Hunch] { hunches.filter { $0.verdict == .contradicted } }
 
-    /// The exhausted hunches — archived under the §5.11 collapsible
+    /// The exhausted hunches — archived under the collapsible
     /// section; revivable, never deleted.
     var exhaustedHunches: [Hunch] { hunches.filter(\.isExhausted) }
 
@@ -226,11 +226,11 @@ final class UserHypothesisViewModel {
         hunches.filter { $0.verdict != .contradicted && !$0.isExhausted }
     }
 
-    // MARK: - Dismiss (§5.15.8)
+    // MARK: - Dismiss
 
-    /// Dismiss a hunch: flip `user_rejected = 1` (§5.15.8). The verdict
+    /// Dismiss a hunch: flip `user_rejected = 1`. The verdict
     /// history is retained for audit — a tested-and-failed hunch is a
-    /// research result worth keeping. Rejection memory (§5.15.6) then
+    /// research result worth keeping. Rejection memory then
     /// stops the engine re-dispatching it and intake refuses re-seeds.
     func dismiss(hunchID: String) {
         guard let database else { return }

@@ -2,7 +2,7 @@ import Testing
 import Foundation
 @testable import Ancestor_Research
 
-/// #CPC-Change1 acceptance tests (`AncestorApp/CROSS_PROFILE_CORROBORATION_SPEC.md`
+/// #CPC-Change1 acceptance tests (`AncestorApp/Cross-profile corroboration`
 /// Change 1). Anchored to the live demonstrator: Mary Ellen Thompson ×
 /// William Holmes, FreeBMD marriage Dec 1915 Bakewell 7b/2130a, son
 /// Reginald b. 1916, William d. 1919.

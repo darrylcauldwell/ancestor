@@ -212,7 +212,7 @@ nonisolated struct GPSScorer {
     /// field can no longer pool into a single inflated level. Met when at
     /// least one value group reaches `.possible`; the reason string always
     /// reports per-value levels so a split vote is visible.
-    /// (Interim lineage counting per §4.5; witness counting lands CL4.)
+    /// (Interim lineage counting per; witness counting lands CL4.)
     private static func criterion3Analysis(
         result: ResearchResult?, sourceInfoMap: [String: SourceInfo]
     ) -> GPSCriterion {
@@ -238,7 +238,7 @@ nonisolated struct GPSScorer {
 
     // MARK: - Criterion 4: Resolution of Conflicting Evidence
 
-    /// CL3 rewrite (§4.8.3, DS-07/DS-14/DS-22): GPS element 4 can now
+    /// CL3 rewrite (, DS-07/DS-14/DS-22): GPS element 4 can now
     /// actually fire. Met requires ALL of:
     ///   1. no open dispute rows on the subject,
     ///   2. no rival confirmed clusters (≥2 clusters at confirmed quality
@@ -315,7 +315,7 @@ nonisolated struct GPSScorer {
         guard let result, !result.clusters.isEmpty else {
             return GPSCriterion(criterion: .soundConclusion, met: false, reason: "No clusters to evaluate")
         }
-        // RESEARCH_CONFIDENCE_SPEC §4 — pre-Change-5 "moderate+" tier meant
+        // Research confidence — pre-Change-5 "moderate+" tier meant
         // "has fact records and ≥2 records overall". The new model treats
         // those signals as separate: a cluster qualifies as "sound" if its
         // match quality is .confirmed (≥1 fact record) AND it has more than

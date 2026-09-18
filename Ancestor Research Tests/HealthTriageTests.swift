@@ -228,7 +228,7 @@ struct HealthTriageTests {
         #expect(!isOneClick(finding("censusRelationship", severity: .info), snap))
     }
 
-    // MARK: - Auto-approval badge mirrors the §14.3 gate, not the pin
+    // MARK: - Auto-approval badge mirrors the gate, not the pin
 
     /// Review fix 2026-08-25. The gate (`MCPServer`: `resolution IS NULL`,
     /// then fieldValue-on-target or any structural kind) never reads

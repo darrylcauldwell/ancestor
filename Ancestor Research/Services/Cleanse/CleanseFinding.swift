@@ -1,6 +1,6 @@
 import Foundation
 
-/// CLEANSE_WIZARD_SPEC §3 — the five finding types the wizard surfaces.
+/// Cleanse wizard — the five finding types the wizard surfaces.
 ///
 /// Closed sum type rather than a protocol: findings are pure data, and the
 /// UI and engine both need to switch over every case exhaustively. The
@@ -192,7 +192,7 @@ nonisolated enum CleanseDateField: String, Sendable {
     case deathDate
 }
 
-/// CLEANSE_WIZARD_SPEC §3 — the user's choice for a single finding.
+/// Cleanse wizard — the user's choice for a single finding.
 /// One enum carries every shape: applying a resolution (with case-specific
 /// payload), skipping, or marking unresolvable.
 nonisolated enum CleanseAction: Sendable {

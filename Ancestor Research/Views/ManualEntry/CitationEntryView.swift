@@ -1,8 +1,8 @@
 import SwiftUI
 
 /// Expandable "Add citation details" UI embedded under a field's source row.
-/// Per DESIGN.md §5.12, most manual-entry users skip this entirely — the source
-/// picker (§7.5.9) alone is enough. But when the user has a birth certificate
+/// By design, most manual-entry users skip this entirely — the source
+/// picker alone is enough. But when the user has a birth certificate
 /// or census image in hand, they can record the formal citation immediately.
 ///
 /// Two states:

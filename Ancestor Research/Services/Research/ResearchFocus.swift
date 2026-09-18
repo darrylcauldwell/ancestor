@@ -6,7 +6,7 @@ import Foundation
 /// `activeRecordTypes` to `focus.recordTypes`; when nil, the full
 /// record-type set is used (today's behaviour).
 ///
-/// See RESEARCH_PIPELINE_SPEC §11.4.
+/// See Research pipeline.
 nonisolated enum ResearchFocus: String, Sendable, CaseIterable {
     case parents
     case siblings

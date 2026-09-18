@@ -1,6 +1,6 @@
 import SwiftUI
 
-/// CLEANSE_WIZARD_SPEC §3 — renders one finding inside the wizard. Stateless
+/// Cleanse wizard — renders one finding inside the wizard. Stateless
 /// view: all transient state (freeform text, selected quarter, selected
 /// proposals) is passed in as Bindings from `ProfileCleanseWizard`, which
 /// resets them each time the cursor advances.

@@ -1,6 +1,6 @@
 import Foundation
 
-/// IMPORT_DEDUPE_SPEC Changes 4–6 — detects "phantom spouse" stubs: a
+/// Import dedupe Changes 4–6 — detects "phantom spouse" stubs: a
 /// name-only, dateless, evidence-free profile whose SOLE relationship edge is a
 /// single spouse-link to a real person. These are the one-edge cousins of the
 /// zero-edge stubs `OrphanStubDetector` handles — the same GEDCOM merge habit

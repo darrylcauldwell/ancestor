@@ -3,7 +3,7 @@ import Foundation
 import AncestorKit
 import AncestorViewerKit
 
-// PHASE4_VIEWER_SPEC Change 1 acceptance — live fetch of the REAL
+// Phase 4 viewers Change 1 acceptance — live fetch of the REAL
 // published zone from the CloudKit development environment (which holds
 // the generation-3 real-tree publish). Env-gated like the publisher E2Es:
 //
@@ -43,7 +43,7 @@ struct ViewerLiveE2ETests {
         #expect(manifest.generation >= 1)
 
         // 2. Build the renderable tree; counts must reconcile with the
-        //    manifest (§4.3 — personCount is the completeness check).
+        //    manifest ( — personCount is the completeness check).
         let tree = try await store.tree(manifestID: manifest.id)
         #expect(tree.snapshot.profiles.count == manifest.personCount)
         #expect(tree.snapshot.relationships.count == manifest.relationshipCount)

@@ -1,7 +1,7 @@
 import Foundation
 import SwiftUI
 
-/// Research report renderer (DESIGN.md §7.9.5).
+/// Research report renderer (by design).
 ///
 /// The "workbench-as-document" — what was investigated, what was found,
 /// what's still open. Sharing this with another researcher is the primary
@@ -62,7 +62,7 @@ enum ResearchReport {
     }
 
     /// Render a composed document as a Markdown string. Section order
-    /// matches DESIGN.md §7.9.5 and the SwiftUI page. Nonisolated so the
+    /// matches the design and the SwiftUI page. Nonisolated so the
     /// composed-doc form can be called from tests without MainActor hops.
     nonisolated static func renderMarkdown(document doc: ResearchReportDocument) -> String {
         var out = ""

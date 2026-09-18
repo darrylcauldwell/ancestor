@@ -78,7 +78,7 @@ struct MainView: View {
         )
     }
 
-    // PROJECT_ONBOARDING_SPEC Part A/B — extracted bindings + hooks keep the
+    // Project onboarding Part A/B — extracted bindings + hooks keep the
     // MainView body under the SwiftUI type-checker's complexity ceiling.
     private var setupWizardBinding: Binding<Bool> {
         Binding(get: { appState.showSetupWizard }, set: { appState.showSetupWizard = $0 })
@@ -118,9 +118,9 @@ struct MainView: View {
     @State private var showingReportPicker = false
     @State private var showingExportOptions = false
     /// WL5 — FamilySearch User Tree upload wizard (.sheet(item:) per
-    /// feedback_sheet_isPresented_race).
+    /// the sheet(isPresented:) EmptyView race).
     @State private var fsUploadContext: FamilySearchUploadContext?
-    /// User preference for the M14 §7.15.2 sensitive-filter toggle, persisted
+    /// User preference for the M14 sensitive-filter toggle, persisted
     /// across launches via AppStorage so repeat exports remember the choice.
     @AppStorage("excludeSensitiveOnExport") private var excludeSensitiveOnExport: Bool = false
     @AppStorage("gedcomExportFormat") private var gedcomExportFormatRaw: String = GEDCOMFormat.v5_5_1.rawValue
@@ -149,7 +149,7 @@ struct MainView: View {
     /// them; the review renders as a sheet over the main window's
     /// `researchVM`, whose `selectedLead` + `currentResult` the
     /// create-on-accept Apply path requires. `.sheet(item:)` per
-    /// feedback_sheet_isPresented_race.
+    /// the sheet(isPresented:) EmptyView race.
     @State private var leadReviewSession: LeadReviewSession?
 
     private struct LeadReviewSession: Identifiable {
@@ -189,12 +189,12 @@ struct MainView: View {
             }
         }
         .navigationTitle(appState.currentProject?.name ?? AppConstants.displayName)
-        // Global keyboard shortcuts — DESIGN.md §7.10.1. Hidden buttons
+        // Global keyboard shortcuts — the design Hidden buttons
         // register the shortcuts without taking up any visual space.
         .background { keyboardShortcutsLayer }
         .onAppear { appState.attachSearchRegistry(registry) }
         .toolbar {
-            // PROJECT_ONBOARDING_SPEC Part B — re-openable Getting Started,
+            // Project onboarding Part B — re-openable Getting Started,
             // scrolled to the current tab. One insertion point in the shared
             // toolbar rather than a button in each view's (inconsistent) header.
             ToolbarItem {
@@ -365,19 +365,19 @@ struct MainView: View {
             get: { appState.showOnboardingWizard },
             set: { appState.showOnboardingWizard = $0 }
         ), onDismiss: {
-            // PROJECT_ONBOARDING_SPEC Part A — after the manual family wizard
+            // Project onboarding Part A — after the manual family wizard
             // closes (built or skipped), offer the project setup wizard once.
             appState.offerSetupIfNeeded()
         }) {
             OnboardingWizardView()
         }
-        // PROJECT_ONBOARDING_SPEC Part A — the project setup wizard (home
+        // Project onboarding Part A — the project setup wizard (home
         // region now; local-AI later). Offered once per project by
         // offerSetupIfNeeded(), or re-run from Settings.
         .sheet(isPresented: setupWizardBinding, onDismiss: onSetupWizardDismiss) {
             ProjectSetupWizardView()
         }
-        // PROJECT_ONBOARDING_SPEC Part B — the re-openable Getting Started
+        // Project onboarding Part B — the re-openable Getting Started
         // overview, scrolled to whichever tab is showing.
         .sheet(isPresented: gettingStartedBinding) {
             GettingStartedView(focusTab: selectedTab)
@@ -699,7 +699,7 @@ nonisolated enum SidebarTab: String, CaseIterable {
     case settings = "Settings"
 }
 
-/// Tiny pre-export sheet (M14 §7.15.2). Surfaces the "exclude sensitive"
+/// Tiny pre-export sheet (M14). Surfaces the "exclude sensitive"
 /// toggle to the user before the file picker so the choice is explicit.
 /// The toggle is bound to AppStorage so the preference persists across
 /// runs — repeat exports remember the last setting.

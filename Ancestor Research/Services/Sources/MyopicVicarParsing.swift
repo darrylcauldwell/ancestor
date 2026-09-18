@@ -12,7 +12,7 @@ import Foundation
 /// `FreeBMDSource` deliberately does not use these helpers.
 ///
 /// Everything here is pure (String in, values out) — no networking, no
-/// actor state. See `FREEREG_INTEGRATION_SPEC.md` §3.6.
+/// actor state. See `FreeREG integration`.
 nonisolated enum MyopicVicarParsing {
 
     // MARK: - CSRF

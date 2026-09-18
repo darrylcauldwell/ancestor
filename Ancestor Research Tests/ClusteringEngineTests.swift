@@ -190,7 +190,7 @@ struct ClusteringEngineTests {
     // MARK: - Step 5: Confidence
 
     @Test func singleRecordClusterIsSingleSourced() {
-        // RESEARCH_CONFIDENCE_SPEC Change 5 — pre-Change-5 assertion was
+        // Research confidence Change 5 — pre-Change-5 assertion was
         // `.confidence == .weak`. New equivalent: single-source sourcing
         // (no corroboration), with whatever match-quality the verdict gives.
         let birth = scored(.birth(BirthRecord(
@@ -394,7 +394,7 @@ struct ClusteringEngineTests {
         #expect(clusters[0].records.count == 2)
     }
 
-    // MARK: - Lifespan/location hardening (CLUSTERING_LIFESPAN_LOCATION_SPEC)
+    // MARK: - Lifespan/location hardening (Clustering lifespan/location)
 
     /// (a) The seed's forward bound is record-type-aware: a terminal event ends
     /// the life (+margin), a non-terminal one leaves the subject alive for

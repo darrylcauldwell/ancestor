@@ -4,7 +4,7 @@ import AncestorKit
 @testable import Ancestor_Research
 
 /// FamilySearch client — Slice B (S6b). The scorer-routing helper + the
-/// load-bearing §18 invariant: the FS match confidence must be inert to the
+/// load-bearing invariant: the FS match confidence must be inert to the
 /// deterministic scorer.
 @MainActor
 struct FamilySearchHintRoutingTests {

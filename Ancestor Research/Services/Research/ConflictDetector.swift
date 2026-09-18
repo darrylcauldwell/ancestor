@@ -1,7 +1,7 @@
 import Foundation
 
 /// One typed conflict finding from `ConflictDetector` — the unit the
-/// dispute producer persists (CONFLICT_LAYER_SPEC §4.2 / C2).
+/// dispute producer persists (Conflict layer / C2).
 ///
 /// Carries everything `DisputeStore.upsertDispute` needs: kind, field key,
 /// competing attestations, `DisputeReason`, graded severity, a deterministic
@@ -21,8 +21,8 @@ nonisolated struct DetectedConflict: Sendable {
     /// represent the tree's side with an origin-`tree` entry so the
     /// incumbent is visible in the same list (no silent home advantage).
     let competingSources: [FieldSource]
-    /// Non-FieldSource competitors BY REFERENCE (§5): relationship IDs and
-    /// record refs for F4a/F4b. Never WitnessKeys (§2.6).
+    /// Non-FieldSource competitors BY REFERENCE: relationship IDs and
+    /// record refs for F4a/F4b. Never WitnessKeys.
     let evidenceJSON: String?
     let reasoning: String
     let detectedBy: DisputeProducer
@@ -32,7 +32,7 @@ nonisolated struct DetectedConflict: Sendable {
     var sameWitness: Bool = false
 }
 
-/// CONFLICT_LAYER_SPEC §4.2 — C2, the producer's brain. Pure, nonisolated,
+/// Conflict layer — C2, the producer's brain. Pure, nonisolated,
 /// fully unit-testable detection rules over profile state + one incoming
 /// candidate attestation.
 ///
@@ -115,10 +115,10 @@ nonisolated struct ConflictDetector {
     /// (`.noOverlap`) or overlap only partially with neither containing the
     /// other (`.approximateOverlap`). Strict containment = refinement, not
     /// a conflict (R1). Tested against the existing canonical value AND
-    /// every attested `field_sources` value (§4.4 T-A).
+    /// every attested `field_sources` value ( T-A).
     ///
     /// Severity comes from `DiscrepancySeverityTable` with `.singleSource`
-    /// convergence — the CL1–CL3 lineage-based interim stated in §4.2; the
+    /// convergence — the CL1–CL3 lineage-based interim stated in; the
     /// witness-counted per-value convergence feed arrives with CL4.
     static func dateFieldConflict(
         field: ProfileField,
@@ -192,7 +192,7 @@ nonisolated struct ConflictDetector {
             sourceTier: trustTier(forOriginIdentifier: candidateOrigin.identifier),
             recordType: nil,
             absDelta: maxGap,
-            convergence: .singleSource // CL1–CL3 interim (§4.2): witness-counted per-value convergence lands in CL4.
+            convergence: .singleSource // CL1–CL3 interim: witness-counted per-value convergence lands in CL4.
         )
 
         let reason: DisputeReason = sawDisjoint ? .noOverlap : .approximateOverlap
@@ -415,7 +415,7 @@ nonisolated struct ConflictDetector {
         return nil
     }
 
-    /// Human-readable pre-computed warning for the accept UI (§4.4 T-A):
+    /// Human-readable pre-computed warning for the accept UI ( T-A):
     /// "Subject already has a mother: BOWN".
     static func parentRoleWarning(
         role: ParentRole,
@@ -715,7 +715,7 @@ nonisolated struct ConflictDetector {
 
     /// Two fact-grade records reduce to ONE WitnessKey yet assert
     /// different values: a transcription disagreement, graded low and
-    /// R0-resolvable — never evidential conflict (§4.2 F5).
+    /// R0-resolvable — never evidential conflict ( F5).
     static func sameWitnessDisagreements(
         profileID: String,
         records: [SourceRecord],

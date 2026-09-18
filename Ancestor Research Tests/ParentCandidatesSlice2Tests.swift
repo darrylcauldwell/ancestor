@@ -3,12 +3,12 @@ import Foundation
 import GRDB
 @testable import Ancestor_Research
 
-/// RESEARCH_PIPELINE_SPEC §5.15 Slice 2 — probe generation (§5.15.3
-/// per-kind deficit ladder), grading (§5.15.4, Decision E5: supported
+/// Research pipeline Slice 2 — probe generation (
+/// per-kind deficit ladder), grading (, Decision E5: supported
 /// REQUIRES the linkage chain back to the subject — a marriage match
 /// ALONE stays inconclusive), the T7 stall-gate carve-out (Decision E4:
 /// one unconditional level-1 dispatch for user-origin rows), and
-/// rejection-memory honouring (§5.15.6).
+/// rejection-memory honouring.
 ///
 /// Follows the T12ParentPhase1Tests / T7SecondPassTests idiom: the
 /// pipeline orchestrator needs a live dispatcher, so the ladder /
@@ -155,7 +155,7 @@ struct ParentCandidatesSlice2Tests {
         return ScoredRecord(id: id, record: .census(census), verdict: .lead, gates: [], summary: "")
     }
 
-    // MARK: - §5.15.3 probe shapes — level 1 (marriage-window probe)
+    // MARK: - probe shapes — level 1 (marriage-window probe)
 
     @Test func deficitLevel1_marriageProbe_hintedSurnamesWindowAndSpouseAxis() throws {
         let kind = parentCandidatesKind(
@@ -180,7 +180,7 @@ struct ParentCandidatesSlice2Tests {
     }
 
     @Test func deficitLevel1_groomSurnameFallsBackToSubjectSurname() throws {
-        // §5.15.1 payload semantics: effective groom surname =
+        // payload semantics: effective groom surname =
         // fatherSurname ?? subject.lastName (paternal-naming convention).
         let kind = parentCandidatesKind(fatherSurname: nil, motherMaidenSurname: nil)
         let h = makeHypothesis(kind: kind)
@@ -202,7 +202,7 @@ struct ParentCandidatesSlice2Tests {
         #expect(queries.isEmpty, "no fatherSurname hint and no subject surname → no probe derivable")
     }
 
-    // MARK: - §5.15.3 probe shapes — level 2 (MMN birth-index axis)
+    // MARK: - probe shapes — level 2 (MMN birth-index axis)
 
     @Test func deficitLevel2_mmnAxisFromHint() throws {
         let kind = parentCandidatesKind(motherMaidenSurname: "Land")
@@ -251,7 +251,7 @@ struct ParentCandidatesSlice2Tests {
         #expect(queries.isEmpty)
     }
 
-    // MARK: - §5.15.3 probe shapes — level 3 (census household)
+    // MARK: - probe shapes — level 3 (census household)
 
     @Test func deficitLevel3_censusYearsWhereSubjectAged0to15() throws {
         // Subject born 1887 → aged 0–15 at the 1891 and 1901
@@ -281,14 +281,14 @@ struct ParentCandidatesSlice2Tests {
     }
 
     @Test func deficitLevel4_ladderExhausted() {
-        // Level ≥ 4 → [] — exhausted; archive per §5.11 (AC 10: a row
+        // Level ≥ 4 → [] — exhausted; archive per (AC 10: a row
         // reaches this with attempts == 3 after levels 1–3 dispatched).
         let kind = parentCandidatesKind()
         let h = makeHypothesis(kind: kind, attempts: 3)
         #expect(HypothesisEngine.deficitQuery(for: h, atLevel: h.attempts + 1, state: makeState()).isEmpty)
     }
 
-    // MARK: - §5.15.4 grading — Decision E5 table
+    // MARK: - grading — Decision E5 table
 
     @Test func grade_marriageOnly_staysInconclusive_noSelfConfirmation() {
         // THE E5 pin: a unique Bob × Sue marriage proves the COUPLE
@@ -396,7 +396,7 @@ struct ParentCandidatesSlice2Tests {
     }
 
     @Test func grade_unsourcedPlaceholderParent_doesNotContradict() {
-        // "Confirmed" means field_sources-backed (§5.15.4). A bare
+        // "Confirmed" means field_sources-backed. A bare
         // placeholder name with no FieldSource must not refute a hunch.
         let kind = parentCandidatesKind(fatherGiven: "Bob")
         let h = makeHypothesis(kind: kind)
@@ -406,7 +406,7 @@ struct ParentCandidatesSlice2Tests {
     }
 
     @Test func grade_noMarriageFound_isInconclusive_neverContradicted() {
-        // Table row 5 — asymmetric verdict space (§4.1): absence within
+        // Table row 5 — asymmetric verdict space: absence within
         // the searched window is NOT refutation (contrast
         // gradeParentMarriage, which contradicts on .none for its
         // engine-origin kind).
@@ -421,7 +421,7 @@ struct ParentCandidatesSlice2Tests {
 
     @Test func grade_ambiguousMarriages_isInconclusive() {
         // Two distinct reference tuples for the hinted pair → not
-        // unique → inconclusive, candidates listed for §5.11 review.
+        // unique → inconclusive, candidates listed for review.
         let kind = parentCandidatesKind(fatherGiven: nil, motherGiven: nil)
         let h = makeHypothesis(kind: kind)
         var state = makeState()
@@ -442,7 +442,7 @@ struct ParentCandidatesSlice2Tests {
     // MARK: - Nickname equivalence (AC 8 — "Bob" matches "Robert")
 
     @Test func grade_hintBobAdmitsRecoveredRobert() {
-        // The canonical §5.15 hunch: fatherGiven "Bob" must match the
+        // The canonical hunch: fatherGiven "Bob" must match the
         // index's "Robert" via the nickname machinery — the groom entry
         // survives the hint filter and the couple is attested.
         let kind = parentCandidatesKind(fatherGiven: "Bob", motherGiven: nil)
@@ -536,7 +536,7 @@ struct ParentCandidatesSlice2Tests {
     }
 
     @Test func carveOut_skipsDispatchWhenPreGradeContradicts() {
-        // §5.15.2 — a hunch already refuted against the tree/state is
+        // — a hunch already refuted against the tree/state is
         // graded without dispatch: the user learns immediately, not
         // after a wasted fan-out.
         let h = makeHypothesis(kind: parentCandidatesKind(), origin: .user, attempts: 0)
@@ -546,7 +546,7 @@ struct ParentCandidatesSlice2Tests {
     // MARK: - Storm guards intact
 
     @Test func stormGuard_levelOneEmitsExactlyOneFanOutTemplate() {
-        // §5.15.3: "All probes ride existing machinery; nothing here
+        //: "All probes ride existing machinery; nothing here
         // invents a new dispatch path. Storm guards apply unchanged."
         // The ladder emits ONE districtCode:"" template per level-1
         // call; geographic fan-out is delegated to the same
@@ -574,7 +574,7 @@ struct ParentCandidatesSlice2Tests {
         #expect(HypothesisEngine.deficitQuery(for: h, atLevel: 3, state: state).isEmpty)
     }
 
-    // MARK: - §5.15.6 rejection memory
+    // MARK: - rejection memory
 
     @Test func rejectionMemory_lookupExcludesRejectedRows() throws {
         // user_rejected = 1 → no regeneration, no dispatch: the lookup
@@ -624,7 +624,7 @@ struct ParentCandidatesSlice2Tests {
         #expect(ResearchPipeline.excludingRejected(records, rejectedIDs: []).count == 2)
     }
 
-    // MARK: - Regeneration exemption (§5.15.1)
+    // MARK: - Regeneration exemption
 
     @Test func generateSwitch_neverInventsParentCandidates() {
         // The engine's regeneration cycle never creates .user rows —

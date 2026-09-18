@@ -3,7 +3,7 @@ import Foundation
 @testable import Ancestor_Research
 import AncestorKit
 
-/// Change 2 of FREEBMD_CITATION_BACKFILL_SPEC — the info-gap that flags applied
+/// Change 2 of FreeBMD citation backfill — the info-gap that flags applied
 /// FreeBMD evidence with no direct entry link (and births missing the MMN).
 struct FreeBMDCitationAuditTests {
 

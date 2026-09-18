@@ -1,7 +1,7 @@
 import Foundation
 import SwiftUI
 
-/// Resolved family unit for a Family Group Sheet (DESIGN.md §7.9.3).
+/// Resolved family unit for a Family Group Sheet (by design).
 ///
 /// A unit always has at least one parent. The two adult slots are labelled
 /// `father`/`mother` for clarity; either may be nil (single parent, or a
@@ -39,7 +39,7 @@ struct FamilyUnit: Sendable {
     }
 }
 
-/// Family Group Sheet renderer (DESIGN.md §7.9.3).
+/// Family Group Sheet renderer (by design).
 ///
 /// One page per family unit. The unit is resolved from a subject profile
 /// id using `family(forProfileID:in:)` — the unit either centres on the
@@ -63,7 +63,7 @@ enum FamilyGroupSheetReport {
     }
 
     /// Batch render — one PDF with one page per distinct family in the
-    /// snapshot. Per DESIGN.md §7.9.3 ("Export all family group sheets").
+    /// snapshot. By design ("Export all family group sheets").
     /// Returns nil when the snapshot has no families to render (empty tree
     /// or nothing the enumerator can resolve).
     static func renderAllFamiliesPDF(
@@ -81,7 +81,7 @@ enum FamilyGroupSheetReport {
 
     /// Walk the snapshot and emit one `FamilyUnit` per distinct family.
     ///
-    /// Three kinds of family per DESIGN.md §7.9.3:
+    /// Three kinds of family by design:
     /// 1. Couples — every spouse `Relationship`, deduplicated so an edge
     ///    listed as `A→B` and a duplicate `B→A` collapses to one family.
     ///    Children are the intersection of both spouses' children edges.
@@ -196,7 +196,7 @@ enum FamilyGroupSheetReport {
 
     /// Resolve the family unit that a Family Group Sheet should render for
     /// the supplied profile id. Returns nil only if the id isn't in the
-    /// snapshot. See DESIGN.md §7.9.3.
+    /// snapshot. See the design
     ///
     /// Precedence:
     /// 1. Subject has a spouse → emit subject + first spouse + their children

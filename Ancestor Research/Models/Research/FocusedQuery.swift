@@ -15,7 +15,7 @@ import os
 /// **Determinism contract.** The strategist (MLX-backed) emits a
 /// `FocusedQuery`. The dispatcher runs it deterministically. The
 /// scorer classifies results deterministically. The verdict, the
-/// hypothesis grading, and the §14.3 auto-approval gate all remain
+/// hypothesis grading, and the auto-approval gate all remain
 /// rule-driven. MLX never participates in deciding what's true —
 /// only what's worth asking next.
 ///

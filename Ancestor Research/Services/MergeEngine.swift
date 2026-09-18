@@ -1,6 +1,6 @@
 import Foundation
 
-/// Implements the data merge policy from DESIGN.md §5.7.
+/// Implements the data merge policy from the design
 /// When a new source provides a value for a field that already has a value,
 /// determines whether to auto-merge, create a dispute, or corroborate.
 nonisolated struct MergeEngine {

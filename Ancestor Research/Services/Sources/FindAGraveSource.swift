@@ -100,7 +100,7 @@ actor FindAGraveSource: RecordSource, DetailFetchingSource {
                 return SourceSearchEnvelope(.unavailable(reason: "invalid search URL"))
             }
 
-            // All FAG fetches go through WKWebView (spec §22). URLSession's
+            // All FAG fetches go through WKWebView (spec). URLSession's
             // TLS fingerprint differs from Safari's and Cloudflare scores
             // it as a bot; mixing surfaces is structurally fragile because
             // cookies captured by WKWebView don't carry the TLS profile
@@ -289,7 +289,7 @@ actor FindAGraveSource: RecordSource, DetailFetchingSource {
         // deathyear axis + name/location narrow the search; the scorer's date
         // gate rejects wrong-year hits downstream. (The spec this came from was
         // retired 2026-09-18; this comment is the record. Recover it with
-        // `git log --all --full-history -- AncestorApp/FINDAGRAVE_DEATH_SEARCH_SPEC.md`.)
+        // `git log --all --full-history -- AncestorApp/Find a Grave death search`.)
         // Guarded on record type (not removed) so a future birth-shape FAG type
         // still gets a birth-year narrowing.
         if query.recordType != .burial,
@@ -352,7 +352,7 @@ actor FindAGraveSource: RecordSource, DetailFetchingSource {
     /// stringified payload lands in rawFields verbatim, so the name gate
     /// can consult rawFields["maidenName"] as an alternate surname.
     /// (Key names pending confirmation against a live payload — audit
-    /// §6.3 T1-23 note — same follow-up pattern as the not-found
+    /// T1-23 note — same follow-up pattern as the not-found
     /// markers in `classifyMemorialDetail`.)
     nonisolated static func deriveNameFields(
         record rec: [String: Any],
@@ -445,7 +445,7 @@ actor FindAGraveSource: RecordSource, DetailFetchingSource {
         }
         // Genuine not-found markers (memorial deleted / merged / bad ID).
         // Conservative substring set; confirm against a live capture in
-        // the next live-probe session (audit §5.6).
+        // the next live-probe session (audit).
         // (No bare "404" substring — a block page's asset URLs could
         // contain it, and misclassifying a block as a clean empty is the
         // exact failure this guard exists to prevent.)
@@ -461,7 +461,7 @@ actor FindAGraveSource: RecordSource, DetailFetchingSource {
         return .unavailable(reason: "memorial page unrecognized (no memorial or not-found markers) — likely block page")
     }
 
-    // MARK: - Cloudflare clearance (§22)
+    // MARK: - Cloudflare clearance
     //
     // Find a Grave is fronted by Cloudflare's JS-challenge bot management.
     // URLSession can't solve the challenge alone, so the first time we
@@ -971,7 +971,7 @@ actor FindAGraveSource: RecordSource, DetailFetchingSource {
         return links
     }
 
-    /// FINDAGRAVE_DEATH_SEARCH_SPEC Fix 2 — the memorial id this record points at
+    /// Find a Grave death search Fix 2 — the memorial id this record points at
     /// as a SPOUSE, i.e. the partner's memorial. Reads the `familyLinks` parsed
     /// onto a fetched memorial (`parseMemorialDetail` → `rawFields["familyLinks"]`)
     /// and returns the spouse link's `memorialID` — the recovery hop for a

@@ -2,7 +2,7 @@ import Testing
 import Foundation
 @testable import Ancestor_Research
 
-/// ENGINE_FOUNDATION_SPEC #Change2 — consensus-based enrichment of
+/// Engine foundation #Change2 — consensus-based enrichment of
 /// thin placeholder profiles after their first research round. Unit
 /// tests cover the pure `propose` decision and the per-record-type
 /// birth-year extractor. The DB-side `apply` is integration-tested

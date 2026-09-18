@@ -176,7 +176,7 @@ nonisolated extension SourceRecord {
             default: type = .other
             }
             guard let type else { return nil }
-            // PARISH_ABSORPTION_SPEC §6 — a burial entry's cause/place of death
+            // Parish absorption — a burial entry's cause/place of death
             // is genuine content the flat projection dropped; carry it in the
             // event description rather than losing it to the typed payload.
             // #29 — a baptism's parents (and the father's occupation and the
@@ -226,7 +226,7 @@ nonisolated extension SourceRecord {
         }
     }
 
-    /// EVIDENCE_ABSORPTION_SPEC Change 2 — every typed LifeEvent a record
+    /// Evidence absorption Change 2 — every typed LifeEvent a record
     /// implies, not just one catch-all entry. A census spawns its `.census`
     /// event (unchanged) PLUS a `.occupation` event and a `.residence` event
     /// when it names an occupation / address, so those first-class event
@@ -245,7 +245,7 @@ nonisolated extension SourceRecord {
             // only buried in the probate event's details.
             events.append(contentsOf: Self.probateDerivedEvents(r, profileID: profileID))
         case .parish(let r):
-            // PARISH_ABSORPTION_SPEC §6 — a marriage names the principal's
+            // Parish absorption — a marriage names the principal's
             // occupation and abode; fan them onto the occupation/residence
             // axes, mirroring census.
             events.append(contentsOf: Self.parishDerivedEvents(r, profileID: profileID))
@@ -259,7 +259,7 @@ nonisolated extension SourceRecord {
     /// occupation and abode — each routed to its own typed event, dated to the
     /// marriage year. The subject is the row principal (name-resolved), so a
     /// bride-subject record contributes the bride's block, not the groom's.
-    /// Empty fields yield no event. (PARISH_ABSORPTION_SPEC §6.)
+    /// Empty fields yield no event. (Parish absorption.)
     private static func parishDerivedEvents(_ r: ParishRecord, profileID: String) -> [LifeEvent] {
         guard case .marriage(let m)? = r.detail?.event else { return [] }
         let role = m.role(forGiven: r.common.givenName, surname: r.common.surname, gender: nil)

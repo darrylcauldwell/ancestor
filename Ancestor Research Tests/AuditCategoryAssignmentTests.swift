@@ -2,7 +2,7 @@ import Testing
 import AncestorKit
 @testable import Ancestor_Research
 
-/// HEALTH_RECATEGORISATION_SPEC #HR1 — the three-way category split is
+/// Health recategorisation #HR1 — the three-way category split is
 /// load-bearing: `.research` findings are computed but NOT rendered in the
 /// Health tab or the profile Health strip, so a miscategorised rule either
 /// buries Health in research prompts again or silently hides a real defect.

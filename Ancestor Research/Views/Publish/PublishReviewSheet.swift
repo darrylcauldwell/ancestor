@@ -1,7 +1,7 @@
 import SwiftUI
 import CloudKit
 
-// PUBLISHER_SPEC Change 4 (§5) — the pre-publish review screen.
+// Publisher Change 4 — the pre-publish review screen.
 //
 // Every person is listed with their RESOLVED policy; auto→name-only
 // redactions and never-acknowledged persons demand an explicit human
@@ -95,7 +95,7 @@ final class PublishReviewModel {
                 return $0.displayName < $1.displayName
             }
 
-            // Media opt-in (§4.2): profile-targeted photos/documents only —
+            // Media opt-in: profile-targeted photos/documents only —
             // transcriptions are citation material, lifeEvent/fieldSource
             // targets are excluded from v1 by decision log #7.
             let optIns = try database.loadPublishMediaOptIns()

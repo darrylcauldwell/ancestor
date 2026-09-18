@@ -60,7 +60,7 @@ struct WorkbenchView: View {
             }
         }
         .navigationTitle("Workbench")
-        // ⌘F focuses the workbench search (per DESIGN.md §7.7.5 keyboard
+        // ⌘F focuses the workbench search (by design keyboard
         // shortcut). Implemented as a hidden background button so the
         // shortcut is registered without occupying any space.
         .background {
@@ -85,7 +85,7 @@ struct WorkbenchView: View {
     }
 
     /// M13 Research Goals — collapsible section pinned to the top of the
-    /// Workbench view. Per DESIGN.md §5.16 "Goals appear as a section at
+    /// Workbench view. By design "Goals appear as a section at
     /// the top of the Workbench view."
     private var goalsHeader: some View {
         DisclosureGroup(isExpanded: $goalsExpanded) {

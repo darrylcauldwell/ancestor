@@ -31,7 +31,7 @@ struct CensusRelationshipReconcilerTests {
     }
 
     /// Gendered variant — the parents' `parent` roles are derived from gender, so
-    /// an existing co-parent pair must carry gender for §1 to recognise (and skip)
+    /// an existing co-parent pair must carry gender for to recognise (and skip)
     /// them the way a real tree does.
     private func person(_ id: String, _ first: String, _ last: String,
                         birthYear: Int?, gender: Gender) -> Profile {

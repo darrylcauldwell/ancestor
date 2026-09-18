@@ -4,9 +4,9 @@ import GRDB
 import AncestorKit
 @testable import Ancestor_Research
 
-// PUBLISHER_SPEC Change 1 acceptance — the redaction rules are
+// Publisher Change 1 acceptance — the redaction rules are
 // correctness-critical (a miss publishes third-party personal data), so
-// every §5 branch gets a direct test against the pure projection.
+// every branch gets a direct test against the pure projection.
 
 struct PublishPolicyResolverTests {
     @Test func autoLivingResolvesNameOnly() {
@@ -132,7 +132,7 @@ struct PublisherProjectionTests {
         )
     }
 
-    // MARK: - Person redaction (§5)
+    // MARK: - Person redaction
 
     @Test func deceasedPersonPublishesFull() {
         let tree = project(profiles: [george])
@@ -195,7 +195,7 @@ struct PublisherProjectionTests {
         #expect(tree.relationships.isEmpty)
     }
 
-    // MARK: - Edge redaction (§5)
+    // MARK: - Edge redaction
 
     @Test func nameOnlySpouseEdgePublishesBare() {
         let tree = project(profiles: [george, livingLily],
@@ -217,7 +217,7 @@ struct PublisherProjectionTests {
         #expect(edge.subtypeRaw == "biological")
     }
 
-    // MARK: - Life events (§5)
+    // MARK: - Life events
 
     @Test func sensitiveEventExcludedRegardlessOfPolicy() {
         let event = LifeEvent(id: UUID(), profileID: "@G@", type: .residence,
@@ -259,7 +259,7 @@ struct PublisherProjectionTests {
         #expect(!json.contains("Ann Brooks"), "unknown event year strips the roster — safe default")
     }
 
-    // MARK: - Provisional persons (§4.2)
+    // MARK: - Provisional persons
 
     @Test func surnameOnlyPlaceholderIsProvisionalUnderExplicitFull() {
         // Under `auto`, a no-vitals placeholder resolves living ⇒ nameOnly.
@@ -275,7 +275,7 @@ struct PublisherProjectionTests {
         #expect(tree.persons[0].isRedacted && !tree.persons[0].isProvisional)
     }
 
-    // MARK: - Media (§4.2)
+    // MARK: - Media
 
     private func photoAttachment(to personID: String, type: AttachmentType = .photo) -> AncestorKit.Attachment {
         AncestorKit.Attachment(id: UUID(uuidString: "00000000-0000-0000-0000-0000000000AA")!,
@@ -310,7 +310,7 @@ struct PublisherProjectionTests {
         #expect(tree.media.isEmpty)
     }
 
-    // MARK: - Field derivations (§4.2)
+    // MARK: - Field derivations
 
     @Test func citationsDeriveTierFromURLNeverFromOrigin() throws {
         let url = "https://www.freebmd.org.uk/cgi/information.pl?r=1"
@@ -400,7 +400,7 @@ struct PublisherProjectionTests {
                 "publisher reuses the 100-year potentiallyLiving rule — one definition")
     }
 
-    // MARK: - E2 containment: name forms do not perturb published output (§Change2 AC4)
+    // MARK: - E2 containment: name forms do not perturb published output (Change 2 AC4)
 
     /// Attaching typed name forms to a profile must not change ANY published
     /// field — the publisher materialises `displayName`/given/family from the

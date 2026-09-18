@@ -3,7 +3,7 @@ import Foundation
 @testable import AncestorKit
 
 /// Unit tests for the E3 place-authority record type and its hierarchy +
-/// temporal-validity resolution (MODEL_EVOLUTION_SPEC §Change3 / ADR-004 E3).
+/// temporal-validity resolution (Model evolution Change 3 / ADR-004 E3).
 /// Pure value-type logic — no database, no bundle, no seed loading (the
 /// registry-derived hierarchy and the migration are pinned in
 /// `PlaceAuthorityRegistryTests` and `MigrationV36PlaceAuthorityTests`).
@@ -135,7 +135,7 @@ struct PlaceAuthorityTests {
     @Test func nonDerbyshireHierarchyResolvesFromDataAlone() {
         // A Leicestershire-only hierarchy — zero Derbyshire records. The
         // resolution logic must roll parish → district → county with no DBY
-        // literal anywhere (feedback_no_hardcoded_regions).
+        // literal anywhere (the no-hardcoded-regions rule).
         let lei: [PlaceAuthority] = [
             PlaceAuthority(id: "England", name: "England", kind: .country),
             PlaceAuthority(id: "LEI", name: "Leicestershire", kind: .county,

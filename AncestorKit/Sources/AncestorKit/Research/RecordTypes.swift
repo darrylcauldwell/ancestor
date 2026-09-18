@@ -21,20 +21,20 @@ public nonisolated struct RecordCommon: Codable, Sendable {
     public let rawFields: [String: String]
 
     // MARK: Secondary-metadata columns (FAMILYSEARCH_READ_LEG_PLAN #Change7,
-    // FAMILYSEARCH_SOURCE_SPEC §12.4). Data-model commits landing NOW so
+    // FamilySearch source). Data-model commits landing NOW so
     // second-cut endpoint work needs no schema migration; each stays nil
     // until the endpoint that fills it is wired. Optional + synthesized
     // Codable = old JSON without these keys decodes to nil (additive-safe).
 
     /// Bare place-authority ARK path segment for the record's event place
-    /// (§6.7, §17.1 — never the full URL). Populated when a normalized
+    /// (, — never the full URL). Populated when a normalized
     /// place ARK is present; place-authority integration is later (E3).
     public let placeARK: String?
-    /// Collection coverage completeness 0…1 (§7.4), when the source reports
+    /// Collection coverage completeness 0…1, when the source reports
     /// it. Promoted to first-class from rawFields on FS records; the
     /// scorer's negative-evidence weighting consumes it later.
     public let collectionCompleteness: Double?
-    /// Contested-attribution signal from a record's change history (§7.3),
+    /// Contested-attribution signal from a record's change history,
     /// e.g. many edits by many contributors. Column now; the change-history
     /// endpoint that populates it is second-cut.
     public let volatilityScore: Double?
@@ -136,7 +136,7 @@ public nonisolated struct MarriageRecord: Codable, Sendable {
     public let partnerSurnameFromSamePage: String?
 
     /// #CPC-Change3 — cross-profile corroboration annotation
-    /// (`CROSS_PROFILE_CORROBORATION_SPEC.md` Change 3). Stamped by the
+    /// (`Cross-profile corroboration` Change 3). Stamped by the
     /// pipeline's pre-scoring annotation step when a TREE-LINKED SPOUSE's
     /// persisted evidence holds a record at the same canonical GRO
     /// reference; the family-context gate reads it deterministically, and
@@ -352,7 +352,7 @@ public nonisolated struct ParishRecord: Codable, Sendable {
     public let county: String?
     public let fatherName: String?
     public let motherName: String?
-    /// FREEREG_INTEGRATION_SPEC §2 — the full typed register-entry payload
+    /// FreeREG integration — the full typed register-entry payload
     /// (occupations, witnesses, both spouses' parents, burial relative,
     /// mother's prior-to-marriage context, register reference, transcriber
     /// attribution). Optional + additive: the flat fields above remain the
@@ -432,7 +432,7 @@ public nonisolated struct HouseholdMember: Codable, Sendable, Hashable {
     public let isTarget: Bool?
 
     // Year-specific columns from the authoritative MyopicVicar census
-    // schema (FREEREG_INTEGRATION_SPEC recon 2026-07-29). All optional +
+    // schema (FreeREG integration recon 2026-07-29). All optional +
     // additive: absent in old persisted JSON → decode nil; they ride
     // inside `household`, so the PublishedTree privacy strip covers them.
 
@@ -573,7 +573,7 @@ public nonisolated enum SourceRecord: Identifiable, Sendable, Codable {
 /// the dispatcher plumb tree-side context into source queries — FS
 /// reads `q.spouseSurname` / `q.fatherSurname`/etc., FreeBMD reads
 /// `motherSurname`/`spouseSurname` via its own params struct (populated
-/// from the same source). Spec §23.
+/// from the same source). Spec.
 public nonisolated struct RecordQuery: Sendable {
     public let surname: String?
     public let givenName: String?
@@ -584,13 +584,13 @@ public nonisolated struct RecordQuery: Sendable {
     public let region: Region?
     public let sourceParams: SourceQueryParams
     /// Name-match strictness. Defaults to `.strict`. Sources may ignore it
-    /// — see RESEARCH_AXES_SPEC §7 for which sources honour which tiers.
+    /// — see Research axes for which sources honour which tiers.
     /// Change 4 ships the field with no source-side handling; Change 5
     /// wires the per-source query rewriting; Change 6 wires the dispatcher's
     /// empty-then-broaden flow.
     public let strictness: SearchStrictness
 
-    // MARK: Family-context axes (spec §23)
+    // MARK: Family-context axes (spec)
     // All optional. Source URL builders cherry-pick what they understand —
     // FS uses all of them, FreeBMD uses spouse+mother surname, FAG uses
     // birthPlace as `location`. nil means "axis not available for this
@@ -664,7 +664,7 @@ public nonisolated struct RecordQuery: Sendable {
     }
 
     /// Builder helpers for the dispatcher's strictness ladder (Change 5).
-    /// All other fields preserved. See RESEARCH_AXES_SPEC §7.
+    /// All other fields preserved. See Research axes.
     /// NOTE: every axis must be threaded through BOTH copiers, or the
     /// strictness ladder silently drops it before the wire (blast-radius
     /// audit Q3 trap).
@@ -724,7 +724,7 @@ public nonisolated enum SourceQueryParams: Sendable {
     // with sourceID "wirksworth" remains valid; read-time classifiers keep
     // handling the ID).
     case freeREG(FreeREGParams)
-    /// Chapman-templated narrative source (TEMPLATED_NARRATIVE_SOURCE_SPEC) —
+    /// Chapman-templated narrative source (Templated narrative source) —
     /// the county Chapman code + resolved parish the dispatcher fills a URL
     /// template with. One on-demand page per lookup, never a crawl.
     case memorialInscription(MemorialInscriptionParams)
@@ -748,14 +748,14 @@ public nonisolated struct FreeBMDParams: Sendable {
     /// registration district (12 for DBY). The emission path, params
     /// plumbing, and cache keying are fully wired and tested; the gate
     /// exists because the exact `countyid` wire value is UNVERIFIED
-    /// against today's live form (CONNECTOR_AUDIT_2026-07 §1 — the
+    /// against today's live form (the 2026-07 connector audit — the
     /// ground-truth form payload never arrived). The audit's live-form
     /// note says the county dropdown's option values are compound
     /// strings (Chapman code + that county's district IDs, e.g.
     /// "BDF,66,133,…"); we reconstruct that value statically, but
     /// whether search.pl accepts a reconstructed ID list — or ignores
     /// `countyid` entirely, silently widening the query to national —
-    /// needs the one FT-27 live probe session (audit §5.6).
+    /// needs the one FT-27 live probe session (audit).
     ///
     /// PROBED LIVE 2026-07-11: captured-table countyid value returned 49 rows across 13 Derbyshire-area districts (incl. cross-border ones — geography gate scores per-row districts, so that is correct behaviour). Gate ON. Default false = the
     /// safe pre-FT-01 per-district loop. The `.national` single-query
@@ -830,7 +830,7 @@ public nonisolated struct FreeCenParams: Sendable {
     /// **Hard cap: 3.** FreeCEN runs on the same MyopicVicar `SearchQuery`
     /// engine as FreeREG (`freecen.org.uk/search_queries`), which rejects
     /// more than 3 counties per query — Channel-Islands quartet exempt
-    /// (FREEREG_INTEGRATION_SPEC §0). Was 10 (would have exceeded the cap
+    /// (FreeREG integration). Was 10 (would have exceeded the cap
     /// once `multiCodeBatchEnabled` flipped on); corrected 2026-07-29 in
     /// lock-step with `FreeREGParams.batchGroupSize`. A ~90-code national
     /// residence sweep therefore fans to ~30 requests, not ~9 — correctness
@@ -922,7 +922,7 @@ public nonisolated struct FindAGraveParams: Sendable {
     /// frequently memorialised under one surname with the other
     /// recorded as maiden name, and without the flag the maiden-filed
     /// memorial is server-side unfindable. Not in the Python
-    /// reference's param enumeration (the audit's §7 note); ground
+    /// reference's param enumeration (the audit's note); ground
     /// truth is the live search form's "Include maiden name" checkbox —
     /// same provenance as T1-18's `includeNickName`. Broadening-only:
     /// extra hits are scored downstream, so a server-side no-op costs
@@ -1002,7 +1002,7 @@ public nonisolated struct FreeREGParams: Sendable {
     /// FT-28 group size — chapman codes per batched request. **Hard cap: 3.**
     /// MyopicVicar's `SearchQuery` (the live FreeREG/FreeCEN engine) rejects
     /// more than 3 counties per query — the sole exception being the Channel
-    /// Islands quartet `Self.channelIslandsCodes` (FREEREG_INTEGRATION_SPEC §0).
+    /// Islands quartet `Self.channelIslandsCodes` (FreeREG integration).
     /// This resolves CONNECTOR_AUDIT FT-27 ("is the repeated key honoured?"):
     /// 1–3 yes, more no. Was 10 (would have exceeded the cap the moment
     /// `multiCodeBatchEnabled` flipped on); corrected 2026-07-29.
@@ -1027,7 +1027,7 @@ public nonisolated struct FreeREGParams: Sendable {
     // `registerType` and `parish` were removed by SOURCE_WEIGHTING
     // Change 3 (SCOPE_AUDIT finding 4); parish scoping returns below as
     // `placeIDs` (the real form axis is `search_query[place_ids][]`,
-    // FREEREG_INTEGRATION_SPEC §1 / FT-19) — register type is still
+    // FreeREG integration / FT-19) — register type is still
     // derived from `query.recordType` source-side.
     public let chapmanCode: String?
     /// FT-25 — a BATCH of chapman codes carried in one request via
@@ -1113,7 +1113,7 @@ public nonisolated enum SourceQueryResult: Sendable {
     case outsideCoverage(reason: String)
     /// Source needs credentials it doesn't have (or has expired ones).
     /// UI should prompt the user to authenticate; pipeline should treat
-    /// the search as "didn't get to try" — see FAMILYSEARCH_SOURCE_SPEC §11.1.
+    /// the search as "didn't get to try" — see FamilySearch source.
     case requiresAuth(message: String)
 
     public var records: [SourceRecord] {
@@ -1130,7 +1130,7 @@ public nonisolated enum SourceQueryResult: Sendable {
 /// evidence of absence. Blocks, API errors, throttles, and auth walls must
 /// never be recorded as "searched, found nothing" — that poisons
 /// negative-evidence reasoning and the GPS "reasonably exhaustive search"
-/// criterion (CONNECTOR_AUDIT_2026-07 §5.1, §6.1 T1-01).
+/// criterion (the 2026-07 connector audit, T1-01).
 public nonisolated enum SearchAvailability: Sendable, Equatable {
     /// The source answered normally. Emptiness is meaningful (subject to
     /// `truncated`).
@@ -1191,7 +1191,7 @@ public nonisolated struct SearchOutcome: Sendable, Equatable {
     /// True when this empty answer was NOT obtained by hitting the wire
     /// this run — the query was skipped because a PRIOR run recorded it
     /// as a clean negative and the record is still fresh (connector-audit
-    /// T1-04 / §5.2 persistent negative-search cache). The result is a
+    /// T1-04 / persistent negative-search cache). The result is a
     /// genuine `.ok` zero (broadening the strictness ladder on it is
     /// correct — known-empty is as empty as freshly-verified-empty), but
     /// it must NOT be re-persisted as a new negative: it would double-

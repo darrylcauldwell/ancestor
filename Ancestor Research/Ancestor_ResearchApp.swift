@@ -167,7 +167,7 @@ struct ContentRoot: View {
     /// relaunch, which made AI-vs-deterministic comparisons impossible
     /// to keep clean.
     @AppStorage("autoLoadReasoningModelAtLaunch") private var autoLoadReasoningModelAtLaunch = false
-    // PROJECT_ONBOARDING_SPEC Part A Step 2 — the user's consent to use the
+    // Project onboarding Part A Step 2 — the user's consent to use the
     // semantic clustering embedder. Default off (core doctrine: fully
     // functional deterministically with no model). Shared across windows.
     @Environment(ReviewWindowBroker.self) private var reviewWindowBroker

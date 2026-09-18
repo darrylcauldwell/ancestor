@@ -6,7 +6,7 @@ import Foundation
 /// is offline: PKCE vectors, URL construction, callback grammar, token
 /// parsing, expiry arithmetic, form encoding, and a fully-local loopback
 /// round-trip. The live sign-in is exercised manually once FamilySearch
-/// registers the redirect URI (§19 acceptance A1).
+/// registers the redirect URI ( acceptance A1).
 struct FamilySearchOAuthTests {
 
     // MARK: - PKCE (RFC 7636)

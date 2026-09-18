@@ -2,9 +2,9 @@ import Testing
 import Foundation
 @testable import Ancestor_Research
 
-/// SOURCE_WEIGHTING_SPEC Change 1 — the scope contract.
+/// Source weighting Change 1 — the scope contract.
 ///
-/// SCOPE_AUDIT_2026-07 established that the Scope picker's behaviour was
+/// the 2026-07 scope audit established that the Scope picker's behaviour was
 /// undeclared and untested for five of eight sources. These pins freeze the
 /// audited per-scope query shapes so nothing drifts silently while the
 /// staged-dispatch build (Changes 2–5) restructures this surface. Where a
@@ -172,7 +172,7 @@ struct ScopeContractTests {
     }
 }
 
-/// SOURCE_WEIGHTING_SPEC Change 2 — visible skips. An anchor-less subject
+/// Source weighting Change 2 — visible skips. An anchor-less subject
 /// at a bounded scope (or FreeBMD at parish) must produce ZERO dead queries
 /// and ONE synthetic `.skipped` outcome per (source, recordType) — never
 /// silence, never an error, never a persistable negative.
@@ -263,7 +263,7 @@ struct ScopeSkipVisibilityTests {
 
 }
 
-/// SOURCE_WEIGHTING_SPEC Change 5 (stage model) — the ladder is bounded by
+/// Source weighting Change 5 (stage model) — the ladder is bounded by
 /// the user's scope, stage membership derives from declared ScopeHandling,
 /// and a staged dispatch fires only that stage's sources.
 @MainActor
@@ -317,7 +317,7 @@ struct DispatchStagingTests {
     }
 }
 
-/// SOURCE_WEIGHTING_SPEC Change 5 (pipeline integration), revised 2026-07-25
+/// Source weighting Change 5 (pipeline integration), revised 2026-07-25
 /// (moves 1+2) — FamilySearch is the terminal stage and is ALWAYS reached for
 /// any record type the free tier found a candidate for: a single candidate for
 /// corroboration, competing candidates for the tie-break. Free geographic

@@ -3,7 +3,7 @@ import Foundation
 import GRDB
 @testable import Ancestor_Research
 
-/// Migration tests for CONFLICT_LAYER_SPEC §5 — `v41_conflict_layer`, the
+/// Migration tests for Conflict layer — `v41_conflict_layer`, the
 /// evidence-conflict layer's single migration (ships with CL-Change1;
 /// Changes 2–6 need no further migration).
 ///
@@ -162,7 +162,7 @@ struct MigrationV41ConflictLayerTests {
 
     @Test func openDisputeIndexAllowsResolvedHistoryPerIdentity() throws {
         let dbQueue = try makeMigratedDB()
-        // Resolved rows are history (§3) — many may accumulate per identity.
+        // Resolved rows are history — many may accumulate per identity.
         try dbQueue.write { db in
             for _ in 0..<2 {
                 try db.execute(sql: """
@@ -254,7 +254,7 @@ struct MigrationV41ConflictLayerTests {
         #expect(decoded.reason == .noOverlap)
         #expect(decoded.competingSources.count == 2)
         #expect(decoded.resolution == nil)
-        // Decode-defaulted new fields (§5).
+        // Decode-defaulted new fields.
         #expect(decoded.kind == .fieldValue)
         #expect(decoded.severity == nil)
         #expect(decoded.detectedBy == nil)

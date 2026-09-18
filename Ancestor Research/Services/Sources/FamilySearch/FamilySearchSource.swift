@@ -15,7 +15,7 @@ import os
 /// modifier (Record Persona Search resource) rather than the cookie endpoint's
 /// `~` suffix.
 ///
-/// **§16 pointer-only:** the pipeline scores full search responses in memory,
+/// ** pointer-only:** the pipeline scores full search responses in memory,
 /// but persistence keeps pointers (ARKs) + our derived conclusions only, never
 /// record content/images — enforced downstream by the evidence layer. Beta
 /// (non-production) under the Innovator Solution Provider agreement.
@@ -233,7 +233,7 @@ actor FamilySearchSource: RecordSource {
     }
 }
 
-// MARK: - GEDCOM X parser (multi-persona, §5.0)
+// MARK: - GEDCOM X parser (multi-persona,)
 
 extension FamilySearchSource {
 
@@ -244,7 +244,7 @@ extension FamilySearchSource {
     /// `extraRawFields` are merged onto every produced record's `rawFields`
     /// (e.g. the enrichment leg stamps `fsTreePersonID` provenance). The
     /// per-entry FS match score is stamped automatically as `fsMatchScore` —
-    /// both are §18 lead-ordering/triage signals only, never gate inputs.
+    /// both are lead-ordering/triage signals only, never gate inputs.
     nonisolated static func parseSearchFeed(
         _ feed: RecordsSearchFeed, query: RecordQuery, extraRawFields: [String: String] = [:]
     ) -> (records: [SourceRecord], totalAvailable: Int?, entryCount: Int) {
@@ -254,7 +254,7 @@ extension FamilySearchSource {
         for entry in entries {
             let gx = entry.content?.gedcomx
             guard let persons = gx?.persons, !persons.isEmpty else { continue }
-            // Per-entry FS match confidence (§18 ordering signal only).
+            // Per-entry FS match confidence ( ordering signal only).
             let entryScore = entry.score ?? entry.confidence
 
             let collectionTitle = gx?.sourceDescriptions?.first?.titles?.first?.value ?? ""
@@ -411,14 +411,14 @@ extension FamilySearchSource {
         if let role = householdRole { rawFields["household.role"] = role }
         rawFields["primary"] = personaIndex == 0 ? "true" : "false"
         if let principal = persona.principal, principal { rawFields["principal"] = "true" }
-        // §18: FS match confidence + tree-person provenance ride in rawFields
+        //: FS match confidence + tree-person provenance ride in rawFields
         // for lead ordering/triage only — never a gate/tier/verdict input.
         if let entryScore { rawFields["fsMatchScore"] = String(entryScore) }
         for (key, value) in extraRawFields { rawFields[key] = value }
 
         let recordID = persona.id ?? "fs-\(collectionARK)-\(personaIndex)"
         let detailURL = persona.id.map { "\(arkBase)\($0)" }
-        // Bare `ark:/…` path segment only (§17.1), from the place reference.
+        // Bare `ark:/…` path segment only, from the place reference.
         let primaryPlaceARK: String? = primaryFact?.place?.description.flatMap { raw in
             guard let r = raw.range(of: "ark:/") else { return nil }
             return String(raw[r.lowerBound...])

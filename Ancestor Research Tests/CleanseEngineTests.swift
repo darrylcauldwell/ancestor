@@ -2,7 +2,7 @@ import Testing
 import Foundation
 @testable import Ancestor_Research
 
-/// CLEANSE_WIZARD_SPEC §4 acceptance criteria. Tests run against an in-memory
+/// Cleanse wizard acceptance criteria. Tests run against an in-memory
 /// `ProjectDatabase` so persistence (and the new v22 migration) is exercised
 /// end-to-end. Snapshot is composed by hand to avoid running the full
 /// addFamily plumbing in fixtures.

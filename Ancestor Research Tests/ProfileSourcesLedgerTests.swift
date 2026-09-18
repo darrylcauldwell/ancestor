@@ -4,7 +4,7 @@ import GRDB
 @testable import Ancestor_Research
 import AncestorKit
 
-/// PROFILE_SOURCES_LEDGER_SPEC Change 2 — the read-only per-profile ledger:
+/// Profile sources ledger Change 2 — the read-only per-profile ledger:
 /// kept records surface with what they establish, read from evidence_records
 /// with no research run; discarded/unreviewed rows are excluded.
 @MainActor

@@ -2,7 +2,7 @@ import Testing
 import Foundation
 @testable import Ancestor_Research
 
-/// CONFLICT_LAYER_SPEC §4.6/§4.7 — C6 ladder, CL5 state: R3 shield + R1
+/// Conflict layer/ — C6 ladder, CL5 state: R3 shield + R1
 /// filter + R0 same-witness reduction live, R2 quality-dominance ladder
 /// (R2a originality / R2b tier / R2c error-band-gated proximity) live for
 /// DATE fieldValue conflicts (DS-09 write-behaviour change), every rung

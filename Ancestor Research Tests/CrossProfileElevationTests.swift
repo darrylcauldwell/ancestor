@@ -3,7 +3,7 @@ import Foundation
 import AncestorKit
 @testable import Ancestor_Research
 
-/// #CPC-Change4 pinned suite (`AncestorApp/CROSS_PROFILE_CORROBORATION_SPEC.md`
+/// #CPC-Change4 pinned suite (`AncestorApp/Cross-profile corroboration`
 /// Change 4; SANDWICH gate-repair convention — every gate change ships
 /// pinned by named tests). The bounded elevation: a reciprocal-tier,
 /// STRONG-anchor cross-profile annotation lifts a marriage record to

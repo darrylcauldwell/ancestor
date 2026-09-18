@@ -4,7 +4,7 @@ import CloudKit
 import GRDB
 import SQLiteData
 
-// PUBLISHER_SPEC Change 4 — the publish orchestrator.
+// Publisher Change 4 — the publish orchestrator.
 //
 // publish() = pre-flight → generation guard → projection → store apply
 // (checksum diff, update-in-place) → explicit sendChanges() → ack wait →
@@ -84,11 +84,11 @@ nonisolated enum PublishEngine {
     /// (shares are manifest-rooted hierarchies since Change 3).
     static let zoneID = CKRecordZone.ID(zoneName: "co.pointfree.SQLiteData.defaultZone")
 
-    /// The §4.1 manifest identity is a singleton per project.
+    /// The manifest identity is a singleton per project.
     static let manifestIdentityKind = "manifest"
     static let manifestIdentityCanonical = "singleton"
 
-    /// Second-Mac guard rule (spec §2): abort when the server is AHEAD of
+    /// Second-Mac guard rule (spec): abort when the server is AHEAD of
     /// what this Mac believes it last published — allowing exactly +1 so
     /// our own interrupted attempt (rows pushed, publish_meta not yet
     /// bumped) can resume rather than lock itself out.

@@ -3,7 +3,7 @@ import Foundation
 import GRDB
 @testable import Ancestor_Research
 
-/// RESEARCH_PIPELINE_SPEC §5.15.2 Slice 1 — seed intake validation and
+/// Research pipeline Slice 1 — seed intake validation and
 /// watcher materialisation. `HypothesisSeedService.materialiseQueuedSeeds`
 /// is the app-side half of Decision E2: external surfaces write only the
 /// v32 `user_hypothesis_seeds` staging table; the watcher validates each
@@ -176,7 +176,7 @@ struct HypothesisSeedServiceTests {
         #expect(seed2["status"] == "materialised")
     }
 
-    // MARK: - Refusals (§5.15.2; acceptance criterion 3)
+    // MARK: - Refusals (; acceptance criterion 3)
 
     @Test func allEmptyHintsRefusedWithNoNameHints() throws {
         let db = try makeTempDB()
@@ -222,7 +222,7 @@ struct HypothesisSeedServiceTests {
     }
 
     @Test func previouslyRejectedHunchRefusesReseed() throws {
-        // §5.15.2: re-seeding a dismissed hunch must be a deliberate
+        //: re-seeding a dismissed hunch must be a deliberate
         // un-reject, not a silent revival.
         let db = try makeTempDB()
         try insertProfile(id: "p1", into: db)
@@ -295,7 +295,7 @@ struct HypothesisSeedServiceTests {
         #expect(try hypothesisCount(db: db) == 0)
     }
 
-    // MARK: - Doctrine pin (§5.15 opening block; acceptance criterion 7 scope)
+    // MARK: - Doctrine pin ( opening block; acceptance criterion 7 scope)
 
     @Test func materialisationWritesNothingToTheTree() throws {
         let db = try makeTempDB()
@@ -304,7 +304,7 @@ struct HypothesisSeedServiceTests {
         func treeCounts() throws -> [Int] {
             try db.dbQueue.read { dbConn in
                 // Citations live as citation_json on field_sources in this
-                // schema, so the field_sources count covers §5.15.5's
+                // schema, so the field_sources count covers's
                 // "citations". pending_facts + leads pin doctrine item 3:
                 // a hunch is not evidence and must not enter those pipes.
                 try [

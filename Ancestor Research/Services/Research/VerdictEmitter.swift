@@ -1,9 +1,9 @@
 import Foundation
 
 /// Faithful port of `agent/pipeline.py`'s `_emit_*_verdict` helpers
-/// (SWIFT_MCP_EVAL_BACKEND_SPEC #Change2). Each returns one of
+/// (MCP eval backend #Change2). Each returns one of
 /// `"supported" | "contradicted" | "inconclusive"` — the exact string
-/// shape consumed by the §5.8 eval-harness envelope.
+/// shape consumed by the eval-harness envelope.
 ///
 /// Free functions in Python; static methods on a namespacing enum in
 /// Swift. State / corpus parameters are replaced by the Swift-native

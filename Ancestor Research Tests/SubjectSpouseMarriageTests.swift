@@ -3,21 +3,21 @@ import Foundation
 @testable import Ancestor_Research
 
 /// Slice 4 test coverage for the `.subjectSpouseMarriage` pre-iteration
-/// strategy (RESEARCH_PIPELINE_SPEC §5.14). Pure-function tests over the
+/// strategy (Research pipeline). Pure-function tests over the
 /// engine extension; orchestrator-side integration (pipeline.research)
 /// is covered indirectly because the reconciliation logic was extracted
 /// into a static `HypothesisEngine.reconcileSubjectSpouseWriteback` that
 /// these tests exercise directly.
 ///
-/// Test plan mirrors slice 4 in §5.14.11:
-///   • Trigger predicate (all branches of §5.14.1)
+/// Test plan mirrors slice 4 in:
+///   • Trigger predicate (all branches of)
 ///   • Per-distinct-MMN generator + same-MMN dedup (Q3+Q4)
-///   • Grader outcomes (.unique / .ambiguous / .none → §5.14.4 verdicts)
+///   • Grader outcomes (.unique / .ambiguous / .none → verdicts)
 ///   • Gender precedence ladder (Q1 — all four rules)
 ///   • MMN provenance fallback (Q2 — profile field → child evidence map)
 ///   • Cross-hypothesis reconciliation (Q4 four cases)
 ///   • Recovery extraction + gender-routed pick
-///   • Expansiveness ladder (§5.14.9)
+///   • Expansiveness ladder
 ///   • Identity-key stability (rejection persistence)
 @MainActor
 struct SubjectSpouseMarriageTests {
@@ -138,7 +138,7 @@ struct SubjectSpouseMarriageTests {
         return FamilyGraphSnapshot(profiles: profiles, relationships: rels)
     }
 
-    // MARK: - Trigger predicate (§5.14.1)
+    // MARK: - Trigger predicate
 
     @Test func generator_emptyWhenSubjectHasNoProfileID() {
         let subject = ResearchSubject(
@@ -443,7 +443,7 @@ struct SubjectSpouseMarriageTests {
         }
     }
 
-    // MARK: - Grader (§5.14.4)
+    // MARK: - Grader
 
     private func subjectAndStateWithChild(
         mmn: String = "Smith", childYear: Int = 1885
@@ -730,7 +730,7 @@ struct SubjectSpouseMarriageTests {
         }
     }
 
-    // MARK: - Expansiveness ladder (§5.14.9)
+    // MARK: - Expansiveness ladder
 
     @Test func deficitLadder_level1MatchesHypothesisWindow() {
         let kind = HypothesisKind.subjectSpouseMarriage(

@@ -61,7 +61,7 @@ nonisolated enum OnboardingWizardBuilder {
         var marriageLocation: String = ""
         var marriageLocationCode: String? = nil
         /// Optional third parent — surfaced via the wizard's "Add stepparent"
-        /// button (DESIGN.md §7.5.1). When populated, attaches as a parent
+        /// button (by design). When populated, attaches as a parent
         /// edge with `RelationshipSubtype.step`.
         var stepparent: PersonInput?
         var paternalGrandfather: PersonInput
@@ -212,8 +212,8 @@ nonisolated enum OnboardingWizardBuilder {
         // (rather than hardcoded) so changing the default is a one-line
         // edit in `SourceDefaults`. Step 2/3/4 contexts (.relativeOf,
         // .grandparent) all also resolve to `.manualMemory` today, so
-        // a single source for the batch is faithful — see DESIGN.md
-        // §7.5.9.
+        // a single source for the batch is faithful — see the design
+        //.
         let source = SourceDefaults.defaultSource(context: .homePerson)
         return Result(
             profiles: profiles,

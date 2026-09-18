@@ -18,7 +18,7 @@ import Foundation
 /// (legacy bespoke paths still drive sibling discovery, marriage
 /// enrichment, etc.). T12 fills in the per-kind logic.
 ///
-/// See `AncestorApp/RESEARCH_PIPELINE_V2_SPEC.md` Part II §4.2 and §7.1.
+/// See `AncestorApp/Research pipeline V2` Part II and.
 nonisolated enum HypothesisEngine {
 
     /// Result of grading a single hypothesis: the new verdict plus the
@@ -82,7 +82,7 @@ nonisolated enum HypothesisEngine {
         case .birthYearCandidate:
             return generateBirthYearCandidate(state: state, snapshot: snapshot)
         case .parentCandidates:
-            // §5.15.1 regeneration exemption — permanent, not a stub.
+            // regeneration exemption — permanent, not a stub.
             // The engine never invents a hunch: `.user` rows are
             // materialised from the v32 seeds table by
             // `HypothesisSeedService`, and the regeneration cycle never
@@ -128,7 +128,7 @@ nonisolated enum HypothesisEngine {
 
     // MARK: - Reconciliation
 
-    /// Deterministic post-grading join (V2 spec §5.2.1): walks
+    /// Deterministic post-grading join (V2 spec): walks
     /// `.supported` `.parentMarriage` hypotheses and writes their
     /// marriage record IDs + given-name reasoning back onto the
     /// matching `.parentInferred` hypotheses, so the parent
@@ -236,7 +236,7 @@ nonisolated enum HypothesisEngine {
     /// Per-kind expansiveness ladder. Returns the focused query for the
     /// given level on this hypothesis, or `nil` when the level exceeds
     /// the kind's ladder ceiling (= hypothesis exhausted at this kind).
-    /// Callers pass `hypothesis.attempts + 1`; T7 and §5.11's user
+    /// Callers pass `hypothesis.attempts + 1`; T7 and's user
     /// "investigate further" gesture are the two call sites.
     static func deficitQuery(
         for hypothesis: ResearchHypothesis,

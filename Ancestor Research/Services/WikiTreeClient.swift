@@ -28,7 +28,7 @@ actor WikiTreeClient {
 
     static let defaultFields = [
         "Id", "Name", "FirstName", "MiddleName", "LastNameAtBirth",
-        // E2 (MODEL_EVOLUTION_SPEC §Change2): request `LastNameOther` — the
+        // E2 (Model evolution Change 2): request `LastNameOther` — the
         // name-variant field both importers previously dropped — alongside
         // `LastNameCurrent`, which was already requested but never mapped. Both
         // now land as typed name forms.
@@ -464,7 +464,7 @@ extension WikiTreeClient {
             sources[.deathLocation] = [FieldSource(origin: origin, raw: dl, addedAt: now)]
         }
 
-        // E2 (MODEL_EVOLUTION_SPEC §Change2): capture WikiTree name variants as
+        // E2 (Model evolution Change 2): capture WikiTree name variants as
         // typed name forms — the motivating data-loss fix. The flat fields above
         // are untouched (they stay the search keys); `nameForms` is the additive
         // sidecar. `LastNameOther` → `.alsoKnownAs`; `LastNameCurrent` →

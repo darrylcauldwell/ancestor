@@ -1,7 +1,7 @@
 import Foundation
 import os
 
-/// CLEANSE_WIZARD_SPEC §3 — generates findings for a profile or the whole
+/// Cleanse wizard — generates findings for a profile or the whole
 /// tree, and applies the user\u{2019}s chosen action.
 ///
 /// Generation is on-demand (not cached): each call to `findings(for:)` runs

@@ -1,7 +1,7 @@
 import Foundation
 
 /// Predicate for the one-time "Your progress is saved automatically." toast
-/// (DESIGN.md §7.5.15, M17.5). Shown after the user has performed a few
+/// (the design, M17.5). Shown after the user has performed a few
 /// manual actions in a small manual project so they know nothing is lost
 /// when they close the window — manual entry users in particular tend to
 /// look for an explicit Save button.

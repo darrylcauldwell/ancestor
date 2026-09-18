@@ -3,7 +3,7 @@ import Foundation
 import AncestorKit
 @testable import Ancestor_Research
 
-/// FREEREG_INTEGRATION_SPEC §2 — the typed FreeREG record model.
+/// FreeREG integration — the typed FreeREG record model.
 ///
 /// Fixtures reproduce the REAL live detail-page shape, verified against
 /// MyopicVicar `_entry_detail.html.erb` + `order_fields_for_record_type`
@@ -164,7 +164,7 @@ struct FreeREGDetailMapperTests {
         #expect(detail?.register?.registerEntryNumber == "114")
         #expect(detail?.register?.film == "6035467")
         #expect(detail?.register?.filmNumber == "0421")
-        #expect(detail?.register?.imageFileName == "IMG_2231.jpg", "media lead for SOURCE_MEDIA_SPEC")
+        #expect(detail?.register?.imageFileName == "IMG_2231.jpg", "media lead for source media")
         #expect(detail?.provenance?.transcribedBy == "A Volunteer")
         #expect(detail?.provenance?.credit == "Derbyshire FHS", "transcriber attribution must survive typed")
         #expect(detail?.notes?.notes == "twin")

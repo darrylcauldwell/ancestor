@@ -5,7 +5,7 @@ import os
 /// Materialises queued `user_hypothesis_seeds` rows (migration v32) into
 /// `research_hypotheses` rows with `origin = .user`.
 ///
-/// RESEARCH_PIPELINE_SPEC §5.15.2 (Decision E2): external surfaces never
+/// Research pipeline (Decision E2): external surfaces never
 /// write `research_hypotheses` directly — that table is engine-owned.
 /// Intake mirrors the sanctioned `research_run_requests` orchestration
 /// pattern: the MCP `submit_hypothesis` tool (phase a) and the future
@@ -29,11 +29,11 @@ nonisolated enum HypothesisSeedService {
 
     /// Default marriage-window offsets relative to the subject's birth
     /// year — `subjectBirthYear − 30 … subjectBirthYear + 1`, mirroring
-    /// `.parentMarriage` (§5.14.3 / §5.15.1).
+    /// `.parentMarriage` ( /).
     static let windowLowerOffset = -30
     static let windowUpperOffset = 1
 
-    /// Structured refusal codes (§5.15.2). Raw values are persisted in
+    /// Structured refusal codes. Raw values are persisted in
     /// `user_hypothesis_seeds.refusal_reason`.
     enum RefusalReason: String, Sendable, Equatable {
         /// All four name hints empty — the seed asserts nothing.
@@ -47,8 +47,8 @@ nonisolated enum HypothesisSeedService {
         /// the user dismissed this exact hunch; re-seeding must be a
         /// deliberate un-reject, not a silent revival.
         case previouslyRejected = "previously_rejected"
-        /// Defensive codes beyond §5.15.2's four: malformed external
-        /// input must not reach the engine (§5.15.1) — and must not
+        /// Defensive codes beyond's four: malformed external
+        /// input must not reach the engine — and must not
         /// wedge the watcher either.
         case unsupportedKind = "unsupported_kind"
         case invalidPayload = "invalid_payload"
@@ -88,7 +88,7 @@ nonisolated enum HypothesisSeedService {
 
     // MARK: - Intake (phase a MCP / phase b Workbench)
 
-    /// Result of a synchronous seed submission (§5.15.7). `queued`
+    /// Result of a synchronous seed submission. `queued`
     /// carries the seed row id for the caller to poll; `refused` carries
     /// the structured reason so the UI can explain what went wrong
     /// without writing anything.
@@ -100,7 +100,7 @@ nonisolated enum HypothesisSeedService {
     /// The four name hints + optional window bounds a caller asserts.
     /// Empty-after-trim hints normalise to nil at submission so the
     /// identityKey stays deterministic and the payload records exactly
-    /// what was claimed (§5.15.1).
+    /// what was claimed.
     struct SeedHints: Sendable, Equatable {
         var fatherGiven: String?
         var fatherSurname: String?
@@ -127,9 +127,9 @@ nonisolated enum HypothesisSeedService {
     }
 
     /// Synchronous seed intake — the single app-side seam the Workbench
-    /// "Add a hunch" form (phase b, §5.15.7) writes through, mirroring
+    /// "Add a hunch" form (phase b,) writes through, mirroring
     /// exactly what the MCP `submit_hypothesis` tool (phase a) does:
-    /// read-only validation per §5.15.2, then INSERT one queued
+    /// read-only validation per, then INSERT one queued
     /// `user_hypothesis_seeds` row (nothing else). The watcher's
     /// `materialiseQueuedSeeds` picks it up and does the actual
     /// `research_hypotheses` upsert — so validation is NOT duplicated:
@@ -142,7 +142,7 @@ nonisolated enum HypothesisSeedService {
     /// AncestorKit; the two paths share the seeds table and the same
     /// refusal reason codes.
     ///
-    /// Writes nothing on refusal (§5.15.2). `requestedBy` distinguishes
+    /// Writes nothing on refusal. `requestedBy` distinguishes
     /// the intake surface in the persisted row (`'workbench'` here,
     /// `'mcp'` from the tool).
     static func submitSeed(
@@ -156,19 +156,19 @@ nonisolated enum HypothesisSeedService {
         let motherGiven = normalised(hints.motherGiven)
         let motherMaidenSurname = normalised(hints.motherMaidenSurname)
 
-        // §5.15.2 rule 1 — at least one of the four name hints non-empty.
+        // rule 1 — at least one of the four name hints non-empty.
         guard fatherGiven != nil || fatherSurname != nil
                 || motherGiven != nil || motherMaidenSurname != nil else {
             return .refused(.noNameHints)
         }
 
-        // §5.15.2 rule 2 — profile must exist (loadProfile excludes
+        // rule 2 — profile must exist (loadProfile excludes
         // soft-deleted rows).
         guard let profile = try db.loadProfile(id: profileID) else {
             return .refused(.profileNotFound)
         }
 
-        // §5.15.2 rule 3 — derivable marriage window; user bounds win.
+        // rule 3 — derivable marriage window; user bounds win.
         let birthYearEstimate = profile.birthDate?.earliest ?? profile.birthDate?.latest
         let lower = hints.marriageWindowStart
             ?? birthYearEstimate.map { $0 + windowLowerOffset }
@@ -181,7 +181,7 @@ nonisolated enum HypothesisSeedService {
             return .refused(.invalidWindow)
         }
 
-        // §5.15.2 rule 4 — rejection memory. Resolve the identity key via
+        // rule 4 — rejection memory. Resolve the identity key via
         // the canonical `HypothesisKind.identityKey` (not a hand-copy) so
         // intake and materialisation agree on collision identity.
         let kind = HypothesisKind.parentCandidates(
@@ -202,7 +202,7 @@ nonisolated enum HypothesisSeedService {
         }
 
         // Payload records exactly what the caller asserted — derived
-        // window bounds are NOT persisted (§5.15.1); the watcher
+        // window bounds are NOT persisted; the watcher
         // re-derives them at materialisation.
         let payload = SeedPayload(
             fatherGiven: fatherGiven,
@@ -303,7 +303,7 @@ nonisolated enum HypothesisSeedService {
     }
 
     /// Validate + materialise one seed. Validation order follows
-    /// §5.15.2's listing: name hints, profile, window, rejection memory.
+    ///'s listing: name hints, profile, window, rejection memory.
     static func materialise(seed: QueuedSeed, db: ProjectDatabase) throws -> Outcome {
         // Defensive gates first — this epic ships one kind only, and a
         // payload that doesn't parse can't be validated at all.
@@ -323,19 +323,19 @@ nonisolated enum HypothesisSeedService {
         let motherGiven = normalised(payload.motherGiven)
         let motherMaidenSurname = normalised(payload.motherMaidenSurname)
 
-        // §5.15.2 rule 1 — at least one of the four name hints non-empty.
+        // rule 1 — at least one of the four name hints non-empty.
         guard fatherGiven != nil || fatherSurname != nil
                 || motherGiven != nil || motherMaidenSurname != nil else {
             return try refuse(seed: seed, reason: .noNameHints, db: db)
         }
 
-        // §5.15.2 rule 2 — profile must exist (loadProfile excludes
+        // rule 2 — profile must exist (loadProfile excludes
         // soft-deleted rows, so a profile deleted since seeding refuses).
         guard let profile = try db.loadProfile(id: seed.profileID) else {
             return try refuse(seed: seed, reason: .profileNotFound, db: db)
         }
 
-        // §5.15.2 rule 3 — marriage window: user bounds win where given;
+        // rule 3 — marriage window: user bounds win where given;
         // missing bounds default from the subject's birth-year estimate
         // (birthYear − 30 … birthYear + 1). No estimate and incomplete
         // bounds → underivable.
@@ -360,7 +360,7 @@ nonisolated enum HypothesisSeedService {
         )
         let identityKey = kind.identityKey(subjectProfileID: seed.profileID)
 
-        // §5.15.2 rule 4 — rejection memory: the user dismissed this
+        // rule 4 — rejection memory: the user dismissed this
         // exact hunch; re-seeding must be a deliberate un-reject.
         let isRejected = try db.dbQueue.read { dbConn in
             try Int.fetchOne(dbConn, sql: """
@@ -371,14 +371,14 @@ nonisolated enum HypothesisSeedService {
             return try refuse(seed: seed, reason: .previouslyRejected, db: db)
         }
 
-        // §5.15.2 last paragraph — straight-to-`.contradicted` at intake.
+        // last paragraph — straight-to-`.contradicted` at intake.
         // If the tree already holds a *confirmed* (field_sources-backed)
         // parent whose given name conflicts with a hint beyond nickname
         // equivalence, the seed is *accepted* (not refused) but
         // materialised directly as `.contradicted` — the user learns
         // immediately rather than after a wasted run. Reuses the grader's
         // exact conflict test (`HypothesisEngine.confirmedParentGivenNameConflict`,
-        // §5.15.4 table row 4) so intake and post-run grading agree. Slice 2
+        // table row 4) so intake and post-run grading agree. Slice 2
         // deferred this; the snapshot the check needs was not plumbed into
         // materialisation until now.
         //
@@ -397,7 +397,7 @@ nonisolated enum HypothesisSeedService {
             }
 
         // Materialise. Re-seeding identical hints collides on the
-        // identityKey and upserts — no duplicate rows (§5.15.2). The
+        // identityKey and upserts — no duplicate rows. The
         // upsert preserves created_at, user_rejected, and origin.
         let now = Date()
         let hintSummary = [
@@ -454,7 +454,7 @@ nonisolated enum HypothesisSeedService {
     // MARK: - Helpers
 
     /// Refusal writes the reason onto the seed row and nothing else —
-    /// no hypothesis row, no tree data (§5.15.2: "refuse with a reason,
+    /// no hypothesis row, no tree data (: "refuse with a reason,
     /// write nothing").
     private static func refuse(
         seed: QueuedSeed,

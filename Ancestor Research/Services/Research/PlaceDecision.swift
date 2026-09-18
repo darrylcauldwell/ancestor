@@ -2,7 +2,7 @@ import Foundation
 import AncestorKit
 
 /// One human answer to "what place does this text name" — the unit of the
-/// user-built layer over the bundled gazetteer (LOCATION_MODEL_SPEC Part III).
+/// user-built layer over the bundled gazetteer (Location model Part III).
 ///
 /// A decision is not a guess the app made and not evidence a record supplied. It
 /// is a person's judgement, recorded with their reason so a later session can

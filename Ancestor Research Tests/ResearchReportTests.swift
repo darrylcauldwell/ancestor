@@ -2,7 +2,7 @@ import Testing
 import Foundation
 @testable import Ancestor_Research
 
-/// Tests for M10 Research Report (DESIGN.md §7.9.5). Cover the composer
+/// Tests for M10 Research Report (by design). Cover the composer
 /// (pure logic — scope, focus filter, grouping, dedup) and the Markdown
 /// renderer's section ordering.
 struct ResearchReportTests {

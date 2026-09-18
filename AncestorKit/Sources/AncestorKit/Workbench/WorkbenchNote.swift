@@ -10,7 +10,7 @@ public nonisolated struct WorkbenchNote: Codable, Identifiable, Sendable, Hashab
     public var attachedTo: NoteAttachment
     public var createdAt: Date
     public var updatedAt: Date
-    public var sensitive: Bool = false   // M14 §7.15.2 — exclude from shared exports when set
+    public var sensitive: Bool = false   // M14 — exclude from shared exports when set
 
     /// Convenience init for callers that haven't been updated to pass `sensitive`.
     public init(

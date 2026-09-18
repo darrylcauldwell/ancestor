@@ -6,11 +6,11 @@ import GRDB
 nonisolated extension ProjectDatabase {
 
     /// Idle interval after which a session is considered ended.
-    /// 30 minutes per DESIGN.md §7.7.6.
+    /// 30 minutes by design
     static let sessionIdleThreshold: TimeInterval = 30 * 60
 
     /// 7 days — beyond this, the session resume screen does not surface
-    /// a previous session (per §7.7.6).
+    /// a previous session (per).
     static let sessionResumeWindow: TimeInterval = 7 * 24 * 60 * 60
 
     @discardableResult

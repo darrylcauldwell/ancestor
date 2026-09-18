@@ -4,7 +4,7 @@ import GRDB
 @testable import Ancestor_Research
 
 /// Migration tests for E3 v36 — the additive, nullable `place_authority_id`
-/// landing-slot columns (MODEL_EVOLUTION_SPEC §Change3 / ADR-004 E3).
+/// landing-slot columns (Model evolution Change 3 / ADR-004 E3).
 ///
 /// The migration is deliberately data-preserving-only: it adds columns and does
 /// NOT migrate any stored `*_location_code` value (existing codes keep resolving

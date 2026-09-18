@@ -15,11 +15,11 @@ public nonisolated struct Project: Codable, Identifiable, Sendable {
     /// county. nil = unset; per-subject derivation in `ResearchSubject`
     /// prefers the subject's own birth-location data and only falls back
     /// here when the profile carries no location. **No hardcoded
-    /// Derbyshire default** — `feedback_no_hardcoded_regions`.
+    /// Derbyshire default** — the no-hardcoded-regions rule.
     public var homeChapmanCode: String?
 
-    /// Per-project Discovery expansion bound (ENGINE_FOUNDATION_SPEC
-    /// §Change7). nil = use the engine default (`ExpansionPolicy.default`,
+    /// Per-project Discovery expansion bound (Engine foundation
+    /// Change 7). nil = use the engine default (`ExpansionPolicy.default`,
     /// generational distance ≤ 4). Set here to override — the value is
     /// persisted in `project_meta.expansion_policy` as a compact wire
     /// string (e.g. `"collateral:2"`). Bounds how far from the probands
@@ -55,7 +55,7 @@ public nonisolated struct Project: Codable, Identifiable, Sendable {
     /// filter; SearchDispatcher / SourceParams may degrade to national
     /// scope or skip the chapman-coded probe entirely). Earlier
     /// implementations defaulted to "DBY" here, which silently misfiltered
-    /// non-Derbyshire profiles (`feedback_no_hardcoded_regions`).
+    /// non-Derbyshire profiles (the no-hardcoded-regions rule).
     public var resolvedHomeChapmanCode: String { homeChapmanCode ?? "" }
 }
 

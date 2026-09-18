@@ -1,7 +1,7 @@
 import Foundation
 import AncestorKit
 
-/// PROFILE_SOURCES_LEDGER_SPEC Change 2 — the read-only per-profile evidence
+/// Profile sources ledger Change 2 — the read-only per-profile evidence
 /// ledger: the records a user has kept for a person (accepted facts / saved
 /// leads), read straight from `evidence_records` with **no research run**. This
 /// is what closes the "applied facts show only as field values; you must re-run

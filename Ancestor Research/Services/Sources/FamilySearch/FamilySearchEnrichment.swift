@@ -14,7 +14,7 @@ import os
 /// tree; when they don't, the enrichment is simply empty (records search still
 /// covers them).
 ///
-/// **§18 (deterministic sandwich for a remote ML matcher):** a FamilySearch
+/// ** (deterministic sandwich for a remote ML matcher):** a FamilySearch
 /// match confidence is a **lead-ordering signal only** — it never sets a trust
 /// tier, enters a gate, or counts toward convergence. It orders the hint list;
 /// our rules decide.
@@ -44,7 +44,7 @@ actor FamilySearchEnrichmentService {
     // MARK: - Record hints → leads
 
     /// Fetch FamilySearch record hints for a subject, ordered by match
-    /// confidence (§18: ordering only). Empty when the subject isn't in the
+    /// confidence (: ordering only). Empty when the subject isn't in the
     /// shared tree or has no hints — never throws (enrichment is best-effort).
     func recordHints(surname: String, givenName: String?, birthYear: Int?, deathYear: Int?) async -> [FamilySearchHint] {
         var query = FamilySearchQuery()
@@ -72,7 +72,7 @@ actor FamilySearchEnrichmentService {
                 logger.warning("Record-hint fetch for \(pid, privacy: .public) failed: \(error.localizedDescription, privacy: .public)")
             }
         }
-        // §18: match confidence orders the list; highest first. Stable on ties.
+        //: match confidence orders the list; highest first. Stable on ties.
         return hints.sorted { ($0.matchConfidence ?? 0) > ($1.matchConfidence ?? 0) }
     }
 
@@ -80,7 +80,7 @@ actor FamilySearchEnrichmentService {
     /// ready to route through the deterministic scorer (the S6b design: hints
     /// reach the pipeline through the SAME gates as records search, deduped on
     /// the persona id). Parsed via the S5 records parser so every gate has the
-    /// full typed record; each carries `rawFields["fsMatchScore"]` (§18 ordering
+    /// full typed record; each carries `rawFields["fsMatchScore"]` ( ordering
     /// only) + `rawFields["fsTreePersonID"]` (provenance). Best-effort — empty
     /// when the subject isn't in the shared tree; never throws.
     func recordHintsAsSourceRecords(surname: String, givenName: String?, birthYear: Int?, deathYear: Int?) async -> [SourceRecord] {
@@ -159,7 +159,7 @@ actor FamilySearchEnrichmentService {
     // MARK: - Image pointers (link-only)
 
     /// Document-image pointers for a tree person's memories — link-only per the
-    /// Find a Grave posture (§16): capture the ARK/URL + title, never download
+    /// Find a Grave posture: capture the ARK/URL + title, never download
     /// or store the image bytes. Best-effort; empty on failure.
     func imagePointers(forTreePerson pid: String) async -> [FamilySearchImagePointer] {
         do {
@@ -178,7 +178,7 @@ actor FamilySearchEnrichmentService {
 
     // MARK: - Pure helpers
 
-    /// The bare `ark:/…` path segment (§17.1) from a full URL/fragment, or nil.
+    /// The bare `ark:/…` path segment from a full URL/fragment, or nil.
     nonisolated static func bareArk(from raw: String?) -> String? {
         guard let raw, let r = raw.range(of: "ark:/") else { return nil }
         return String(raw[r.lowerBound...])
@@ -200,12 +200,12 @@ actor FamilySearchEnrichmentService {
 // MARK: - Hint / pointer value types
 
 /// A FamilySearch record hint, shaped for the firewall's lead surface. The
-/// `matchConfidence` is a §18 lead-ordering signal only — never a gate/tier/
+/// `matchConfidence` is a lead-ordering signal only — never a gate/tier/
 /// convergence input.
 nonisolated struct FamilySearchHint: Sendable, Equatable {
     let ark: String?               // bare `ark:/…` path of the hinted record
     let collectionTitle: String
-    let matchConfidence: Double?   // §18: ordering only
+    let matchConfidence: Double?   //: ordering only
     let name: String?
     let year: Int?
     let place: String?

@@ -1,7 +1,7 @@
 import Foundation
 import AncestorKit
 
-/// IMPORT_DEDUPE_SPEC — the post-import duplicate review surfaced on AppState.
+/// Import dedupe — the post-import duplicate review surfaced on AppState.
 /// Split from AppState.swift to keep that file under budget. Carries two kinds
 /// of candidate: zero-edge orphan stubs (Changes 1–3) and single-spouse-edge
 /// phantom spouses (Changes 4–6).

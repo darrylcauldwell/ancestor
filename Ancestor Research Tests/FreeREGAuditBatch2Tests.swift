@@ -3,7 +3,7 @@ import Foundation
 import AncestorKit
 @testable import Ancestor_Research
 
-/// Connector-audit batch 2 for FreeREG (CONNECTOR_AUDIT_2026-07 §2.3/§2.4):
+/// Connector-audit batch 2 for FreeREG (the 2026-07 connector audit/):
 ///
 /// - FT-17: the old maxSplits:1 name split pushed every middle name into
 ///   the surname ("Sarah Jane Kenworthy" → surname "Jane Kenworthy"),

@@ -1,6 +1,6 @@
 import Foundation
 
-/// CONFLICT_LAYER_SPEC §4.1 C1 — witness identity ⟨G1⟩⟨G4⟩⟨G9⟩.
+/// Conflict layer C1 — witness identity ⟨G1⟩⟨G4⟩⟨G9⟩.
 ///
 /// A WitnessKey identifies the UNDERLYING ORIGINAL register entry an
 /// attestation transcribes. Two attestations with the same witness are ONE
@@ -12,7 +12,7 @@ import Foundation
 /// fields, never persisted; a stored key would be a second source of truth
 /// that silently rots when derivation improves.
 ///
-/// Matching is CONSERVATIVE (§4.1): components that are mutually non-nil
+/// Matching is CONSERVATIVE: components that are mutually non-nil
 /// must agree; a missing component MATCHES a present one. When
 /// independence cannot be proven, it is not counted — the safe direction
 /// for corroboration (mirrors when-in-doubt-split).
@@ -134,7 +134,7 @@ public nonisolated enum WitnessIdentity {
         }
     }
 
-    /// Conservative same-witness test (§4.1): archive class and event
+    /// Conservative same-witness test: archive class and event
     /// shape must agree exactly; every other component must agree when
     /// BOTH sides carry it (mutually non-nil), and a missing component
     /// matches a present one. Census enumeration identity rides entirely

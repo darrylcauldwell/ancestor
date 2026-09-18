@@ -55,7 +55,7 @@ struct ApplyCitationTests {
         #expect(anyCited, "sourcingTabVisible predicate must fire from a research apply")
     }
 
-    /// FREEBMD_CITATION_BACKFILL_SPEC Change 6 — when enrich-in-place heals a
+    /// FreeBMD citation backfill Change 6 — when enrich-in-place heals a
     /// link-less applied FreeBMD evidence row from a linked sibling of the same
     /// GRO entry, the citation the apply already wrote onto the profile must gain
     /// the link too. Regression: Abraham Twyford's death *evidence* healed on

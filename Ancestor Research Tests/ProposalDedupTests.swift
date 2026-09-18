@@ -6,7 +6,7 @@ import Foundation
 /// both `acceptSibling` and `acceptProposedRelative`. Mirrors
 /// `PromoteLeadDedupTests` in the MCP package so the three
 /// proposal-accept paths (sibling, parent-inferred, MCP promote)
-/// stay behaviourally aligned per ENGINE_FOUNDATION_SPEC §Change3.
+/// stay behaviourally aligned per Engine foundation Change 3.
 @MainActor
 struct ProposalDedupTests {
 

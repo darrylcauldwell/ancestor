@@ -1,7 +1,7 @@
 import Foundation
 
 /// Formal genealogical citation, structured for entry, storage, and rendering.
-/// Based on Mills's Evidence Explained citation model. Per DESIGN.md §5.12.
+/// Based on Mills's Evidence Explained citation model. By design
 ///
 /// Optional on `FieldSource` — not all sources warrant a formal citation
 /// (manual memory entries usually don't). When present, the citation is what

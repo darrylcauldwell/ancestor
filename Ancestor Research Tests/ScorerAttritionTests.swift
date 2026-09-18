@@ -2,7 +2,7 @@ import Testing
 import Foundation
 @testable import Ancestor_Research
 
-/// ENGINE_FOUNDATION_SPEC #Change4 — pure aggregation of per-gate
+/// Engine foundation #Change4 — pure aggregation of per-gate
 /// attrition counts across a hop's scored records. The hard work is
 /// already done by the scorer (each `ScoredRecord` carries its
 /// `gates: [GateResult]`); these tests pin the aggregation logic.

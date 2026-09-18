@@ -283,7 +283,7 @@ struct ProseCorpusStorageTests {
         try storage.deletePage(pageHash: "deadbeefcafe1234")
     }
 
-    // MARK: - On-disk layout (spec §3)
+    // MARK: - On-disk layout (spec)
 
     @Test func filesLandUnderCorporaSourceIdPagesPageHashDotMd() throws {
         let (storage, tmp) = makeTempStorage(sourceID: "my-corpus")
@@ -303,10 +303,10 @@ struct ProseCorpusStorageTests {
         #expect(FileManager.default.fileExists(atPath: expected.path))
     }
 
-    // MARK: - End-to-end with the converter (spec §5 + §7 round-trip)
+    // MARK: - End-to-end with the converter (spec + round-trip)
 
     @Test func contentHashFromConverterOutputIsStable() {
-        // Conversion is deterministic per spec §7.5 and storage hashes
+        // Conversion is deterministic per spec and storage hashes
         // the normalised body — so a page's content_hash should not drift
         // when the same HTML round-trips through the pipeline twice.
         let html = "<h1>Example</h1><p>Body  </p>"

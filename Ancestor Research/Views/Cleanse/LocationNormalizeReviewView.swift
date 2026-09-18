@@ -1,7 +1,7 @@
 import SwiftUI
 import AncestorKit
 
-/// Slice E review surface (LOCATION_MODEL_SPEC Part II) — the "un-muddle" as a
+/// Slice E review surface (Location model Part II) — the "un-muddle" as a
 /// dry-run the user approves. It scans every profile's freeform, code-less
 /// birth/death place, shows what the deterministic resolver can confidently
 /// structure, and applies ONLY the proposals the user keeps ticked. Ambiguous /

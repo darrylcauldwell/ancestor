@@ -25,7 +25,7 @@ struct SearchDispatcherJurisdictionTests {
         // DBY resolves to England via RegionConfig. Uses Derbyshire because
         // RegionConfig only carries rich per-county config for DBY today — the
         // no-hardcoded-regions debt the location-model pass addresses
-        // (LOCATION_MODEL_SPEC). A non-DBY code like LAN yields no country and
+        // (Location model). A non-DBY code like LAN yields no country and
         // falls back to bare county, which `returnsCountyOnlyWhenCountryNotDerivable`
         // already covers; asserting England for LAN was the original wrong
         // assumption that shipped this test red.

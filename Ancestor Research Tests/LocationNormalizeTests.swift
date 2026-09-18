@@ -4,7 +4,7 @@ import GRDB
 import AncestorKit
 @testable import Ancestor_Research
 
-/// LOCATION_MODEL_SPEC Part II, Slices D & E.
+/// Location model Part II, Slices D & E.
 ///   D — the picker's hierarchy line resolves a place to its registration
 ///       district via the shared resolver (`districtName`).
 ///   E — the batch normaliser proposes structured codes for freeform, code-less

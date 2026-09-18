@@ -1,7 +1,7 @@
 import Foundation
 import os
 
-/// Generic same-host BFS crawler for the prose-corpus subsystem (spec §6).
+/// Generic same-host BFS crawler for the prose-corpus subsystem (spec).
 ///
 /// Single-host, single-task. The crawler walks from a user-supplied seed
 /// URL, following `<a href>` links that resolve to the same registrable
@@ -12,12 +12,12 @@ import os
 /// Politeness primitives mirror the existing source plugins (`FreeBMDSource`
 /// in particular): 500 ms between requests, 429 circuit breaker with a
 /// 60s/300s/900s cool-down ladder, fixed User-Agent string. HTTP layer is
-/// `SourceHTTPClient.shared` verbatim per spec §6.4 — no new HTTP stack.
+/// `SourceHTTPClient.shared` verbatim per spec — no new HTTP stack.
 ///
 /// What this v1 deliberately does NOT do (open questions / spec items
 /// that need wider plumbing):
 ///
-/// - `If-Modified-Since` conditional GETs (spec §6.1). `HTTPClient`
+/// - `If-Modified-Since` conditional GETs (spec). `HTTPClient`
 ///   currently abstracts away response headers, so 304 cannot be
 ///   distinguished from a clean 200. Content-hash idempotency in
 ///   `ProseCorpusStorage` still satisfies AC-B4 ("zero filesystem writes
@@ -46,7 +46,7 @@ actor ProseCorpusCrawler {
         /// volunteer sites) are hand-written HTML with deep nav
         /// hierarchies that aren't depth-optimised.
         ///
-        /// Spec §6.2 originally suggested 4 but P8 empirical
+        /// Spec originally suggested 4 but P8 empirical
         /// testing on Wirksworth (the canonical example) showed
         /// depth-4 captures only ~8% of the site — 174 of 2,187
         /// pages. Volunteer-site hierarchies are commonly 5-7
@@ -58,7 +58,7 @@ actor ProseCorpusCrawler {
         /// just a secondary guard against pathological link
         /// structures (e.g. infinite calendar pages).
         let maxDepth: Int
-        /// Spec §6.2 default 10,000.
+        /// Spec default 10,000.
         let pageBudget: Int
         /// Optional inclusion filter applied to every candidate URL.
         /// `nil` follows everything that passes same-host + depth.
@@ -67,7 +67,7 @@ actor ProseCorpusCrawler {
         /// crawler is unbranded so politeness identification points at
         /// the project's GitHub URL for contact.
         let userAgent: String
-        /// Spec §6.1 — 500 ms between consecutive requests.
+        /// Spec — 500 ms between consecutive requests.
         let requestDelay: Duration
         /// Skip robots.txt entirely. Default `true`. Tests can flip to
         /// `false` to exercise the crawl loop without staging a robots
@@ -252,7 +252,7 @@ actor ProseCorpusCrawler {
     /// Canonicalised URLs we've already processed (or refused). Lookups
     /// dominate frontier admission so a Set keeps this O(1).
     private var visited: Set<String> = []
-    /// External-host link URLs encountered during the crawl. Spec §6.2 —
+    /// External-host link URLs encountered during the crawl. Spec —
     /// not followed, recorded for diagnostics.
     private var externalLinks: [URL] = []
 
@@ -479,7 +479,7 @@ actor ProseCorpusCrawler {
     /// Best-effort filter against obvious non-HTML extensions. Returns
     /// `true` (proceed with GET) when the extension is HTML-flavoured
     /// or unknown — the converter copes with surprises; the binary
-    /// list is the conservative gate. Spec §6.2 calls for HEAD-based
+    /// list is the conservative gate. Spec calls for HEAD-based
     /// verification on ambiguous extensions; absent header support on
     /// `HTTPClient`, this is the v1 fallback.
     nonisolated private func isLikelyHTML(url: URL) -> Bool {

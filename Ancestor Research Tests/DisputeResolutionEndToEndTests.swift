@@ -3,7 +3,7 @@ import Foundation
 import GRDB
 @testable import Ancestor_Research
 
-/// CONFLICT_LAYER_SPEC §6 Change 1 AC4 + AC6 — end-to-end resolution:
+/// Conflict layer Change 1 AC4 + AC6 — end-to-end resolution:
 /// pick-a-value → `resolveFieldDispute` transaction → canonical field
 /// updated → dispute resolved `.accepted` → ONE undo restores both; and
 /// the R3 shield holding across the whole producer path for

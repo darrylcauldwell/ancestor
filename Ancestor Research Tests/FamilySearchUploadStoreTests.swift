@@ -4,7 +4,7 @@ import GRDB
 @testable import Ancestor_Research
 @testable import AncestorKit
 
-/// v52 upload bookkeeping (WL3 — FAMILYSEARCH_TREES_WRITE_SPEC §5): run
+/// v52 upload bookkeeping (WL3 — FamilySearch tree write): run
 /// round-trip + resume anchor, person-link upsert + E1 dual-write, entity
 /// links, and the resume queries the orchestrator is built on.
 struct FamilySearchUploadStoreTests {

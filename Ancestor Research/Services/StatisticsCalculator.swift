@@ -2,7 +2,7 @@ import Foundation
 
 /// Pure helper computing aggregate metrics across a `FamilyGraphSnapshot`
 /// and the project's `ResearchSession` log. Drives the read-only
-/// Statistics dashboard (DESIGN.md §13 platform extensions).
+/// Statistics dashboard (the design platform extensions).
 ///
 /// All operations are deterministic — ties on counts are broken
 /// alphabetically so the dashboard renders identically across runs.

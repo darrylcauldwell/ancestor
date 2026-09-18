@@ -1,6 +1,6 @@
 import Foundation
 
-/// CONFLICT_LAYER_SPEC §4.2/§4.8 — shared deterministic predicates behind
+/// Conflict layer/ — shared deterministic predicates behind
 /// the F3/F4a/T-D detection rules.
 ///
 /// Both producers consume these: the app-side `ConflictSweep`/`ConflictDetector`

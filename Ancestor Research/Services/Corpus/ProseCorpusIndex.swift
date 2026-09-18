@@ -1,7 +1,7 @@
 import Foundation
 import GRDB
 
-/// Per-corpus SQLite index per spec §4 — one `index.sqlite` per
+/// Per-corpus SQLite index per spec — one `index.sqlite` per
 /// `corpora/<source_id>/`, separate from the project database.
 ///
 /// Holds four pivot tables (`pages`, `page_surnames`, `page_years`,
@@ -77,7 +77,7 @@ nonisolated final class ProseCorpusIndex: Sendable {
             // `pages`. The indexer maintains this table directly —
             // no triggers, no shadow body column on `pages`.
             //
-            // Tokeniser exactly as spec §4 calls for: porter stem
+            // Tokeniser exactly as spec calls for: porter stem
             // (so "marriage" hits "married"), unicode61 lowercasing
             // with remove_diacritics=1 so accented characters fold
             // to ASCII without the converter having to normalise.

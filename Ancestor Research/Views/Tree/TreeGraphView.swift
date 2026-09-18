@@ -84,7 +84,7 @@ struct TreeGraphView: View {
     /// Identifiable wrapper so the picker uses `.sheet(item:)` rather than
     /// `.sheet(isPresented:) + if let`, which renders an empty EmptyView
     /// rectangle when the inner binding hasn't settled at presentation time
-    /// (memory `feedback_sheet_isPresented_race`).
+    /// (memory the sheet(isPresented:) EmptyView race).
     private struct ComparePickerSource: Identifiable {
         /// The left (right-clicked) profile's ID; doubles as the identity.
         let id: String
@@ -154,7 +154,7 @@ struct TreeGraphView: View {
                         // gesture disambiguator routes two-tap sequences here
                         // and leaves count:1 for genuine single clicks.
                         // Both node double-click and the ⓘ icon open the
-                        // Full Detail card (RETIRE_POPOVER_SPEC Change 3 —
+                        // Full Detail card (Popover retirement Change 3 —
                         // the peek popover is retired; the card is the one
                         // inspection surface).
                         .onTapGesture(count: 2) { location in
@@ -188,7 +188,7 @@ struct TreeGraphView: View {
                             let anchorID = treeVM.hoveredNodeID ?? treeVM.selectedProfileID
                             if let anchorID,
                                let anchorProfile = appState.snapshot.profiles[anchorID] {
-                                // PROFILE_LIFECYCLE_SPEC Change 1 — the right-click
+                                // Profile lifecycle Change 1 — the right-click
                                 // menu offers the SAME canonical action set as the
                                 // profile card, so actions never vanish depending
                                 // on how you reached the person. Card-owned actions
@@ -220,7 +220,7 @@ struct TreeGraphView: View {
                                 Button("Cleanse") { openCardAction(anchorID, .cleanse) }
 
                                 Divider()
-                                // RETIRE_POPOVER_SPEC Change 1 — add-relative and
+                                // Popover retirement Change 1 — add-relative and
                                 // remove move off the popover onto the surfaces we
                                 // keep. Add-relative opens the same sheet as before.
                                 Menu("Add Relative") {
@@ -242,7 +242,7 @@ struct TreeGraphView: View {
                                 }
                                 .disabled(anchorID == appState.currentProject?.homePersonID)
                                 // W3 focus toggle — parity with the card's
-                                // More menu (RETIRE_POPOVER_SPEC Change 2).
+                                // More menu (Popover retirement Change 2).
                                 if appState.activeFocusSet != nil {
                                     if appState.isInActiveFocus(anchorID) {
                                         Button("Remove from Focus") {
@@ -323,7 +323,7 @@ struct TreeGraphView: View {
                     comparePickerSource = ComparePickerSource(id: id)
                     appState.requestCompareProfileID = nil
                 }
-                // RETIRE_POPOVER_SPEC Change 1 — Full Detail raising add-relative /
+                // Popover retirement Change 1 — Full Detail raising add-relative /
                 // connect-to-existing. Only the tree owns the add sheets.
                 .onChange(of: appState.requestAddRelative) { _, newValue in
                     guard let req = newValue else { return }
@@ -360,7 +360,7 @@ struct TreeGraphView: View {
                         onClose: {
                             treeVM.showInspector = false
                         },
-                        // RETIRE_POPOVER_SPEC Change 2 — the popover's
+                        // Popover retirement Change 2 — the popover's
                         // navigation + marriage switcher, now card-hosted.
                         onNavigateToProfile: { relativeID in
                             treeVM.recenterOnRelative(
@@ -618,7 +618,7 @@ struct TreeGraphView: View {
         }
     }
 
-    /// DESIGN.md §7.10.1 / §7.10.2 — tree-scoped shortcuts. Cmd+N /
+    /// the design / — tree-scoped shortcuts. Cmd+N /
     /// Cmd+Shift+N / Cmd+E live on the global keyboard layer in
     /// ContentView (M16.9); the only remaining tree-scoped shortcut is
     /// Delete (no modifier), which soft-deletes the selected profile.
@@ -683,7 +683,7 @@ struct TreeGraphView: View {
         appState.requestOpenProfileDetail = nil
     }
 
-    /// PROFILE_LIFECYCLE_SPEC Change 1 — open the profile card for `id` and hand
+    /// Profile lifecycle Change 1 — open the profile card for `id` and hand
     /// it a card-owned action (Edit/Timeline/Relationship/Cleanse) raised from
     /// the right-click menu. `ProfileDetailView` consumes `pendingCardAction` on
     /// appear / profile-switch / intent-change, so this works whether the card
@@ -694,7 +694,7 @@ struct TreeGraphView: View {
         treeVM.showInspector = true
     }
 
-    // Shared action handlers (RETIRE_POPOVER_SPEC Changes 1+3) — the
+    // Shared action handlers (Popover retirement Changes 1+3) — the
     // right-click menu and Full Detail route through these so the add/remove
     // actions behave identically wherever invoked.
 
@@ -743,7 +743,7 @@ struct TreeGraphView: View {
             treeVM.setActiveSpouse(person: person, spouse: spouse, snapshot: appState.snapshot)
 
         case .infoIcon(let id):
-            // RETIRE_POPOVER_SPEC Change 3 — the ⓘ icon opens the Full
+            // Popover retirement Change 3 — the ⓘ icon opens the Full
             // Detail card (the popover it used to open is retired).
             treeVM.selectedProfileID = id
             treeVM.showInspector = true
@@ -793,7 +793,7 @@ struct TreeGraphView: View {
     private func handleSpace() -> KeyPress.Result {
         guard treeVM.selectedProfileID != nil else { return .ignored }
         // "Space to inspect" — inspect is the Full Detail card now that the
-        // popover is retired (RETIRE_POPOVER_SPEC Change 3).
+        // popover is retired (Popover retirement Change 3).
         treeVM.showInspector = true
         return .handled
     }
@@ -896,7 +896,7 @@ struct TreeGraphView: View {
             let offsetY = transform.drawOffsetY
 
             // Focus filter: when active, every non-focus node and its
-            // incident edges are skipped at draw time. Per DESIGN.md §7.7.2.
+            // incident edges are skipped at draw time. By design
             let focusVisible: Set<String>? = {
                 guard appState.focusFilterEnabled,
                       let active = appState.activeFocusSet else { return nil }
@@ -938,7 +938,7 @@ struct TreeGraphView: View {
 
             // M8 W5 — render active relationship hypotheses as dashed,
             // muted edges between profiles that happen to be on-canvas.
-            // Per DESIGN.md §7.7.7. Hypotheses involving off-canvas profiles
+            // By design Hypotheses involving off-canvas profiles
             // are silent: the popover/inspector surfaces them in those cases.
             let nodeByID: [String: TreeLayout.LayoutNode] = Dictionary(
                 uniqueKeysWithValues: treeVM.layout.nodes.map { ($0.id, $0) }
@@ -983,7 +983,7 @@ struct TreeGraphView: View {
                     let isRoot = node.id == treeVM.rootProfileID
                     let isHovered = node.id == treeVM.hoveredNodeID
                     let dimmed = hasSearch && !highlighted.contains(node.id)
-                    // M8 indicators (DESIGN.md §7.7.7). Gated on the
+                    // M8 indicators (by design). Gated on the
                     // M16.11 "Show research indicators" toggle so users can
                     // print or demo a clean tree without these overlays.
                     let inFocus = TreeIndicatorVisibility.focusRingVisible(
@@ -1002,7 +1002,7 @@ struct TreeGraphView: View {
                         showResearchIndicators: showResearchIndicators
                     )
                     // M12 — surface tentative confidence on any of the four
-                    // headline fields used for completeness scoring. DESIGN.md §5.14.
+                    // headline fields used for completeness scoring. the design
                     let hasTentativeFact = TreeIndicatorVisibility.tentativeVisible(
                         hasTentativeFact: profileHasTentativeFact(node.profile),
                         showResearchIndicators: showResearchIndicators
@@ -1234,7 +1234,7 @@ struct TreeGraphView: View {
 
             // Focus filter — visible only when there's an active focus set.
             // Toggling on hides every node not in (active focus + immediate
-            // connections). Per DESIGN.md §7.7.2.
+            // connections). By design
             if appState.activeFocusSet != nil {
                 Toggle(isOn: Binding(
                     get: { appState.focusFilterEnabled },

@@ -38,7 +38,7 @@ nonisolated struct ProposedRelative: Sendable, Identifiable {
     /// proposals — a `ProposedRelative` is by definition derived from some
     /// other record (the child's birth record, the spouse's marriage record).
     /// Chain captures the provenance trail rendered in tooltip + full-detail
-    /// view. See `RESEARCH_CONFIDENCE_SPEC.md` §3.3.
+    /// view. See Research confidence.
     var inferenceDepth: InferenceDepth = InferenceDepth(steps: 1, chain: [])
     /// Candidate marriage records when enrichment found >1 plausible match and
     /// can't pick a given name automatically. Empty when enrichment was
@@ -49,7 +49,7 @@ nonisolated struct ProposedRelative: Sendable, Identifiable {
     /// `ConfidenceBadgeView` in cluster review. Match quality aggregates
     /// across the evidence records; sourcing uses `ConvergenceEngine`'s
     /// lineage-grouped count; inference depth is the proposal's own.
-    /// See `RESEARCH_CONFIDENCE_SPEC` §3.
+    /// See Research confidence.
     func evidenceConfidence(sourceInfoMap: [String: SourceInfo]) -> EvidenceConfidence {
         let match = MatchQuality.best(of: evidence.map { $0.verdict.matchQuality }) ?? .wrong
         let sourcing = ConvergenceEngine.sourcingStrength(
@@ -138,7 +138,7 @@ nonisolated enum ParentInferenceEngine {
             let parentLow: Int? = subjectBirthYear.map { $0 - 45 }
             let parentHigh: Int? = subjectBirthYear.map { $0 - 18 }
             let rel = ProposedRelationship.parentOf(subjectID)
-            _ = sourceTier  // Reserved for future per-source weighting; see RESEARCH_CONFIDENCE_SPEC
+            _ = sourceTier  // Reserved for future per-source weighting; see Research confidence
             // One inference step away from the birth record. Chain entry
             // names the source for tooltip / full-detail provenance.
             let depth = InferenceDepth(

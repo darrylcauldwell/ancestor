@@ -3,7 +3,7 @@ import Foundation
 @testable import Ancestor_Research
 
 /// Connector-audit T1-16 (fetch half) + T1-23 (request-param half) —
-/// CONNECTOR_AUDIT_2026-07.md §6.3.
+/// the 2026-07 connector audit.
 ///
 /// Year-axis history: FAG year filtering was deliberately REMOVED after
 /// a real bug — the old code mapped `query.yearFrom`/`yearTo` (the
@@ -127,7 +127,7 @@ struct FindAGraveQueryShapeTests {
         #expect(params.birthYearRange == 1887...1887)
     }
 
-    /// FINDAGRAVE_DEATH_SEARCH_SPEC Fix 1 — birth year is NEVER a wire filter on
+    /// Find a Grave death search Fix 1 — birth year is NEVER a wire filter on
     /// a burial search. FAG is burial-only, a gravestone often carries only
     /// death + age (no birth date), and FAG's `birthyearfilter` HARD-excludes
     /// any memorial without a birth year in tolerance. Regression: Ernest

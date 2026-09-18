@@ -1,7 +1,7 @@
 import SwiftUI
 
 /// Single SwiftUI page rendered to PDF for a research report
-/// (DESIGN.md §7.9.5). Multi-page pagination is deferred — overflowing
+/// (by design). Multi-page pagination is deferred — overflowing
 /// content clips at the page boundary in M10 v1.
 ///
 /// Layout uses the same fixed-point fonts as the other report pages so

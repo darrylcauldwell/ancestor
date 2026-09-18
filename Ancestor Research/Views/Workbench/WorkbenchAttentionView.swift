@@ -44,7 +44,7 @@ struct WorkbenchAttentionView: View {
                     let visible = showAllRows ? rows : Array(rows.prefix(cap))
                     // Lazy because the gated band is uncapped by design and
                     // every row wears `.glassEffect` (memory
-                    // feedback_swiftui_viewtree_liquidglass_perf).
+                    // the SwiftUI view-tree / glass perf gotcha).
                     LazyVStack(alignment: .leading, spacing: 12) {
                         ForEach(visible) { row in
                             attentionRow(row)

@@ -3,7 +3,7 @@ import Foundation
 @testable import Ancestor_Research
 import AncestorKit
 
-/// DOSSIER_SPEC #T9-Change1 acceptance criteria for the deterministic
+/// Dossier #T9-Change1 acceptance criteria for the deterministic
 /// skeleton: every sentence grounded (refs resolve to input rows), D2
 /// byte-matches stored dispute strings, D3 never converts a truncated
 /// search into a gap claim, honest empty states, D7 footer hash + counts.

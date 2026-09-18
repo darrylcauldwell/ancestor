@@ -2,7 +2,7 @@ import Foundation
 import os
 import CryptoKit
 
-/// §14.B.1 — Defensive hallucination re-check.
+///.B.1 — Defensive hallucination re-check.
 ///
 /// Security-sensitive. This is the guard that stops the local MLX model's
 /// hallucinated facts from auto-writing to the tree. Before an auto-approval
@@ -16,7 +16,7 @@ import CryptoKit
 /// `SourceTierRegistry`; this re-check asserts no tier and never upgrades one.
 /// This keeps the deterministic sandwich intact: AI proposes, rules decide.
 ///
-/// Re-check flow (spec §14.B.1 / ENGINE_FOUNDATION #Change8):
+/// Re-check flow (spec.B.1 / ENGINE_FOUNDATION #Change8):
 /// 1. Re-fetch the cited URL — **page-cache first**, so a page already fetched
 ///    during the original extraction incurs no extra rate cost.
 /// 2. Re-extract the specific claim from the re-fetched page (deterministic
@@ -105,7 +105,7 @@ nonisolated enum HallucinationRecheck {
     // MARK: - Audit record
 
     /// A per-claim audit entry the caller logs / persists. Records the re-check
-    /// decision and the inputs that produced it (§14.B.1: "Audit log records the
+    /// decision and the inputs that produced it (.B.1: "Audit log records the
     /// re-check decision per claim").
     struct AuditEntry: Sendable, Equatable {
         let profileID: String

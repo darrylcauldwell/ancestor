@@ -1,6 +1,6 @@
 import Foundation
 
-/// SOURCE_WEIGHTING_SPEC Change 8 — the Sourcing report: per-field
+/// Source weighting Change 8 — the Sourcing report: per-field
 /// evidence-chain verdicts, rendered from PERSISTED state (no run needed).
 /// The successor to what Verify-mode pretended to be: instead of a special
 /// run type, the question "how well is this fact proven?" is answered from

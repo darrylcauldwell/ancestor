@@ -4,7 +4,7 @@ import GRDB
 @testable import AncestorKit
 @testable import Ancestor_Research
 
-/// Pins migration `v34_external_identifiers` (MODEL_EVOLUTION_SPEC §Change1 /
+/// Pins migration `v34_external_identifiers` (Model evolution Change 1 /
 /// ADR-004 E1 — typed external-identifier records with a deprecation
 /// lifecycle).
 ///

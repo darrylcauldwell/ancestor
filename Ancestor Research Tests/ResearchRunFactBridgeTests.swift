@@ -141,7 +141,7 @@ struct ResearchRunFactBridgeTests {
 /// `.restricted` WITHOUT fetching — record content is licence-walled behind
 /// sign-in, so content verification against an unauthenticated fetch would
 /// auto-reject every legitimate FS-cited pending fact at Triage load
-/// (FAMILYSEARCH_SOURCE_SPEC §16.1(3): pointer-only, no content caching).
+/// (FamilySearch source(3): pointer-only, no content caching).
 struct EvidenceFirewallFSArkTests {
 
     @Test func familySearchArkClassifiesAsRestrictedWithoutFetch() async {

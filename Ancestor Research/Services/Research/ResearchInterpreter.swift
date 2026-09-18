@@ -136,7 +136,7 @@ nonisolated struct ResearchInterpreter {
     /// **Determinism contract.** The MLX model only chooses what
     /// question to ask. The dispatcher runs the query deterministically;
     /// the scorer classifies results deterministically; the verdict
-    /// emitter, convergence engine, and §14.3 auto-approval gate all
+    /// emitter, convergence engine, and auto-approval gate all
     /// remain rule-driven. AI proposes; rules decide.
     ///
     /// Returns nil when:

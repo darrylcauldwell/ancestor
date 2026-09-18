@@ -2,7 +2,7 @@ import Testing
 import Foundation
 @testable import Ancestor_Research
 
-/// Tests for the fan-chart pedigree variant (DESIGN.md §7.9.2).
+/// Tests for the fan-chart pedigree variant (by design).
 ///
 /// `PedigreeChartReport.renderFanPDF` runs through `PDFRenderer`, which uses
 /// `ImageRenderer` and therefore needs MainActor. We mark the whole suite

@@ -6,7 +6,7 @@ import GRDB
 // Disambiguate from Swift Testing's own `Attachment` type.
 private typealias Attachment = Ancestor_Research.Attachment
 
-/// M14 §7.15.2 — `ProjectDatabase.hardDeleteProfile(id:)` cascades through
+/// M14 — `ProjectDatabase.hardDeleteProfile(id:)` cascades through
 /// every table that references the profile. These tests build minimal data
 /// fixtures, hard-delete, then verify each cascade target is empty for the
 /// removed id.

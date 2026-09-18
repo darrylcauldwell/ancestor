@@ -1,6 +1,6 @@
 import Foundation
 
-/// One row in the Profile Timeline view (DESIGN.md §7.8).
+/// One row in the Profile Timeline view (by design).
 ///
 /// Events are derived per-build from the family graph snapshot plus the
 /// profile's workbench items — never persisted. The `id` is fresh on each

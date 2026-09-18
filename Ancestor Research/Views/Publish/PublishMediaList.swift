@@ -1,10 +1,10 @@
 import SwiftUI
 
-// PUBLISHER_SPEC §4.2/§7 — per-attachment media opt-in (the `publish_media`
+// Publisher/ — per-attachment media opt-in (the `publish_media`
 // table). Media is opt-in because every published asset bills the owner's
 // iCloud quota; nothing is shared unless deliberately switched on here.
 // An opt-in for a person who isn't published in full is kept but inert —
-// the projection drops it (§5), and the row says so.
+// the projection drops it, and the row says so.
 struct PublishMediaList: View {
     let model: PublishReviewModel
 

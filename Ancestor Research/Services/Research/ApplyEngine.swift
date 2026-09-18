@@ -5,7 +5,7 @@ import Foundation
 /// tree — directional overwrite policies, provenance, spouse-edge fills.
 ///
 /// Extracted from `ResearchViewModel` (Phase 1 slice 3,
-/// ARCHITECTURE_REVIEW_2026-07.md) so the UI accept path, the run-watcher
+/// the 2026-07 architecture review) so the UI accept path, the run-watcher
 /// auto-accept path, and placeholder write-back share ONE implementation
 /// instead of three drifting copies — the accept-flow bug class of 2026-05
 /// existed precisely because these paths were maintained separately.
@@ -22,7 +22,7 @@ nonisolated struct ApplyEngine {
     }
 
     /// WriteFailure-grade notice for a detected conflict that is NOT a
-    /// persistence failure (CONFLICT_LAYER_SPEC §4.4 T-A). Rides the
+    /// persistence failure (Conflict layer T-A). Rides the
     /// existing failure channel so callers surface it to log + UI without
     /// a new outcome type — e.g. DS-12's marriage-spouse mismatch, which
     /// previously vanished in a silent `return`.
@@ -63,7 +63,7 @@ nonisolated struct ApplyEngine {
             dateAccessed: rendered.accessedAt,
             notes: rendered.full
         )
-        // EVIDENCE_ABSORPTION_SPEC Change 4 — walk the record's declarative
+        // Evidence absorption Change 4 — walk the record's declarative
         // absorption plan instead of a per-type switch. The plan (identity
         // fields + spouse edge + implied-date corroboration + life events, in
         // the legacy write order) is the single enumeration the review preview
@@ -123,7 +123,7 @@ nonisolated struct ApplyEngine {
                 landedSomething = true
             }
         }
-        // Slice C (LOCATION_MODEL_SPEC Part II) — populate the structured birth
+        // Slice C (Location model Part II) — populate the structured birth
         // registration district from an applied BMD birth record. Derived
         // metadata, not a cited fact: its provenance is the birth citation the
         // plan already wrote onto birthDate/birthLocation, so it takes no
@@ -196,7 +196,7 @@ nonisolated struct ApplyEngine {
         }
     }
 
-    // MARK: - EVIDENCE_ABSORPTION_SPEC Change 3 — implied dates
+    // MARK: - Evidence absorption Change 3 — implied dates
 
     /// The birth date a record implies, if any, for corroboration. `.birth`
     /// returns nil (its own case writes birthDate directly — no double write);
@@ -210,7 +210,7 @@ nonisolated struct ApplyEngine {
         case .birth, .marriage, .pedigree:
             return nil
         case .parish(let r):
-            // PARISH_ABSORPTION_SPEC §4. A burial's deceased-age and a
+            // Parish absorption. A burial's deceased-age and a
             // marriage principal's age each imply a (wide, `.calculated`)
             // birth; a baptism's explicit birth_date is a precise birth.
             // The baptism DATE is never treated as a birth date.
@@ -265,7 +265,7 @@ nonisolated struct ApplyEngine {
         case .death, .birth, .census, .marriage, .pedigree:
             return nil
         case .parish(let r):
-            // PARISH_ABSORPTION_SPEC §4 — a burial dates a death to within
+            // Parish absorption — a burial dates a death to within
             // days: prefer the entry's explicit death date, else the burial
             // (event) date/year. Baptism/marriage imply no death.
             guard case .burial(let b)? = r.detail?.event else { return nil }
@@ -322,7 +322,7 @@ nonisolated struct ApplyEngine {
         parsedDateOrNil(raw)?.latest
     }
 
-    /// EVIDENCE_ABSORPTION_SPEC Change 1 — the birthplace a census carries,
+    /// Evidence absorption Change 1 — the birthplace a census carries,
     /// composed into an *anchor-able* string. A bare parish ("Alport") does
     /// not derive a Chapman anchor (it isn't a registration district), but
     /// "Alport, Derbyshire" does via `deriveHomeChapmanCode`'s county
@@ -444,7 +444,7 @@ nonisolated struct ApplyEngine {
         }
 
         guard let edge else {
-            // CONFLICT_LAYER_SPEC §4.4 T-A / §6 Change 1 AC2 — DS-12. A
+            // Conflict layer T-A / Change 1 AC2 — DS-12. A
             // post-1912 record STATING a spouse the tree doesn't know used to
             // silently no-op here: no write, no failure, no trace. It now
             // opens an F4b spouseIdentity dispute AND reports on the outcome
@@ -599,7 +599,7 @@ nonisolated struct ApplyEngine {
                 _ = try db.editProfile(profileID: profileID, changes: [], dateChanges: [(field, existing, candidate)], source: origin)
             }) { landed = true }
         } else {
-            // CONFLICT_LAYER_SPEC §4.4 T-A — F1 runs before the
+            // Conflict layer T-A — F1 runs before the
             // alternative-fact write. Compatible-but-not-narrower keeps
             // today's behaviour (alternative fact only); an INCOMPATIBLE
             // candidate is preserved as data AND as signal (DS-13 part 3):
@@ -682,7 +682,7 @@ nonisolated struct ApplyEngine {
                 _ = try db.editProfile(profileID: profileID, changes: [(field, existing, trimmed)], dateChanges: [], source: origin)
             }) { landed = true }
         } else {
-            // CONFLICT_LAYER_SPEC §4.4 T-A — F2 mirror of the date hook:
+            // Conflict layer T-A — F2 mirror of the date hook:
             // a normalised-mismatch candidate still lands as an alternative
             // fact (today's write outcome, AC5) and additionally opens a
             // fieldValue dispute so the losing value stops being buried in
@@ -694,7 +694,7 @@ nonisolated struct ApplyEngine {
             // plan's fuller-form gate certified the pair. A dispute here
             // would be guaranteed noise (R3 refuses auto-resolution on
             // user-authoritative fields, so it stays open forever) and would
-            // block §14.3 auto-approval on the field. The alternative fact
+            // block auto-approval on the field. The alternative fact
             // below still lands, so the record's form stays cited.
             let conflict = isCompatibleNameForm(field: field, existing: existing, candidate: trimmed)
                 ? nil
@@ -742,7 +742,7 @@ nonisolated struct ApplyEngine {
     /// Should an applied date overwrite the profile's existing value, or only
     /// be logged as an alternative fact?
     ///
-    /// The "Check Before Overwrite" rule (`feedback_check_before_overwrite.md`)
+    /// The "Check Before Overwrite" rule (`the Check Before Overwrite rule`)
     /// is **directional**: never overwrite *precise* data with *imprecise*
     /// data. The original `existing == nil` guard implemented the rule as
     /// **absolute** — any set value blocks any incoming value — which means a
@@ -953,9 +953,9 @@ nonisolated struct ApplyEngine {
         }
     }
 
-    // MARK: - F4a — parent-role conflict on accept (CONFLICT_LAYER_SPEC §4.4 T-A)
+    // MARK: - F4a — parent-role conflict on accept (Conflict layer T-A)
 
-    /// Pre-computed warning for the accept UI (§6 Change 1 AC3): non-nil
+    /// Pre-computed warning for the accept UI ( Change 1 AC3): non-nil
     /// when accepting this proposal would put a second biological parent
     /// into an occupied role ("Subject already has a mother: BOWN").
     /// Shares its predicate with the accept-time dispute hook via
@@ -1036,7 +1036,7 @@ nonisolated struct ApplyEngine {
     /// when no equivalent edge already exists. Idempotent — repeated
     /// calls do nothing after the first.
     ///
-    /// `drivingEvidence` (E4 / MODEL_EVOLUTION_SPEC §Change4): the record that
+    /// `drivingEvidence` (E4 / Model evolution Change 4): the record that
     /// attests this parent edge — the proposal's first evidence record, the
     /// child's birth record that implied the parent surname. Passed through to
     /// `addRelationshipIfAbsent`, which writes the `existence` provenance row
@@ -1191,7 +1191,7 @@ nonisolated struct ApplyEngine {
     /// the same user action resolves the linked deathDate dispute
     /// (`.accepted(chosenSource)`) and marks every group rival
     /// `.contradicted` ⟨G5⟩. Reached ONLY from the human Accept click —
-    /// hypothesis verdicts propose, they never apply (§2.9).
+    /// hypothesis verdicts propose, they never apply.
     static func applyDeathYearCandidate(
         _ hypothesis: ResearchHypothesis,
         snapshot: FamilyGraphSnapshot,

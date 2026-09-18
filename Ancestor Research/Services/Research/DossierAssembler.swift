@@ -1,6 +1,6 @@
 import Foundation
 
-/// DOSSIER_SPEC #T9-Change1 — the deterministic investigation dossier.
+/// Dossier #T9-Change1 — the deterministic investigation dossier.
 ///
 /// Pure, nonisolated, unit-testable (same posture as `ConflictDetector`):
 /// `(rows) → Dossier`. Zero writes — the inputs are plain values, the

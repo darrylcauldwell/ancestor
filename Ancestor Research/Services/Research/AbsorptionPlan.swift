@@ -1,6 +1,6 @@
 import Foundation
 
-/// EVIDENCE_ABSORPTION_SPEC Change 4 — the single declarative enumeration of
+/// Evidence absorption Change 4 — the single declarative enumeration of
 /// everything a record absorbs into a profile, each fact routed to its home.
 ///
 /// Before this, the routing lived in three hand-written places that had to be
@@ -85,7 +85,7 @@ nonisolated extension SourceRecord {
                 items.append(.stringField(.birthLocation, loc))
             }
         case .parish(let r):
-            // PARISH_ABSORPTION_SPEC §5 — a parish MARRIAGE fills the subject's
+            // Parish absorption — a parish MARRIAGE fills the subject's
             // spouse edge just like a BMD marriage, via a synthesized
             // MarriageRecord (the existing spouse-edge executor handles it).
             // Non-marriage parish events synthesize nil and fall through.
@@ -247,7 +247,7 @@ nonisolated extension SourceRecord {
         }.joined(separator: " ")
     }
 
-    /// EVIDENCE_ABSORPTION_SPEC Change 5 — the human-readable list of what this
+    /// Evidence absorption Change 5 — the human-readable list of what this
     /// record will land on the profile, for the review surface ("birth place
     /// Alport, Derbyshire · birth date about 1887–1888 · occupation Colliery
     /// electrician · residence 3 Mill Lane"). Reads the SAME `absorptionPlan`

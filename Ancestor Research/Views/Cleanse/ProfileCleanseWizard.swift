@@ -1,6 +1,6 @@
 import SwiftUI
 
-/// CLEANSE_WIZARD_SPEC §3 — sequential one-finding-at-a-time wizard.
+/// Cleanse wizard — sequential one-finding-at-a-time wizard.
 ///
 /// Two entry points share this view:
 ///   - `.singleProfile(id)` — Cleanse button on profile detail

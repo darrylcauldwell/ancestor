@@ -36,7 +36,7 @@ nonisolated struct FSActionRequest: Sendable {
 }
 
 /// Persistence for the FamilySearch User Tree write leg (WL3,
-/// FAMILYSEARCH_TREES_WRITE_SPEC §5). Every write is an idempotent upsert so
+/// FamilySearch tree write). Every write is an idempotent upsert so
 /// the orchestrator can re-record on resume without special-casing.
 nonisolated extension ProjectDatabase {
 

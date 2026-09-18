@@ -4,7 +4,7 @@ import GRDB
 @testable import Ancestor_Research
 import AncestorKit
 
-/// CONFLICT_LAYER_SPEC CL3 — honest reporting: GPS criterion 4 can fire
+/// Conflict layer CL3 — honest reporting: GPS criterion 4 can fire
 /// (AC1/AC2), criterion 3 scores per asserted value (AC3), run
 /// discrepancies persist with run linkage and open disputes (AC4), and
 /// the bulk-review .conflict friction tier is reachable (AC5).

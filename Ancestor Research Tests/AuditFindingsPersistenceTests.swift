@@ -3,7 +3,7 @@ import Foundation
 @testable import Ancestor_Research
 import AncestorKit
 
-/// v55 `audit_findings` persistence (MCP_CONSUMER_SURFACE_SPEC MC4):
+/// v55 `audit_findings` persistence (MCP consumer surface MC4):
 /// replace-snapshot write + all/per-profile reads, so an external MCP server
 /// can read Health audit findings with an honest `computed_at`.
 struct AuditFindingsPersistenceTests {

@@ -7,7 +7,7 @@ extension UserDefaults {
     /// (over FreeBMD's rate limits) persisted in `disabledSourceIDs` — never
     /// leak into the test host and silently drop a source from dispatch.
     /// Root cause of the machine-specific ScopeContract/StagedPipeline reds; see
-    /// reference_main_red_change5_tests. Each call returns an independent suite,
+    /// the two known-red Change 5 tests. Each call returns an independent suite,
     /// so tests that toggle enablement can't interfere under parallel execution.
     static func ephemeralSuite() -> UserDefaults {
         let name = "dev.dreamfold.tests.\(UUID().uuidString)"

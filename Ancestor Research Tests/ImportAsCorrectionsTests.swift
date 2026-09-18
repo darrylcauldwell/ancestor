@@ -2,7 +2,7 @@ import Testing
 import Foundation
 @testable import Ancestor_Research
 
-/// Tests for `ImportAsCorrectionsEngine` (M22 — DESIGN.md §13). Verifies
+/// Tests for `ImportAsCorrectionsEngine` (M22 — the design). Verifies
 /// that a GEDCOM-style snapshot is split into direct additions plus
 /// workbench hypotheses without auto-merging differing values.
 struct ImportAsCorrectionsTests {

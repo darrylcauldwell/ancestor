@@ -31,7 +31,7 @@ public struct TreeCanvasTheme: Sendable {
 }
 
 /// Portable Canvas draw core for the family tree — extracted from the
-/// macOS `TreeGraphView` (Phase 2 slice 2.2, ARCHITECTURE_REVIEW_2026-07.md)
+/// macOS `TreeGraphView` (Phase 2 slice 2.2, the 2026-07 architecture review)
 /// so iPad and tvOS shells render the identical tree. Pure functions of
 /// (layout geometry, state flags, theme): no view-model or app-state
 /// reads — the host's Canvas closure computes flags and passes them in.
@@ -167,7 +167,7 @@ public enum TreeCanvasRenderer {
         context.stroke(path, with: .color(borderColor), lineWidth: borderWidth)
 
         // M8 W3 — focus ring drawn just outside the border for profiles in
-        // the active focus set. DESIGN.md §7.7.7 "subtle ring or background".
+        // the active focus set. the design "subtle ring or background".
         if inFocus {
             let ringRect = rect.insetBy(dx: -3, dy: -3)
             let ringPath = Path(roundedRect: ringRect, cornerRadius: cornerRadius + 3)
@@ -255,7 +255,7 @@ public enum TreeCanvasRenderer {
 
         // Completeness badge — researcher UI; viewer shells pass false
         // (their completeness is recomputed over a REDACTED projection,
-        // so the score would mislead — PHASE4_VIEWER_SPEC decision #4).
+        // so the score would mislead — Phase 4 viewers decision #4).
         if showsCompletenessBadge {
             let badge = Text("\(comp.score)/\(comp.maximum)")
                 .font(theme.badge)
@@ -270,7 +270,7 @@ public enum TreeCanvasRenderer {
         // M12 — tentative-fact marker. A small "~" glyph in the top-left
         // signals at least one core field (name / birth / death) has only
         // tentative sources. Sits opposite the completeness badge so the
-        // two never collide. DESIGN.md §5.14.
+        // two never collide. the design
         if hasTentativeFact {
             let marker = Text("~")
                 .font(theme.infoIcon)
@@ -285,7 +285,7 @@ public enum TreeCanvasRenderer {
         // M8 W1+W2 indicators — note dot and open-question marker, drawn in
         // the bottom-left so they don't collide with the completeness badge
         // (top-right) or the ⓘ icon (bottom-right).
-        // DESIGN.md §7.7.7 "Profile with attached note" / "Profile with open question".
+        // the design "Profile with attached note" / "Profile with open question".
         if hasNote {
             let icon = Text(Image(systemName: "note.text"))
                 .font(theme.badge)

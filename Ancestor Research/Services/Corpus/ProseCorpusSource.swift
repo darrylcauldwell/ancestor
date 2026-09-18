@@ -2,7 +2,7 @@ import Foundation
 import GRDB
 import os
 
-/// Per-spec §9 retrieval surface for the prose-corpus subsystem.
+/// Per-spec retrieval surface for the prose-corpus subsystem.
 ///
 /// One `ProseCorpusSource` instance is registered with the global
 /// `SourceRegistry` at app boot — that gives the user a single
@@ -157,7 +157,7 @@ actor ProseCorpusSource: RecordSource {
     // MARK: - searchCandidates — the real entry point
 
     /// Run a prose-corpus search across every registered corpus and
-    /// return the global top-K candidates ranked by the spec §9.2
+    /// return the global top-K candidates ranked by the spec
     /// weighting (`surname * 3 + year * 2 + place * 1`).
     ///
     /// Returns an empty array if the query has no `surname` (surname
@@ -233,7 +233,7 @@ actor ProseCorpusSource: RecordSource {
 
     // MARK: - SQL
 
-    /// Per-corpus index query. Spec §9.2 CTE: surname is the gate
+    /// Per-corpus index query. Spec CTE: surname is the gate
     /// (INNER JOIN), year and place are LEFT JOINs that contribute
     /// to score. Sort by `(sc * 3 + yc * 2 + pc) DESC` plus a
     /// `page_hash` tie-breaker so the per-corpus top-K is itself
@@ -427,7 +427,7 @@ nonisolated struct ProseCandidate: Identifiable, Sendable, Equatable {
 
     var id: String { "\(sourceID):\(pageHash)" }
 
-    /// Spec §9.2 weighting. Surname is the gate so this can be
+    /// Spec weighting. Surname is the gate so this can be
     /// zero only when surnameHits is non-zero but matched on a
     /// page that scored zero on year/place (rare but legitimate).
     var score: Int { surnameHits * 3 + yearHits * 2 + placeHits }

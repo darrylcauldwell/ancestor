@@ -2,7 +2,7 @@ import Foundation
 
 /// Scored result — a source record classified through 4 gates.
 /// Codable so the FULL scorer output persists to `evidence_records`
-/// (gates_json + summary columns, CAMPAIGN_REVIEW_SPEC Change 2) — the
+/// (gates_json + summary columns, Campaign review Change 2) — the
 /// evidence chain is stored, not recomputed-only.
 public nonisolated struct ScoredRecord: Identifiable, Sendable, Codable {
     public let id: String
@@ -44,7 +44,7 @@ public nonisolated struct GateResult: Sendable, Codable {
 
 public nonisolated enum ScoringGate: String, Codable, Sendable {
     case name, date, geography, familyContext
-    /// DECISION_CORE_PAIR_SPEC Fix A — the cross-record exclusivity pass.
+    /// Decision-core pair Fix A — the cross-record exclusivity pass.
     /// Appended (always as a softFail) when a record's `.fact` verdict was
     /// demoted because it competed with other facts in a slot a person can
     /// hold at most once (birth, death, one household per census night, …).

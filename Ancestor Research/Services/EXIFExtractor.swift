@@ -2,7 +2,7 @@ import Foundation
 import ImageIO
 import CoreGraphics
 
-/// Pulls EXIF metadata out of an image file. Per DESIGN.md §5.15, we pre-fill
+/// Pulls EXIF metadata out of an image file. By design, we pre-fill
 /// the attachment's `dateTaken` and `locationTaken` from EXIF when present so
 /// the user doesn't have to retype info that's already on the photo.
 ///

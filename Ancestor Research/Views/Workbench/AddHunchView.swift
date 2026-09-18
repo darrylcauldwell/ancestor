@@ -1,6 +1,6 @@
 import SwiftUI
 
-/// "Add a hunch" form (RESEARCH_PIPELINE_SPEC §5.15.7 phase b). The user
+/// "Add a hunch" form (Research pipeline phase b). The user
 /// asserts what they *think* the subject's parents were called; the
 /// engine turns the hunch into targeted probes through the standard
 /// verdict lifecycle. Doctrine: a hunch is a search directive, never data
@@ -154,7 +154,7 @@ struct AddHunchView: View {
     // MARK: - Validation + submit
 
     /// Local pre-check for the button's enablement only — the authoritative
-    /// validation is `HypothesisSeedService.submitSeed` (§5.15.2). At least
+    /// validation is `HypothesisSeedService.submitSeed`. At least
     /// one name hint and a chosen subject.
     private var canSubmit: Bool {
         guard subjectID != nil else { return false }
@@ -190,7 +190,7 @@ struct AddHunchView: View {
         return t.isEmpty ? nil : t
     }
 
-    /// Human copy for each structured refusal reason (§5.15.2).
+    /// Human copy for each structured refusal reason.
     static func refusalCopy(_ reason: HypothesisSeedService.RefusalReason) -> String {
         switch reason {
         case .noNameHints:
