@@ -64,7 +64,14 @@ nonisolated struct SourceSearchEnvelope: Sendable {
 /// The single protocol all sources conform to.
 /// Not actor-bound — stateless sources are structs, stateful sources are actors.
 /// Both are Sendable.
-protocol RecordSource: Sendable {
+///
+/// `nonisolated` is load-bearing and states what the line above already claims:
+/// the project builds with SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor, so without
+/// it this protocol is inferred MainActor-isolated and no `actor` in ANOTHER
+/// module can conform (5 of the 7 sources are actors). Same-module conformance
+/// is leniently allowed, which is why the app compiled while the test target
+/// could not — and why extracting Services into a package would have failed.
+nonisolated protocol RecordSource: Sendable {
     nonisolated var sourceID: String { get }
     nonisolated var displayName: String { get }
     nonisolated var recordTypes: Set<RecordType> { get }
@@ -135,7 +142,9 @@ extension RecordSource {
 }
 
 /// Sources that can fetch full detail for a specific record.
-protocol DetailFetchingSource: RecordSource {
+/// `nonisolated` for the same reason as `RecordSource` — a refining protocol
+/// gets default isolation applied to its own declaration, not inherited.
+nonisolated protocol DetailFetchingSource: RecordSource {
     func fetchDetail(recordID: String) async -> SourceQueryResult
 }
 

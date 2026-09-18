@@ -2,7 +2,9 @@ import Foundation
 
 /// Injectable HTTP client protocol. Sources depend on this, not on the concrete SourceHTTPClient.
 /// Tests inject FixtureHTTPClient; production injects SourceHTTPClient.shared.
-protocol HTTPClient: Sendable {
+/// `nonisolated` so implementations in other modules (test doubles, a future
+/// extracted package) can be actors — see the note on `RecordSource`.
+nonisolated protocol HTTPClient: Sendable {
     func get(url: URL, headers: [String: String]) async throws -> Data
     func postForm(url: URL, fields: [String: String], headers: [String: String], timeout: TimeInterval) async throws -> Data
 
