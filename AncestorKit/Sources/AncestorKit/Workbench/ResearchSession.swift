@@ -111,7 +111,7 @@ public nonisolated enum SessionEvent: Sendable {
 }
 
 private nonisolated extension String {
-    public func capitalizingFirstLetter() -> String {
+    func capitalizingFirstLetter() -> String {
         guard let first else { return self }
         return first.uppercased() + dropFirst()
     }

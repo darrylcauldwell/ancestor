@@ -568,7 +568,7 @@ nonisolated struct ScoringRules {
             guard candidate.count >= 3, seen.insert(candidate).inserted else { return }
             ordered.append(candidate)
         }
-        var out = OrderedVariantSink(add: add)
+        let out = OrderedVariantSink(add: add)
 
         // 1. PH↔V↔F — STEPHENSON↔STEVENSON, RALPH↔RALF. Highest value: it
         //    changes a sound, so the two spellings look nothing alike to a

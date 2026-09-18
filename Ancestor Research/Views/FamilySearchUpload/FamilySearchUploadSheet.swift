@@ -139,8 +139,11 @@ final class FamilySearchUploadModel {
                     startingProfileID: self.startingProfileID,
                     isPrivate: self.isPrivate,
                     progress: { message in
-                        Task { @MainActor [weak self] in
-                            if case .uploading = self?.phase { self?.phase = .uploading(message) }
+                        // No `[weak self]`: the enclosing scope already holds
+                        // self strongly for the duration of the upload, so the
+                        // weak capture guarded nothing and only read as if it did.
+                        Task { @MainActor in
+                            if case .uploading = self.phase { self.phase = .uploading(message) }
                         }
                     })
                 self.phase = .done(summary)
