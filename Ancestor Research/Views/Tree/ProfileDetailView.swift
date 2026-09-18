@@ -76,9 +76,10 @@ struct ProfileDetailView: View {
     /// WT3 — WikiTree contribution preview (.sheet(item:) per
     /// feedback_sheet_isPresented_race).
     @State private var wikiTreeContribute: WikiTreeContributeContext?
-    /// Count of active leads this profile's research surfaced — the cheap
-    /// signal behind the "Possible People (N)" section (the expensive
-    /// clustering happens in the panel the section deep-links to).
+    /// Count of active leads this profile's research surfaced — feeds the
+    /// lifecycle chip's pending-review signal. (Formerly also badged the
+    /// "Possible People (N)" section, retired with the surface
+    /// consolidation — review M9.)
     @State private var surfacedLeadCount: Int = 0
     // PROFILE_SOURCES_LEDGER_SPEC Change 2 — the records backing this person,
     // read from evidence_records with no research run.

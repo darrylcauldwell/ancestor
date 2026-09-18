@@ -71,4 +71,34 @@ struct RelationshipMutationTests {
         _ = try db.removeRelationship(id: id)
         #expect(try db.buildSnapshot().relationships.first { $0.id == id } == nil)
     }
+
+    /// EV27 — the dedup choke point. `role` is an ATTRIBUTE of a parent edge
+    /// (which slot the parent fills), not part of its identity: one person
+    /// cannot be both father and mother of the same child. The old
+    /// `(role = ? OR role IS NULL)` match never matched the string
+    /// 'unspecified' that `.unspecified` persists as, so both cases below
+    /// used to insert a twin parent row.
+    @Test func addRelationshipIfAbsentTreatsParentRoleAsAttributeNotIdentity() throws {
+        let db = try makeTempDB()
+        let first = UUID()
+        _ = try db.addFamily(
+            profiles: [profile("p", "John"), profile("c", "Ann")],
+            relationships: [edge(first, "p", "c", type: .parent, role: .father)],
+            source: .manual)
+
+        let unspecified = try db.addRelationshipIfAbsent(
+            edge(UUID(), "p", "c", type: .parent, role: .unspecified))
+        #expect(unspecified.inserted == false)
+        #expect(unspecified.id == first)
+
+        let reRoled = try db.addRelationshipIfAbsent(
+            edge(UUID(), "p", "c", type: .parent, role: .mother))
+        #expect(reRoled.inserted == false)
+        #expect(reRoled.id == first, "the OLDEST row wins deterministically")
+
+        let parents = try db.buildSnapshot().relationships.filter { $0.type == .parent }
+        #expect(parents.count == 1)
+        #expect(parents.first?.role == .father,
+                "the choke point never rewrites a stated role — it just refuses the twin")
+    }
 }

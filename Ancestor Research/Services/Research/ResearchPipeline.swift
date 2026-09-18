@@ -776,7 +776,14 @@ final class ResearchPipeline {
                         motherName: ctx.motherName,
                         motherSurname: ctx.motherSurname,
                         motherGivenName: ctx.motherGivenName,
-                        marriageLocation: ctx.marriageLocation
+                        marriageLocation: ctx.marriageLocation,
+                        // EV25 (2026-08-26): a rebuild that omits an axis
+                        // silently resets it. `childBirthYears` was already
+                        // being dropped here — the UV-01 marriage window went
+                        // to [] on every pivot — which is why the new
+                        // `spouseKnownSurnames` is threaded in the same edit.
+                        childBirthYears: ctx.childBirthYears,
+                        spouseKnownSurnames: ctx.spouseKnownSurnames
                     )
                     pivotSubject.familyContext = ctx
                 }

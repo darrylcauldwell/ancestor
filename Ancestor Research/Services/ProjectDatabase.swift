@@ -7,6 +7,13 @@ import os
 nonisolated final class ProjectDatabase: Sendable {
     let dbQueue: DatabaseQueue
 
+    /// The SQLite file backing this project, as an identity key for
+    /// per-project caches (budget trackers, watchers). Exposed here because
+    /// `DatabaseQueue.path` is a GRDB member, and GRDB is confined to
+    /// `Services/` — a ViewModel that needs to key a cache on "which project
+    /// is open" must not have to import the persistence layer to ask.
+    var databasePath: String { dbQueue.path }
+
     init(path: String, enableWAL: Bool = true) throws {
         var config = Configuration()
         config.foreignKeysEnabled = true
@@ -1720,7 +1727,125 @@ nonisolated final class ProjectDatabase: Sendable {
             }
         }
 
+        migrator.registerMigration("v63_collapse_duplicate_parent_edges") { db in
+            // EV27 one-time repair: collapse TWIN parent edges — two or more
+            // rows with the same (from_id, to_id, type = 'parent'). Until this
+            // release `addRelationshipIfAbsent`'s dedup was role-SENSITIVE and
+            // matched `(role = ? OR role IS NULL)`, which never matched the
+            // string 'unspecified' that `.unspecified` persists as, so a
+            // role-less or re-roled proposal accepted a SECOND row for a pair
+            // that already had an edge (owner dogfood: one profile carrying
+            // three parent edges, with `parentEdgeID`'s `.first` making the
+            // twin near-unremovable from the UI).
+            //
+            // Information-preserving only: identical roles collapse, and one
+            // concrete role plus 'unspecified'/NULL collapses onto the
+            // concrete role. A father-vs-mother pair on the same parent is a
+            // real contradiction, not a duplicate, and is LEFT ALONE for the
+            // human (`ExcessParentEdgesRule` keeps flagging it). Idempotent.
+            //
+            // NB no UNIQUE index: `importSnapshot` plain-INSERTs every edge in
+            // one transaction, so a duplicate FAMC link in a GEDCOM would
+            // abort the whole import. Enforced at the choke point instead.
+            _ = try Self.collapseDuplicateParentEdges(db)
+        }
+
+        migrator.registerMigration("v64_backfill_derived_life_event_citations") { db in
+            // EV16 (2026-08-26) — the code fix `b5c8165` only affects NEW
+            // writes. Rows already in the tree still read UNCITED beside the
+            // fully-cited event stating the identical fact (owner dogfood:
+            // William Gladwin's "Coal Carve Mender", 1881 Handsworth, next to
+            // the FamilySearch-cited 1881 census it was derived from).
+            // Repairs ONLY rows whose id is a re-derivable hash of (profile, a
+            // record still in this database) — the same preimage proof
+            // `removeAppliedRecord` uses to DELETE events. Anything it cannot
+            // prove it leaves empty; a guessed citation manufactures evidence,
+            // which is strictly worse than a blank.
+            _ = try Self.backfillDerivedLifeEventCitations(db)
+        }
+
         return migrator
+    }
+
+    /// Collapse duplicate `(from_id, to_id, type='parent')` rows, returning
+    /// the number of relationship rows deleted. Shared by the v63 migration
+    /// and a test/maintenance hook so both exercise identical logic.
+    ///
+    /// Existence provenance is re-pointed onto the survivor BEFORE the victim
+    /// is deleted — otherwise the edge's "why it exists" citation would be
+    /// orphaned — and rows the re-pointing made identical are then folded to
+    /// one, matching the `(entity_id, entity_kind, field, origin, raw)`
+    /// identity `recordRelationshipExistenceSource` already enforces.
+    @discardableResult
+    static func collapseDuplicateParentEdges(_ db: Database) throws -> Int {
+        let rows = try Row.fetchAll(db, sql: """
+            SELECT rowid, id, from_id, to_id, role FROM relationships
+            WHERE type = 'parent'
+            ORDER BY rowid ASC
+            """)
+        var groups: [String: [Row]] = [:]
+        var order: [String] = []
+        for row in rows {
+            let key = "\(row["from_id"] as String? ?? "")|\(row["to_id"] as String? ?? "")"
+            if groups[key] == nil { order.append(key) }
+            groups[key, default: []].append(row)
+        }
+
+        var deleted = 0
+        for key in order {
+            guard let group = groups[key], group.count > 1 else { continue }
+            let concrete = Set(group.compactMap { row -> String? in
+                let role: String? = row["role"]
+                return (role == "father" || role == "mother") ? role : nil
+            })
+            // Both biological slots claimed by the SAME parent is a
+            // contradiction the human owns, not a duplicate we may resolve.
+            if concrete.count > 1 { continue }
+
+            // The oldest row survives — the same row `addRelationshipIfAbsent`
+            // now returns (`ORDER BY rowid ASC`) — and inherits the group's
+            // concrete role if it has none. Fill only: a stated role is never
+            // overwritten.
+            let survivor = group[0]
+            guard let survivorID: String = survivor["id"] else { continue }
+            let survivorRole: String? = survivor["role"]
+            if survivorRole == nil || survivorRole == "unspecified",
+               let inherited = concrete.first {
+                try db.execute(sql: "UPDATE relationships SET role = ? WHERE id = ?",
+                               arguments: [inherited, survivorID])
+            }
+
+            for victim in group.dropFirst() {
+                guard let victimID: String = victim["id"], victimID != survivorID else { continue }
+                try db.execute(sql: """
+                    UPDATE field_sources SET entity_id = ?
+                    WHERE entity_id = ? AND entity_kind = 'relationship'
+                    """, arguments: [survivorID, victimID])
+                try db.execute(sql: "DELETE FROM relationships WHERE id = ?",
+                               arguments: [victimID])
+                deleted += 1
+            }
+        }
+
+        if deleted > 0 {
+            // Re-pointing can make two provenance rows identical; fold them.
+            try db.execute(sql: """
+                DELETE FROM field_sources
+                WHERE entity_kind = 'relationship' AND rowid NOT IN (
+                    SELECT MIN(rowid) FROM field_sources
+                    WHERE entity_kind = 'relationship'
+                    GROUP BY entity_id, field, origin, raw)
+                """)
+        }
+        return deleted
+    }
+
+    /// Test/maintenance hook: run the EV27 twin-parent-edge repair on demand.
+    /// Named apart from the static worker, the same way
+    /// `purgeFamilySearchRecordEvidence` pairs with `purgeFamilySearchRecordRows`.
+    @discardableResult
+    func repairDuplicateParentEdges() throws -> Int {
+        try dbQueue.write { try Self.collapseDuplicateParentEdges($0) }
     }
 
     /// Delete every FamilySearch *record-search* row across the pipeline tables,
@@ -2603,10 +2728,17 @@ nonisolated extension ProjectDatabase {
     }
 
     /// Idempotent variant of `addRelationship` — inserts only when
-    /// no existing row has the same `(from, to, type, role)` tuple
+    /// no existing row has the same `(from, to, type)` tuple
     /// pointing in the same direction. Returns the existing row's
     /// id (or the freshly-inserted one), and a flag so the caller
     /// can decide whether to record a user-facing transaction.
+    ///
+    /// Role is an ATTRIBUTE of a parent edge, not part of its identity — a
+    /// proposal that re-roles an existing edge is a role STATEMENT about that
+    /// edge, never a second edge (EV27). The rest of the codebase already
+    /// treats (parent, child) as edge identity: `ApplyEngine.ensureParentEdge`
+    /// and `ResearchViewModel` both pre-check `existingParents.contains`, and
+    /// `PlaceholderParentRepair` matches on from/to alone.
     ///
     /// Used by both proposal-accept paths (sibling and parent) to
     /// prevent the same parent→child edge being inserted twice when
@@ -2618,12 +2750,7 @@ nonisolated extension ProjectDatabase {
         _ rel: Relationship,
         existenceEvidence: RelationshipExistenceEvidence? = nil
     ) throws -> (id: UUID, inserted: Bool) {
-        // role is optional; null in DB when unspecified. Match both
-        // shapes — same parent edge with unspecified role on one row
-        // and `.father` on another shouldn't count as distinct.
-        let roleValue: String? = rel.role?.rawValue
         let existingID: UUID? = try dbQueue.read { db in
-            let row: Row?
             // NB: the `relationships` table's columns are `from_id`/`to_id`
             // (see the v1 CREATE at the top of the migrator); the
             // `from_profile_id`/`to_profile_id` names belong to
@@ -2632,21 +2759,42 @@ nonisolated extension ProjectDatabase {
             // "no such column" the instant the read runs — a latent bug with
             // no prior coverage. Corrected here because E4's AC3 (idempotent
             // existence rows through this method) requires the dedup to work.
-            if let roleValue {
-                row = try Row.fetchOne(db, sql: """
+            //
+            // EV27 (2026-08-26): the old two-branch form matched
+            // `(role = ? OR role IS NULL)`, which never matched the STRING
+            // 'unspecified' that `.unspecified` persists as — so a role-less
+            // or re-roled proposal inserted a TWIN parent row for a pair that
+            // already had an edge (observed live: one profile with three
+            // parent edges, and `parentEdgeID`'s `.first` made the twin
+            // near-unremovable from the UI). `ORDER BY rowid ASC` so the
+            // OLDEST row wins deterministically where twins already exist.
+            //
+            // Review C9 (2026-09-01): SPOUSE edges dedup in EITHER direction.
+            // Every reader treats them as undirected (`ApplyEngine` matches
+            // `from == id || to == id`, `RecordRemoval` likewise,
+            // `FamilyGraphSnapshot.spousesOf` checks both ends), MCP's
+            // submit tool explicitly allows "either party" as
+            // from_profile_id, and hand-added edges pick an arbitrary order
+            // — so a direction-exact dedup let an approve insert a SECOND
+            // marriage between the same pair, and `fillRelationshipMarriage`
+            // then enriched the empty duplicate instead of the real edge.
+            // Parent edges stay direction-exact: A→B and B→A are different
+            // claims.
+            let row: Row? = if rel.type == .spouse {
+                try Row.fetchOne(db, sql: """
                     SELECT id FROM relationships
-                    WHERE from_id = ?
-                      AND to_id = ?
-                      AND type = ?
-                      AND (role = ? OR role IS NULL)
+                    WHERE type = ?
+                      AND ((from_id = ? AND to_id = ?) OR (from_id = ? AND to_id = ?))
+                    ORDER BY rowid ASC
                     LIMIT 1
-                    """, arguments: [rel.from, rel.to, rel.type.rawValue, roleValue])
+                    """, arguments: [rel.type.rawValue, rel.from, rel.to, rel.to, rel.from])
             } else {
-                row = try Row.fetchOne(db, sql: """
+                try Row.fetchOne(db, sql: """
                     SELECT id FROM relationships
                     WHERE from_id = ?
                       AND to_id = ?
                       AND type = ?
+                    ORDER BY rowid ASC
                     LIMIT 1
                     """, arguments: [rel.from, rel.to, rel.type.rawValue])
             }
@@ -3927,25 +4075,84 @@ nonisolated extension ProjectDatabase {
     /// Persist one source's current window. UPSERT on `source_id` — there is
     /// exactly one row per source (a quota is global to the volunteer host,
     /// not per-tree). Called on every counted request; cheap single-row write.
+    ///
+    /// Review F02/F05 (2026-08-26) — the merge is deliberately NON-DESTRUCTIVE
+    /// within a window: a spent request can never be un-spent.
+    ///
+    /// More than one `SourceBudgetTracker` can be alive at once — a research
+    /// run's, `RunRequestWatcher`'s cached one, and the on-demand detail
+    /// fetcher's — and each holds its own in-memory copy of the count,
+    /// rehydrated only when it was built. The old
+    /// `request_count = excluded.request_count` was last-writer-wins, so a
+    /// tracker sitting on a stale LOW count wrote it straight back over a
+    /// budget another tracker had already spent: FreeREG parked at its 300/day
+    /// ceiling at 11:30 was handed 296 requests of fresh headroom by a single
+    /// parish-detail GET at 11:35, and its "come back tomorrow" state vanished
+    /// with it. That is not a counter bug — FreeREG is run by volunteers, and
+    /// the ceiling is theirs to set.
+    ///
+    /// So: same day → the count only ever goes UP; a strictly LATER day (the
+    /// window rolled) replaces outright, which is the one legitimate reset; an
+    /// EARLIER day (a writer that has not rolled forward yet) cannot touch the
+    /// count at all.
+    ///
+    /// The comparison is by UTC DAY, not by raw timestamp, and that is
+    /// load-bearing. `SourceBudgetWindow`'s first window for a source is
+    /// anchored at the wall-clock moment of its first counted request, not at
+    /// the reset boundary — so two trackers that each started before the row
+    /// existed carry different `windowStart` values for the SAME day. A plain
+    /// `excluded.window_start > stored.window_start` test would read the later
+    /// of those two as "a new day" and reset a live count. Every source's
+    /// declared policy today is `.utcMidnight`, which the UTC-day comparison
+    /// matches exactly; a future `.dailyAt` source would at worst hold a count
+    /// slightly past its own reset, i.e. err toward asking the volunteer host
+    /// for LESS. That is the right direction to be wrong in.
+    ///
+    /// (`date()` relies on GRDB storing `Date` as
+    /// `'YYYY-MM-DD HH:MM:SS.SSS'` UTC text, which `loadSourceBudgetWindows`
+    /// already round-trips. This is the only writer of the table.)
     func saveSourceBudgetWindow(_ window: SourceBudgetWindow) throws {
         try dbQueue.write { db in
             try db.execute(sql: """
                 INSERT INTO source_budget_state (source_id, window_start, request_count, updated_at)
                 VALUES (?, ?, ?, ?)
                 ON CONFLICT (source_id)
-                DO UPDATE SET window_start = excluded.window_start,
-                              request_count = excluded.request_count,
+                DO UPDATE SET window_start = CASE
+                                  WHEN date(excluded.window_start) > date(source_budget_state.window_start)
+                                      THEN excluded.window_start
+                                  WHEN date(excluded.window_start) < date(source_budget_state.window_start)
+                                      THEN source_budget_state.window_start
+                                  ELSE MIN(source_budget_state.window_start, excluded.window_start)
+                              END,
+                              request_count = CASE
+                                  WHEN date(excluded.window_start) > date(source_budget_state.window_start)
+                                      THEN excluded.request_count
+                                  WHEN date(excluded.window_start) < date(source_budget_state.window_start)
+                                      THEN source_budget_state.request_count
+                                  ELSE MAX(source_budget_state.request_count, excluded.request_count)
+                              END,
                               updated_at = excluded.updated_at
                 """, arguments: [window.sourceID, window.windowStart, window.requestCount, Date()])
         }
     }
 
     /// Load negative searches for a profile.
+    ///
+    /// EV7 (2026-08-26) — only a CLEAN negative is a searched surface. Both
+    /// consumers (`SourcingReportService.searchedKinds`,
+    /// `CampaignReviewService.coveredSources`, which feeds GPS criterion 1)
+    /// read every returned row as "we searched that source", so an
+    /// `'assumed'` row — one recording that we asked the wrong question,
+    /// because the query rested on a tree fact nothing can cite — must not
+    /// count toward exhaustiveness. NULL is a legacy pre-v42 row, which the
+    /// writer only ever produced for clean zeros.
     func loadNegativeSearches(profileID: String) throws -> [(sourceID: String, recordType: String, date: Date)] {
         try dbQueue.read { db in
             let rows = try Row.fetchAll(db, sql: """
                 SELECT source_id, record_type, searched_at FROM negative_searches
-                WHERE profile_id = ? ORDER BY searched_at DESC
+                WHERE profile_id = ?
+                  AND (result_kind IS NULL OR result_kind = 'zero')
+                ORDER BY searched_at DESC
                 """, arguments: [profileID])
             return rows.map {
                 (sourceID: $0["source_id"] as String,
@@ -4005,13 +4212,35 @@ nonisolated extension ProjectDatabase {
     func saveEvidence(profileID: String, scored: ScoredRecord, citationFull: String?, citationURL: String?,
                       isEnrichment: Bool = false, runID: String? = nil) throws {
         let compositeID = EvidenceRecord.compositeID(profileID: profileID, sourceRecordID: scored.record.id)
-        let recordJSON = Self.encodeJSON(scored.record)
         // CAMPAIGN_REVIEW_SPEC Change 2 — the FULL scorer output persists:
         // gates + summary make the row a complete ScoredRecord; the
         // enrichment flag preserves the run's cluster-input exclusion; the
         // run id links the row to the run that last scored it.
         let gatesJSON = Self.encodeJSON(scored.gates)
         try dbQueue.write { db in
+            // EV31 (2026-08-26) — `record_json = excluded.record_json` is a
+            // wholesale overwrite, and FreeREG record ids are stable across runs
+            // (`stableRecordID` is URL-derived). A re-score therefore arrived
+            // with the SEARCH-shaped row — parish rows built `fatherName: nil,
+            // motherName: nil` with no `detail:`, census rows with no household
+            // — and silently deleted a register entry the user had already spent
+            // a FreeREG request to fetch, flipping `canLoadParishDetail` back to
+            // true so the app would ask that volunteer server for it again.
+            //
+            // Read the stored row inside THIS transaction (so nothing can write
+            // between the read and the upsert) and by id, not via
+            // `loadEvidenceForProfile` — a run calls this once per record, and
+            // decoding every row of the profile each time is quadratic on the
+            // profiles that have the most evidence.
+            let storedRecord: SourceRecord? = try Row
+                .fetchOne(db, sql: "SELECT record_json FROM evidence_records WHERE id = ?",
+                          arguments: [compositeID])
+                .flatMap { $0["record_json"] as String? }
+                .flatMap { $0.data(using: .utf8) }
+                .flatMap { try? JSONDecoder().decode(SourceRecord.self, from: $0) }
+            let recordJSON = Self.encodeJSON(
+                EvidenceEnrichmentMerge.preservingEnrichment(
+                    fresh: scored.record, stored: storedRecord))
             try db.execute(sql: """
                 INSERT INTO evidence_records
                 (id, profile_id, source_id, source_record_id, record_type, verdict, record_json, citation_full, citation_url, scored_at,
@@ -4363,16 +4592,27 @@ nonisolated extension ProjectDatabase {
                 sql: "UPDATE evidence_records SET user_status = ? WHERE id = ?",
                 arguments: [status.rawValue, evidenceID]
             )
-            guard status == .discarded else { return }
+            // Review M1: `.unreviewed` is a RESTORE and cascades in reverse —
+            // the leads the discard dismissed reopen in the same transaction.
+            // `.savedAsLead` cascades in neither direction: an apply/keep is
+            // its own settlement, not a reopening.
+            guard status == .discarded || status == .unreviewed else { return }
             // No evidence row (id never persisted) → nothing to join on, and
             // no error: a reject with no lead behind it is a normal outcome.
             guard let owner = try Row.fetchOne(db, sql: """
                 SELECT profile_id, source_record_id FROM evidence_records WHERE id = ?
                 """, arguments: [evidenceID]) else { return }
-            try Self.dismissLeadsForDiscardedEvidence(
-                db: db,
-                profileID: owner["profile_id"] as String,
-                sourceRecordIDs: [owner["source_record_id"] as String])
+            if status == .discarded {
+                try Self.dismissLeadsForDiscardedEvidence(
+                    db: db,
+                    profileID: owner["profile_id"] as String,
+                    sourceRecordIDs: [owner["source_record_id"] as String])
+            } else {
+                try Self.reopenLeadsForRestoredEvidence(
+                    db: db,
+                    profileID: owner["profile_id"] as String,
+                    sourceRecordIDs: [owner["source_record_id"] as String])
+            }
         }
     }
 
@@ -4417,9 +4657,16 @@ nonisolated extension ProjectDatabase {
                     """,
                 arguments: StatementArguments([status.rawValue, profileID] + sourceRecordIDs)
             )
-            guard status == .discarded else { return }
-            try Self.dismissLeadsForDiscardedEvidence(
-                db: db, profileID: profileID, sourceRecordIDs: sourceRecordIDs)
+            // Review M1: a cluster reset (`.unreviewed`) reopens the leads
+            // the cluster reject dismissed — same one-transaction symmetry
+            // as the discard direction.
+            if status == .discarded {
+                try Self.dismissLeadsForDiscardedEvidence(
+                    db: db, profileID: profileID, sourceRecordIDs: sourceRecordIDs)
+            } else if status == .unreviewed {
+                try Self.reopenLeadsForRestoredEvidence(
+                    db: db, profileID: profileID, sourceRecordIDs: sourceRecordIDs)
+            }
         }
     }
 
@@ -4587,6 +4834,175 @@ nonisolated extension ProjectDatabase {
             try Self.dismissLeadsForDiscardedEvidence(
                 db: db, profileID: profileID, sourceRecordIDs: sourceRecordIDs)
         }
+    }
+
+    /// What the evidence half of an in-app lead dismissal did — EV33
+    /// follow-up (review C3).
+    struct LeadDismissCascade: Sendable {
+        /// True when the mirrored evidence row was flipped to `discarded` by
+        /// this call (false: no mirror, or it was already discarded).
+        let evidenceDiscarded: Bool
+        /// Non-nil when the mirrored record has been APPLIED. The discard
+        /// still records the human refusal — same posture as MCP
+        /// `discard_scored_record` — but the caller must surface this rather
+        /// than silently bury a fact that is on the profile.
+        let appliedAt: Date?
+    }
+
+    /// EV33 follow-up (review C3) — the in-app lead-Dismiss direction of the
+    /// cascade. The EV33 commit closed MCP `dismiss_lead` → evidence and the
+    /// in-app evidence-Reject → lead, but the in-app lead Dismiss still wrote
+    /// only the `leads` row, so the exact stale-card symptom survived on the
+    /// per-profile surface: the dismissed lead's scored record stayed
+    /// `unreviewed` and the card kept reporting "Researched — not applied".
+    /// One transaction: the lead flips to `dismissed`, the mirrored evidence
+    /// row (join: `'lead_' + source_record_id`, the same convention as the
+    /// forward sweep and MCP's `cascadeDiscardEvidence`) flips to
+    /// `discarded`, and the EV10 registration sweep dismisses twin index
+    /// rows' leads — exactly what an in-app Reject on the record produces.
+    ///
+    /// Guards mirror the MCP cascade: a lead with no mirrored record
+    /// (household / parent-inference leads — the join simply misses)
+    /// dismisses cleanly with no evidence write; an already-discarded row is
+    /// left untouched. `user_status` ONLY — verdict, gates, scores and
+    /// applied_at stay scorer- and apply-path-owned.
+    @discardableResult
+    func dismissLeadDiscardingEvidence(_ lead: Lead) throws -> LeadDismissCascade {
+        try dbQueue.write { db in
+            try Self.upsertLead(
+                lead.with(status: .dismissed, resolvedAt: Date(), resolution: .dismissed),
+                db: db)
+            guard let srid = Self.sourceRecordID(forLeadID: lead.id) else {
+                return LeadDismissCascade(evidenceDiscarded: false, appliedAt: nil)
+            }
+            guard let row = try Row.fetchOne(db, sql: """
+                SELECT id, user_status, applied_at FROM evidence_records
+                WHERE profile_id = ? AND source_record_id = ?
+                """, arguments: [lead.profileID, srid]) else {
+                return LeadDismissCascade(evidenceDiscarded: false, appliedAt: nil)
+            }
+            let appliedAt: Date? = row["applied_at"]
+            guard (row["user_status"] as String?) != UserReviewStatus.discarded.rawValue else {
+                return LeadDismissCascade(evidenceDiscarded: false, appliedAt: appliedAt)
+            }
+            try db.execute(
+                sql: "UPDATE evidence_records SET user_status = ? WHERE id = ?",
+                arguments: [UserReviewStatus.discarded.rawValue, row["id"] as String])
+            // Same-registration twins' leads fall with this one, as they do
+            // on an in-app Reject (EV10). The lead itself is already
+            // `dismissed`, so the sweep skips it.
+            _ = try Self.dismissLeadsForDiscardedEvidence(
+                db: db, profileID: lead.profileID, sourceRecordIDs: [srid])
+            return LeadDismissCascade(evidenceDiscarded: true, appliedAt: appliedAt)
+        }
+    }
+
+    /// EV33 follow-up (review M1) — restore a dismissed lead AND un-discard
+    /// the record it mirrors, in one transaction. EV33 made refusal a
+    /// two-row write; without this, restore stayed one-row and produced a
+    /// zombie: a lead that looks active while its record sits in
+    /// `loadRejections`' suppression set (never re-proposed, still counted
+    /// as rejected on the profile card, and per the MCP guide never
+    /// re-proposable by agents) — silently contradicting the user's
+    /// explicit restore.
+    ///
+    /// Clears the legacy `record_rejections` row too — the in-app Reject
+    /// writes one alongside the discard, and `loadRejections` unions both
+    /// (same pairing `resetRecordDecision` clears).
+    func restoreLeadReopeningEvidence(_ lead: Lead) throws {
+        try dbQueue.write { db in
+            // Explicit construction, not `with(...)` — a restore must CLEAR
+            // resolvedAt/resolution, and `with` backfills nils from the old
+            // values.
+            let restored = Lead(
+                id: lead.id, profileID: lead.profileID, name: lead.name,
+                surname: lead.surname, givenName: lead.givenName,
+                birthYear: lead.birthYear, deathYear: lead.deathYear,
+                ageAtDeath: lead.ageAtDeath, place: lead.place,
+                relationship: lead.relationship, source: lead.source,
+                status: .new, evidence: lead.evidence,
+                createdAt: lead.createdAt, investigatedAt: lead.investigatedAt,
+                resolvedAt: nil, resolution: nil)
+            try Self.upsertLead(restored, db: db)
+            guard let srid = Self.sourceRecordID(forLeadID: lead.id) else { return }
+            if let row = try Row.fetchOne(db, sql: """
+                SELECT id, user_status FROM evidence_records
+                WHERE profile_id = ? AND source_record_id = ?
+                """, arguments: [lead.profileID, srid]),
+               (row["user_status"] as String?) == UserReviewStatus.discarded.rawValue {
+                try db.execute(
+                    sql: "UPDATE evidence_records SET user_status = ? WHERE id = ?",
+                    arguments: [UserReviewStatus.unreviewed.rawValue, row["id"] as String])
+            }
+            try db.execute(sql: """
+                DELETE FROM record_rejections WHERE profile_id = ? AND record_id = ?
+                """, arguments: [lead.profileID, srid])
+            // Reopen the registration twins' leads the discard cascade took
+            // down with this one.
+            _ = try Self.reopenLeadsForRestoredEvidence(
+                db: db, profileID: lead.profileID, sourceRecordIDs: [srid])
+        }
+    }
+
+    /// Review M1 — reverse of `dismissLeadsForDiscardedEvidence`: when the
+    /// human restores a record to `unreviewed`, the leads the discard
+    /// cascade dismissed must come back too, or the restored half looks
+    /// active while its pair stays buried — the contradictory split state
+    /// EV33 exists to prevent, inverted. Same settled-status guard family
+    /// as the forward sweep: only `dismissed` leads reopen — `promoted` is
+    /// a later, stronger decision and stays. A twin lead whose OWN evidence
+    /// row is still `discarded` also stays: its registration remains
+    /// refused. Writes `leads` only. Returns the number reopened.
+    @discardableResult
+    static func reopenLeadsForRestoredEvidence(
+        db: Database, profileID: String, sourceRecordIDs: [String]
+    ) throws -> Int {
+        guard !sourceRecordIDs.isEmpty else { return 0 }
+        let restoredSet = Set(sourceRecordIDs)
+        let placeholders = Array(repeating: "?", count: sourceRecordIDs.count).joined(separator: ",")
+        let restoredRecords: [SourceRecord] = try Row.fetchAll(db, sql: """
+            SELECT record_json FROM evidence_records
+            WHERE profile_id = ? AND source_record_id IN (\(placeholders))
+            """, arguments: StatementArguments([profileID] + sourceRecordIDs))
+            .compactMap { row -> SourceRecord? in
+                guard let json = row["record_json"] as String?,
+                      let data = json.data(using: .utf8) else { return nil }
+                return try? JSONDecoder().decode(SourceRecord.self, from: data)
+            }
+        let dismissed = try Row.fetchAll(db, sql: """
+            SELECT e.source_record_id AS srid, e.record_json AS record_json,
+                   e.user_status AS user_status, l.id AS lead_id
+            FROM evidence_records e
+            JOIN leads l
+              ON l.id = 'lead_' || e.source_record_id AND l.profile_id = e.profile_id
+            WHERE e.profile_id = ?
+              AND l.status = 'dismissed'
+            """, arguments: [profileID])
+        var leadIDs: [String] = []
+        for row in dismissed {
+            let srid = row["srid"] as String
+            let leadID = row["lead_id"] as String
+            if restoredSet.contains(srid) {
+                leadIDs.append(leadID)
+                continue
+            }
+            guard (row["user_status"] as String?) != UserReviewStatus.discarded.rawValue,
+                  let json = row["record_json"] as String?,
+                  let data = json.data(using: .utf8),
+                  let record = try? JSONDecoder().decode(SourceRecord.self, from: data)
+            else { continue }
+            if restoredRecords.contains(where: { RecordScorer.isSameRegistration($0, record) }) {
+                leadIDs.append(leadID)
+            }
+        }
+        for leadID in leadIDs {
+            try db.execute(sql: """
+                UPDATE leads
+                SET status = ?, resolution = NULL, resolved_at = NULL
+                WHERE id = ?
+                """, arguments: [LeadStatus.new.rawValue, leadID])
+        }
+        return leadIDs.count
     }
 
     /// Set of source-record IDs the user has discarded for this profile.
@@ -4775,20 +5191,28 @@ nonisolated extension ProjectDatabase {
     /// caller has authority to mutate the persisted state.
     func upsertLead(_ lead: Lead) throws {
         try dbQueue.write { db in
-            try db.execute(sql: """
-                INSERT OR REPLACE INTO leads
-                (id, profile_id, name, surname, given_name, birth_year, death_year,
-                 age_at_death, place,
-                 relationship, source, status, evidence, created_at, investigated_at, resolved_at, resolution)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                """, arguments: [
-                    lead.id, lead.profileID, lead.name, lead.surname, lead.givenName,
-                    lead.birthYear, lead.deathYear, lead.ageAtDeath, lead.place,
-                    lead.relationship,
-                    lead.source.rawValue, lead.status.rawValue, lead.evidence,
-                    lead.createdAt, lead.investigatedAt, lead.resolvedAt, lead.resolution?.rawValue
-                ])
+            try Self.upsertLead(lead, db: db)
         }
+    }
+
+    /// Same write for callers already inside a transaction — EV33 follow-up
+    /// (review C3): the lead-status flip and its evidence cascade must land
+    /// atomically, and a nested `dbQueue.write` on the same queue would
+    /// deadlock.
+    static func upsertLead(_ lead: Lead, db: Database) throws {
+        try db.execute(sql: """
+            INSERT OR REPLACE INTO leads
+            (id, profile_id, name, surname, given_name, birth_year, death_year,
+             age_at_death, place,
+             relationship, source, status, evidence, created_at, investigated_at, resolved_at, resolution)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """, arguments: [
+                lead.id, lead.profileID, lead.name, lead.surname, lead.givenName,
+                lead.birthYear, lead.deathYear, lead.ageAtDeath, lead.place,
+                lead.relationship,
+                lead.source.rawValue, lead.status.rawValue, lead.evidence,
+                lead.createdAt, lead.investigatedAt, lead.resolvedAt, lead.resolution?.rawValue
+            ])
     }
 
     /// Decode a persisted lead status, mapping the legacy MCP value
@@ -5430,6 +5854,11 @@ nonisolated extension ProjectDatabase {
         transactionID: UUID,
         db: Database
     ) throws {
+        // EV9 (2026-08-26): a competitor produced by the pending-facts accept
+        // path carries "<value> [<sourceTitle>]" in raw. Only the value may
+        // reach a column. `accepted.origin` is untouched — provenance stays as
+        // recorded.
+        let acceptedValue = AppliedFactTarget.parseRaw(accepted.raw).value
         switch field {
         case .birthDate, .deathDate:
             let prefix = field == .birthDate ? "birth_date" : "death_date"
@@ -5439,9 +5868,9 @@ nonisolated extension ProjectDatabase {
                 FROM profiles WHERE id = ?
                 """, arguments: [profileID])
             let currentOriginal: String? = row?["original"]
-            guard currentOriginal != accepted.raw else { return }
+            guard currentOriginal != acceptedValue else { return }
             let oldDate: GenealogicalDate? = currentOriginal.map { GenealogicalDate(parsing: $0) }
-            let newDate = GenealogicalDate(parsing: accepted.raw)
+            let newDate = GenealogicalDate(parsing: acceptedValue)
             try updateProfileDateField(
                 profileID: profileID, field: field,
                 oldDate: oldDate, newDate: newDate,
@@ -5452,10 +5881,10 @@ nonisolated extension ProjectDatabase {
             let current = try String.fetchOne(db, sql: """
                 SELECT \(column) FROM profiles WHERE id = ?
                 """, arguments: [profileID])
-            guard current != accepted.raw else { return }
+            guard current != acceptedValue else { return }
             try updateProfileField(
                 profileID: profileID, field: field,
-                oldValue: current, newValue: accepted.raw,
+                oldValue: current, newValue: acceptedValue,
                 source: accepted.origin, transactionID: transactionID, db: db
             )
         }

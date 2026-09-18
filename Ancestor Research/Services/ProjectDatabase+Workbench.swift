@@ -26,13 +26,17 @@ nonisolated extension ProjectDatabase {
             try db.execute(sql: """
                 UPDATE workbench_notes
                 SET content = ?, tag = ?, attached_to = ?, attachment_kind = ?, attachment_id = ?, updated_at = ?, sensitive = ?
-                WHERE id = ?
+                WHERE id IN (?, ?)
                 """, arguments: [
                     updated.content, updated.tag.rawValue,
                     Self.encodeJSON(updated.attachedTo),
                     updated.attachedTo.kind, updated.attachedTo.attachmentID,
                     updated.updatedAt, updated.sensitive ? 1 : 0,
+                    // EV33 follow-up (review C2): a legacy MCP note surfaces
+                    // under its mapped UUID but sits on disk under `fr_…` —
+                    // the write must reach either form of the id.
                     updated.id.uuidString,
+                    Self.legacyFieldResearcherNoteID(from: updated.id) ?? updated.id.uuidString,
                 ])
         }
         return updated
@@ -40,7 +44,11 @@ nonisolated extension ProjectDatabase {
 
     func deleteNote(id: UUID) throws {
         try dbQueue.write { db in
-            try db.execute(sql: "DELETE FROM workbench_notes WHERE id = ?", arguments: [id.uuidString])
+            // EV33 follow-up (review C2): a legacy MCP note surfaces under its
+            // mapped UUID; deleting it must reach the on-disk `fr_…` row too.
+            try db.execute(
+                sql: "DELETE FROM workbench_notes WHERE id IN (?, ?)",
+                arguments: [id.uuidString, Self.legacyFieldResearcherNoteID(from: id) ?? id.uuidString])
         }
     }
 
@@ -191,7 +199,13 @@ nonisolated extension ProjectDatabase {
 
     static func noteFromRow(_ row: Row) -> WorkbenchNote? {
         guard
-            let idStr: String = row["id"], let id = UUID(uuidString: idStr),
+            let idStr: String = row["id"],
+            // EV33 follow-up (review C2): MCP notes were keyed by the raw
+            // `fr_<16hex>` idempotency id, which this UUID guard silently
+            // dropped — every refusal reason and add_workbench_note row was
+            // invisible in the Workbench. The fallback maps those legacy rows
+            // to the same deterministic UUID new MCP writes use.
+            let id = UUID(uuidString: idStr) ?? noteUUID(fromLegacyFieldResearcherID: idStr),
             let content: String = row["content"],
             let tagRaw: String = row["tag"], let tag = NoteTag(rawValue: tagRaw),
             let attachedJSON: String = row["attached_to"],
@@ -237,6 +251,49 @@ nonisolated extension ProjectDatabase {
             resolvedAt: row["resolved_at"],
             resolution: row["resolution"]
         )
+    }
+
+    // MARK: - Legacy field-researcher note ids (EV33 follow-up, review C2)
+
+    /// The MCP server (`FieldResearcherMCP`) filed `workbench_notes` rows
+    /// under its raw idempotency id — `"fr_" + 16 lowercase hex digits` —
+    /// which `UUID(uuidString:)` rejects, so `noteFromRow` silently dropped
+    /// every note it ever wrote (refusal reasons and `add_workbench_note`
+    /// alike). New MCP writes use a UUID derived from the same hash; this
+    /// fallback maps the legacy rows already on disk to the SAME UUID so they
+    /// render without a migration.
+    ///
+    /// Derivation — byte-for-byte identical to the MCP side
+    /// (`MCPHandler.noteUUIDString(fromLegacyID:)` in
+    /// `FieldResearcherMCP/Sources/MCPServer.swift`):
+    ///   1. take the 16 lowercase hex digits after "fr_",
+    ///   2. concatenate the run with itself to make 32 hex digits,
+    ///   3. uppercase and hyphenate 8-4-4-4-12.
+    /// Same hash → same UUID on both ends, so a replayed MCP write dedups
+    /// against the row this fallback surfaces instead of duplicating it. The
+    /// doubled pattern (first 16 nibbles == last 16) makes the mapping
+    /// invertible below; a genuine random UUID matches it with probability
+    /// 2⁻⁶⁴.
+    static func noteUUID(fromLegacyFieldResearcherID idStr: String) -> UUID? {
+        guard idStr.hasPrefix("fr_") else { return nil }
+        let hex = String(idStr.dropFirst("fr_".count)).lowercased()
+        guard hex.count == 16, hex.allSatisfy(\.isHexDigit) else { return nil }
+        let digits = Array((hex + hex).uppercased())
+        let dashed = [digits[0..<8], digits[8..<12], digits[12..<16], digits[16..<20], digits[20..<32]]
+            .map { String($0) }
+            .joined(separator: "-")
+        return UUID(uuidString: dashed)
+    }
+
+    /// The inverse of `noteUUID(fromLegacyFieldResearcherID:)`: recover the
+    /// on-disk `fr_…` id from a mapped UUID, or nil when the UUID does not
+    /// carry the doubled-digits signature. Lets `updateNote` / `deleteNote`
+    /// reach a legacy row through the UUID the read fallback handed out.
+    static func legacyFieldResearcherNoteID(from id: UUID) -> String? {
+        let hex = id.uuidString.replacingOccurrences(of: "-", with: "").lowercased()
+        let first = hex.prefix(16)
+        guard first == hex.suffix(16) else { return nil }
+        return "fr_" + first
     }
 
     static func insertNote(_ note: WorkbenchNote, db: Database) throws {

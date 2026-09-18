@@ -390,7 +390,7 @@ actor MCPHandler {
                     description: "Submit a research finding as evidence for a profile. The finding will be scored by the app's deterministic pipeline before human review.",
                     properties: [
                         "profile_id": ["type": "string", "description": "Profile ID this evidence is about"],
-                        "field": ["type": "string", "description": "Profile fields: birthDate, deathDate, birthLocation, deathLocation, firstName, middleName, lastName, nickName, gender, marriedSurname, mothersMaidenName, bio. Event fields (become life events; pass event_date/event_location too): occupation, residence, census, baptism, burial, probate, military, education, religion, immigration, emigration. Anything else is refused at accept time rather than silently doing nothing."],
+                        "field": ["type": "string", "description": "Profile fields: birthDate, deathDate, birthLocation, deathLocation, firstName, middleName, lastName, nickName, gender, marriedSurname, mothersMaidenName, bio. Event fields (become life events; pass event_date/event_location too): occupation, residence, census, baptism, burial, probate, military, education, religion, immigration, emigration. Anything else is refused at accept time rather than silently doing nothing. Marriage is deliberately absent: it belongs to the spouse edge — use submit_relationship_proposal (rel_type 'spouse', marriage_date, marriage_location)."],
                         "value": ["type": "string", "description": "The proposed value"],
                         "source_url": ["type": "string", "description": "URL where the evidence was found"],
                         "source_title": ["type": "string", "description": "Human-readable source description"],
@@ -399,7 +399,7 @@ actor MCPHandler {
                         "confidence": ["type": "string", "description": "Your confidence: high, medium, or low"],
                         "event_date": ["type": "string", "description": "For event-shaped fields (occupation, residence, census, baptism, burial, probate, military): when it happened, e.g. '1901' or '31 Mar 1901'. Ignored for profile fields like birthDate."],
                         "event_location": ["type": "string", "description": "For event-shaped fields: where it happened, e.g. 'Wirksworth, Derbyshire'. Ignored for profile fields."],
-                        "household": ["type": "array", "description": "For census submissions: the STRUCTURED household roster, one object per member — {name (required), relationship (required, e.g. 'Head'/'Wife'/'Son'/'Ma-Law'), age, birth_year, birth_place, birth_county, occupation, sex, marital_status}. On accept this projects into a typed census event and evidence record — the roster the family-context and cross-profile cite machinery read — instead of prose. Max 30 members."],
+                        "household": ["type": "array", "description": "For census submissions: the STRUCTURED household roster, one object per member — {name (pass \"\" for an unnamed infant — the row is kept as evidence but can never become a profile), relationship (e.g. 'Head'/'Wife'/'Son'/'Ma-Law' — pass \"\" when the schedule has no relationship column, as in 1841; never guess a role), age, birth_year, birth_place, birth_county, occupation, sex, marital_status}. On accept this projects into a typed census event and evidence record — the roster the family-context and cross-profile cite machinery read — instead of prose. Max 30 members."],
                         "district": ["type": "string", "description": "For census submissions: registration district as written on the schedule."],
                         "parish": ["type": "string", "description": "For census submissions: parish from the schedule."],
                         "address": ["type": "string", "description": "For census submissions: street/house address of the dwelling."],
@@ -469,7 +469,7 @@ actor MCPHandler {
                 // mutate profile / relationship rows directly.
                 tool(
                     name: "submit_relationship_proposal",
-                    description: "Propose a parent or spouse relationship between two existing profiles. Goes to `pending_relationships` for human review — does not modify the tree directly. Approving a spouse proposal that carries marriage_date/marriage_location fills them onto the edge (existing edges are enriched, never duplicated; existing values are never degraded).",
+                    description: "Propose a parent or spouse relationship between two existing profiles. Goes to `pending_relationships` for human review — does not modify the tree directly. Approving a spouse proposal that carries marriage_date/marriage_location fills them onto the edge (existing edges are enriched, never duplicated; existing values are never degraded). Resubmitting the same proposal (same from|to + rel_type + role + source_url) while it is still pending UPDATES its details (marriage date/place where provided, evidence, reasoning); once a human has approved or rejected it, a resubmission changes nothing and the response says so.",
                     properties: [
                         "from_profile_id": ["type": "string", "description": "Source profile ID (parent for parent edges; either party for spouse edges)"],
                         "to_profile_id": ["type": "string", "description": "Target profile ID (child for parent edges; the other party for spouse edges)"],
@@ -487,7 +487,7 @@ actor MCPHandler {
                 ),
                 tool(
                     name: "dismiss_lead",
-                    description: "Mark a lead as dismissed — the user has decided it's not relevant. Pure state transition, no fact data written. EV33 (2026-08-26): ALSO cascades to the scored record the lead mirrors, setting evidence_records.user_status = 'discarded' (verdict / gates / scores / applied_at untouched). Without the cascade a dismissal cleared only the half the user cannot see, so the profile card kept reporting the record as 'Researched — not applied'. Household (lead_hh_*), parent-inference (lead_parentInferred_*) and field-researcher (lead_fr_*) leads mirror no scored record — they dismiss cleanly with no evidence write. The response reports both halves.",
+                    description: "Mark a lead as dismissed — the user has decided it's not relevant. Pure state transition, no fact data written. EV33 (2026-08-26): ALSO cascades to the scored record the lead mirrors, setting evidence_records.user_status = 'discarded' (verdict / gates / scores / applied_at untouched). Without the cascade a dismissal cleared only the half the user cannot see, so the profile card kept reporting the record as 'Researched — not applied'. Household (lead_hh_*), parent-inference (lead_parentInferred_*) and field-researcher (lead_fr_*) leads mirror no scored record — they dismiss cleanly with no evidence write. A promoted or resolved lead is a stronger, later human decision: dismissing it is SKIPPED (lead, resolution pointer and scored record all untouched) and the response names its actual status. If the mirrored record was APPLIED to the profile, the response carries the same warning as discard_scored_record. The response reports both halves.",
                     properties: [
                         "lead_id": ["type": "string", "description": "Lead ID to dismiss"],
                         "reason": ["type": "string", "description": "Optional but strongly encouraged: why this lead is being refused. Recorded as a workbench note so a wrong dismissal is auditable — the cascade suppresses the scored record from future runs too, and a discarded record is never re-proposed."],
@@ -656,10 +656,10 @@ actor MCPHandler {
                 ),
                 tool(
                     name: "get_open_disputes",
-                    description: "Tree-wide evidence disputes, open by default: profile (id + name), field, kind, severity, detected_by. Answers 'which profiles have unresolved conflicts?' in one call.",
+                    description: "Tree-wide evidence disputes, open by default: profile (id + name), field, kind, severity, detected_by. A DEFERRED dispute ('parked, decide later') counts as OPEN — parking is not a decision, and a parked conflict is exactly what still needs work. Rows carry deferred:true so you can tell parked from never-touched. Answers 'which profiles have unresolved conflicts?' in one call.",
                     properties: [
-                        "status": ["type": "string", "description": "open (default) | resolved | all"],
-                        "limit": ["type": "integer", "description": "Max rows (default 100, max 500)."],
+                        "status": ["type": "string", "description": "open (default; includes deferred) | deferred | resolved | all"],
+                        "limit": ["type": "integer", "description": "Max MATCHING rows (default 100, max 500). Exactly `limit` rows back means there may be more — raise it; fewer means that is the whole answer."],
                     ],
                     required: []
                 ),
@@ -1128,6 +1128,30 @@ actor MCPHandler {
         }
     }
 
+    /// EV36 (2026-08-26) — CONFLICT_LAYER: `.deferred` is "parked, decide
+    /// later", NOT a decision, so the dispute stays OPEN and actionable.
+    /// Mirrors `DisputeRow.isOpen` (Ancestor Research/Services/
+    /// ProjectDatabase.swift), `ResearchSubject.contestedFields` and
+    /// `DossierAssembler.isOpen` — all of which the MCP surfaces flatly
+    /// contradicted by reporting a parked dispute as "resolved".
+    ///
+    /// `DisputeResolution` is a Swift enum with associated values, so the
+    /// payload-free `.deferred` encodes as exactly `{"deferred":{}}` — a
+    /// single-key object. Match the decoded KEY, never a substring: a
+    /// `{"manual":{"_0":"deferred to the GRO cert"}}` note is a real
+    /// resolution and must not read as parked.
+    static func disputeIsDeferred(_ resolutionJSON: String?) -> Bool {
+        guard let json = resolutionJSON,
+              let object = try? JSONSerialization.jsonObject(with: Data(json.utf8)),
+              let dict = object as? [String: Any] else { return false }
+        return dict.count == 1 && dict["deferred"] != nil
+    }
+
+    /// The status string every MCP dispute surface reports.
+    static func disputeStatus(_ resolutionJSON: String?) -> String {
+        (resolutionJSON == nil || disputeIsDeferred(resolutionJSON)) ? "open" : "resolved"
+    }
+
     /// CL6 — full dispute ledger for one profile (open + resolved), the
     /// read contract the future dossier renders. Read-only.
     func disputesResource(profileID: String) throws -> String {
@@ -1141,7 +1165,7 @@ actor MCPHandler {
                 var out: [String: Any] = [
                     "kind": d["kind"] as String? ?? "fieldValue",
                     "field": d["field"] as String? ?? "",
-                    "status": (d["resolution"] as String?) == nil ? "open" : "resolved",
+                    "status": Self.disputeStatus(d["resolution"] as String?),
                 ]
                 if let v: String = d["severity"] { out["severity"] = v }
                 if let v: String = d["detected_by"] { out["detected_by"] = v }
@@ -1149,6 +1173,7 @@ actor MCPHandler {
                 if let v: String = d["resolution"] { out["resolution"] = v }
                 if let v: String = d["ladder_trace"] { out["ladder_trace"] = v }
                 if let v: String = d["witness_summary"] { out["witness_summary"] = v }
+                if Self.disputeIsDeferred(d["resolution"] as String?) { out["deferred"] = true }
                 return out
             }
             let data = (try? JSONSerialization.data(
@@ -1218,13 +1243,14 @@ actor MCPHandler {
             let disputes = try Row.fetchAll(db, sql: """
                 SELECT rowid, field, severity, resolution, ladder_trace, witness_summary
                 FROM field_disputes WHERE entity_id = ?
-                ORDER BY CASE WHEN resolution IS NULL THEN 0 ELSE 1 END, rowid
+                ORDER BY CASE WHEN resolution IS NULL OR resolution LIKE '%deferred%' THEN 0 ELSE 1 END, rowid
                 """, arguments: [profileID])
             dossier["d2_what_conflicts"] = disputes.map { d -> [String: Any] in
                 var out: [String: Any] = [
                     "field": d["field"] as String? ?? "",
-                    "status": (d["resolution"] as String?) == nil ? "open" : "resolved",
+                    "status": Self.disputeStatus(d["resolution"] as String?),
                 ]
+                if Self.disputeIsDeferred(d["resolution"] as String?) { out["deferred"] = true }
                 if let v: String = d["severity"] { out["severity"] = v }
                 if let v: String = d["witness_summary"] { out["witness_summary"] = v }
                 if let v: String = d["ladder_trace"] { out["ladder_trace"] = v }
@@ -1343,11 +1369,12 @@ actor MCPHandler {
                     var out: [String: Any] = [
                         "kind": d["kind"] as String? ?? "fieldValue",
                         "field": d["field"] as String? ?? "",
-                        "status": (d["resolution"] as String?) == nil ? "open" : "resolved",
+                        "status": Self.disputeStatus(d["resolution"] as String?),
                     ]
                     if let v: String = d["severity"] { out["severity"] = v }
                     if let v: String = d["detected_by"] { out["detected_by"] = v }
                     if let v: String = d["ladder_trace"] { out["ladder_trace"] = v }
+                    if Self.disputeIsDeferred(d["resolution"] as String?) { out["deferred"] = true }
                     return out
                 }
             }
@@ -1606,6 +1633,22 @@ actor MCPHandler {
             "immigration", "emigration",
         ]
         guard validFields.contains(field) else {
+            // EV24 (2026-08-26): marriage is not a profile field and never can
+            // be — it lives on the spouse EDGE, and `pending_facts` has
+            // nowhere to land it (pinned by PendingFactFieldCoverageTests
+            // .marriageFieldsAreRefusedRatherThanSilentlyIgnored). Naming the
+            // wrong follow-on tool is how a real marriage ends up as prose:
+            // both suggestions below DROP the date and the place. Route it to
+            // the one tool that carries them structurally.
+            let marriageFields: Set<String> = [
+                "marriage", "marriageDate", "marriageLocation",
+                "marriagePlace", "spouse", "spouseName",
+            ]
+            if marriageFields.contains(field) {
+                return [
+                    "content": [["type": "text", "text": "Field '\(field)' is not a profile field — a marriage lives on the spouse edge, not on either person. Use submit_relationship_proposal with rel_type 'spouse' plus marriage_date and marriage_location; approving it fills the edge. Both people must already be profiles — if the partner is not in the tree yet, submit_lead them first, then propose the marriage."]]
+                ]
+            }
             return [
                 "content": [["type": "text", "text": "Field '\(field)' not supported. Use submit_narrative_finding for unstructured evidence, or submit_lead for new people."]]
             ]
@@ -1641,23 +1684,76 @@ actor MCPHandler {
         // projects it into a typed census event + evidence record, so a
         // hand-searched census reads exactly like an app-fetched one to the
         // family-context gate and the cross-profile cite machinery. Members
-        // are lightly validated (name + relationship strings) and capped so a
-        // malformed submission degrades to prose rather than being refused.
-        if let household = args["household"] as? [[String: Any]], !household.isEmpty {
+        // are lightly validated (a name is identity, so a nameless row cannot
+        // be stored) and capped so a malformed submission degrades to prose
+        // rather than being refused.
+        //
+        // EV28 (2026-08-26): `relationship` was required non-empty here and a
+        // roleless member was silently compactMap'd away; when the WHOLE
+        // roster lacked one — the 1841 census has no relationship column —
+        // `members` came back empty, the `household` key was never set, and
+        // the tool still returned "Evidence submitted". Empty is the CORRECT
+        // value: FreeCenSource writes `cell("relationship") ?? ""` under the
+        // comment "1841 has no Relationship column — empty, never guessed",
+        // and both roster views render the role only
+        // `if !member.relationship.isEmpty`. Rows that ARE unusable are still
+        // dropped, but never silently — they are reported in the response.
+        var rosterNotes: [String] = []
+        if let rawHousehold = args["household"], !(rawHousehold is NSNull) {
+            guard let household = rawHousehold as? [[String: Any]] else {
+                throw MCPError.invalidParams(
+                    "household must be an array of member objects — nothing was written. "
+                    + "Resubmit as e.g. [{\"name\": \"John Cauldwell\", \"relationship\": \"Head\", \"age\": 40}]. "
+                    + "relationship may be \"\" (the 1841 census has no relationship column).")
+            }
+            let submitted = household.count
+            var namelessRows = 0
+            var emptyRows = 0
+            // EV20 (2026-08-26): a row with no FORENAME is not a malformed row.
+            // Unnamed infants are common on census schedules ("female, 0,
+            // daughter") and are the strongest missing-child signal a schedule
+            // gives. A roster is EVIDENCE, so the row is stored; the guard that
+            // matters — you cannot create a profile from a nameless row — lives
+            // in `CensusFamilyLinker.familyLinks` and is untouched. Only a row
+            // that says NOTHING AT ALL is dropped.
             let members = household.prefix(30).compactMap { m -> [String: Any]? in
-                guard let name = m["name"] as? String, !name.isEmpty,
-                      let relationship = m["relationship"] as? String, !relationship.isEmpty
-                else { return nil }
+                let name = ((m["name"] as? String) ?? "")
+                    .trimmingCharacters(in: .whitespacesAndNewlines)
+                let relationship = ((m["relationship"] as? String) ?? "")
+                    .trimmingCharacters(in: .whitespacesAndNewlines)
                 var out: [String: Any] = ["name": name, "relationship": relationship]
                 for key in ["age", "birth_year"] {
+                    // A numeric string ("40") is as good as an Int and was
+                    // being dropped on the same silent path.
                     if let n = m[key] as? Int { out[key] = n }
+                    else if let s = m[key] as? String,
+                            let n = Int(s.trimmingCharacters(in: .whitespaces)) { out[key] = n }
                 }
                 for key in ["birth_place", "birth_county", "occupation", "sex", "marital_status"] {
                     if let s = m[key] as? String, !s.isEmpty { out[key] = s }
                 }
+                guard !name.isEmpty || !relationship.isEmpty || out.count > 2 else {
+                    emptyRows += 1
+                    return nil
+                }
+                if name.isEmpty { namelessRows += 1 }
                 return out
             }
             if !members.isEmpty { payload["household"] = Array(members) }
+            if namelessRows > 0 {
+                rosterNotes.append(
+                    "\(namelessRows) row(s) stored with no name — kept as evidence; "
+                    + "an unnamed row can never become a profile")
+            }
+            if emptyRows > 0 {
+                rosterNotes.append("\(emptyRows) row(s) carried no information at all and were not stored")
+            }
+            if submitted > 30 {
+                rosterNotes.append("\(submitted - 30) row(s) beyond the 30-member cap were not stored")
+            }
+            if members.isEmpty, submitted > 0 {
+                rosterNotes.append("NO roster was stored — this census will land as prose only")
+            }
         }
         for key in ["district", "parish", "address"] {
             if let s = args[key] as? String, !s.isEmpty { payload[key] = s }
@@ -1723,11 +1819,16 @@ actor MCPHandler {
                 ])
         }
 
+        // EV28 — a row the server declined to store is reported back, never
+        // dropped in silence behind an unconditional "Evidence submitted".
+        let rosterSuffix = rosterNotes.isEmpty
+            ? ""
+            : " ROSTER WARNING: " + rosterNotes.joined(separator: "; ") + "."
         return [
             "content": [
                 [
                     "type": "text",
-                    "text": "Evidence submitted: \(field) = \(value) for profile \(profileID). ID: \(id). Status: pending human review. The app will verify the source URL and score this through the 4-gate pipeline before presenting for review.",
+                    "text": "Evidence submitted: \(field) = \(value) for profile \(profileID). ID: \(id). Status: pending human review. The app will verify the source URL and score this through the 4-gate pipeline before presenting for review." + rosterSuffix,
                 ]
             ]
         ]
@@ -1848,46 +1949,130 @@ actor MCPHandler {
         )
         let cappedEvidence = String(evidenceText.prefix(200))
 
-        try db.write { db in
-            do {
-                try db.execute(sql: """
-                    INSERT OR IGNORE INTO pending_relationships
-                    (id, from_profile_id, to_profile_id, rel_type, role, subtype,
-                     review_status, created_at,
-                     source_url, source_title, evidence_text, reasoning, agent_id,
-                     marriage_date, marriage_location)
-                    VALUES (?, ?, ?, ?, ?, ?, 'pending', ?, ?, ?, ?, ?, 'field-researcher', ?, ?)
-                    """, arguments: [
-                        id, from, to, relType, role, subtype, Date(),
-                        sourceURL, sourceTitle, cappedEvidence, reasoning,
-                        marriageDate, marriageLocation,
-                    ])
-            } catch {
-                // The marriage columns land with the app's v62 migration. An
-                // un-migrated project DB (app not yet updated/launched) still
-                // accepts the proposal — minus the marriage fields — rather
-                // than failing the whole submission.
-                try db.execute(sql: """
-                    INSERT OR IGNORE INTO pending_relationships
-                    (id, from_profile_id, to_profile_id, rel_type, role, subtype,
-                     review_status, created_at,
-                     source_url, source_title, evidence_text, reasoning, agent_id)
-                    VALUES (?, ?, ?, ?, ?, ?, 'pending', ?, ?, ?, ?, ?, 'field-researcher')
-                    """, arguments: [
-                        id, from, to, relType, role, subtype, Date(),
-                        sourceURL, sourceTitle, cappedEvidence, reasoning,
-                    ])
+        // EV27 (2026-08-26) — read-only peek at the live tree so the caller is
+        // told when the edge ALREADY exists. Approving such a proposal
+        // enriches the edge (fills an empty role, carries marriage details);
+        // it never duplicates it, and a role CHANGE is recorded as a dispute
+        // rather than silently applied. Firewall-safe: a read; the only write
+        // target is still `pending_relationships`.
+        // M10 fix (pre-SC-34-40 review): marriage_date/marriage_location are
+        // NOT part of the idempotency key, and INSERT OR IGNORE silently
+        // dropped a corrected resubmission while the response text echoed the
+        // NEW details as if they had landed — Approve would then fill the
+        // stale values onto the edge. Same silent-dedup class as the
+        // 2026-08-14 pending_facts upsert, mirrored here: a still-pending row
+        // is refreshed from the resubmission, a reviewed row is never
+        // overturned, and the response says which happened instead of
+        // claiming success for a write that did not run.
+        let (outcome, liveRole): (String, String?) = try db.write { db in
+            let existing = try? Row.fetchOne(db, sql: """
+                SELECT role FROM relationships
+                WHERE from_id = ? AND to_id = ? AND type = ?
+                ORDER BY rowid ASC LIMIT 1
+                """, arguments: [from, to, relType])
+            let liveRole: String? = existing.map { ($0["role"] as String?) ?? "unspecified" }
+
+            let priorStatus = try String.fetchOne(
+                db, sql: "SELECT review_status FROM pending_relationships WHERE id = ?",
+                arguments: [id])
+            if priorStatus == nil {
+                do {
+                    try db.execute(sql: """
+                        INSERT OR IGNORE INTO pending_relationships
+                        (id, from_profile_id, to_profile_id, rel_type, role, subtype,
+                         review_status, created_at,
+                         source_url, source_title, evidence_text, reasoning, agent_id,
+                         marriage_date, marriage_location)
+                        VALUES (?, ?, ?, ?, ?, ?, 'pending', ?, ?, ?, ?, ?, 'field-researcher', ?, ?)
+                        """, arguments: [
+                            id, from, to, relType, role, subtype, Date(),
+                            sourceURL, sourceTitle, cappedEvidence, reasoning,
+                            marriageDate, marriageLocation,
+                        ])
+                } catch {
+                    // The marriage columns land with the app's v62 migration. An
+                    // un-migrated project DB (app not yet updated/launched) still
+                    // accepts the proposal — minus the marriage fields — rather
+                    // than failing the whole submission.
+                    try db.execute(sql: """
+                        INSERT OR IGNORE INTO pending_relationships
+                        (id, from_profile_id, to_profile_id, rel_type, role, subtype,
+                         review_status, created_at,
+                         source_url, source_title, evidence_text, reasoning, agent_id)
+                        VALUES (?, ?, ?, ?, ?, ?, 'pending', ?, ?, ?, ?, ?, 'field-researcher')
+                        """, arguments: [
+                            id, from, to, relType, role, subtype, Date(),
+                            sourceURL, sourceTitle, cappedEvidence, reasoning,
+                        ])
+                }
+                return ("submitted", liveRole)
             }
+            if priorStatus == "pending" {
+                // Still awaiting review: fold the resubmission in. Marriage
+                // fields refresh only when the resubmission carries them
+                // (check before overwrite — an omitted field must not erase a
+                // previously supplied value); prose fields refresh wholesale,
+                // exactly like the pending_facts upsert.
+                do {
+                    try db.execute(sql: """
+                        UPDATE pending_relationships
+                        SET marriage_date = COALESCE(?, marriage_date),
+                            marriage_location = COALESCE(?, marriage_location),
+                            evidence_text = ?, reasoning = ?, source_title = ?
+                        WHERE id = ? AND review_status = 'pending'
+                        """, arguments: [
+                            marriageDate, marriageLocation,
+                            cappedEvidence, reasoning, sourceTitle, id,
+                        ])
+                } catch {
+                    // Pre-v62 schema — no marriage columns to refresh.
+                    try db.execute(sql: """
+                        UPDATE pending_relationships
+                        SET evidence_text = ?, reasoning = ?, source_title = ?
+                        WHERE id = ? AND review_status = 'pending'
+                        """, arguments: [cappedEvidence, reasoning, sourceTitle, id])
+                }
+                return ("updated", liveRole)
+            }
+            // approved / rejected (or any other settled state): a human has
+            // ruled on this exact proposal. Nothing is written.
+            return (priorStatus ?? "reviewed", liveRole)
         }
 
         let marriageNote = (marriageDate != nil || marriageLocation != nil)
             ? " Marriage: \([marriageDate, marriageLocation].compactMap { $0 }.joined(separator: ", "))."
             : ""
+        let existingEdgeNote: String
+        if liveRole == nil {
+            existingEdgeNote = ""
+        } else if relType == "parent" {
+            existingEdgeNote = " NOTE: this edge already exists in the tree (current role: \(liveRole ?? "unspecified")) — approving will enrich it, never duplicate it; a role CHANGE opens a dispute for the human instead of overwriting."
+        } else {
+            existingEdgeNote = " NOTE: this edge already exists in the tree — approving enriches it (marriage date/place fill where empty), never duplicates it."
+        }
+        let edgeLabel = "\(from) → [\(relType)\(role.map { " (\($0))" } ?? "")] → \(to)"
+        let text: String
+        switch outcome {
+        case "submitted":
+            text = "Relationship proposal submitted: \(edgeLabel).\(marriageNote) ID: \(id). Status: pending human review — approve/reject on either profile's card.\(existingEdgeNote)"
+        case "updated":
+            // M10 fix: an identical proposal (same from|to + rel_type + role +
+            // source_url) was already queued — say the resubmission was folded
+            // into it, never that a fresh one was submitted.
+            text = "Relationship proposal already pending: \(edgeLabel) — UPDATED with this resubmission's details (marriage date/place where provided, evidence, reasoning).\(marriageNote) ID: \(id). Status: pending human review — approve/reject on either profile's card.\(existingEdgeNote)"
+        default:
+            // approved / rejected — never claim success for a write that did
+            // not happen.
+            let rejectedNote = outcome == "rejected"
+                ? " A rejected proposal is never re-proposed; if new evidence genuinely changes the picture, raise it with the user instead."
+                : ""
+            text = "NOT SUBMITTED — an identical proposal already exists and was \(outcome) by the human reviewer: \(edgeLabel). ID: \(id). Nothing was changed: a reviewed proposal is never updated or re-queued by a resubmission.\(rejectedNote)"
+        }
         return [
             "content": [
                 [
                     "type": "text",
-                    "text": "Relationship proposal submitted: \(from) → [\(relType)\(role.map { " (\($0))" } ?? "")] → \(to).\(marriageNote) ID: \(id). Status: pending human review — approve/reject on either profile's card.",
+                    "text": text,
                 ]
             ]
         ]
@@ -2299,6 +2484,11 @@ actor MCPHandler {
         let evidenceRecordID: String?
         let sourceRecordID: String?
         let outcome: String
+        /// EV33 follow-up (review C1): set when the record the cascade
+        /// reached carries an `applied_at` stamp, so `dismiss_lead` can warn
+        /// the way `discard_scored_record` does — the fact is still ON the
+        /// profile and only the app's un-apply can take it off.
+        var appliedAt: Date? = nil
     }
 
     /// EV33 — discard → lead. Dismiss the lead that mirrors a scored record.
@@ -2347,7 +2537,7 @@ actor MCPHandler {
                 evidenceRecordID: nil, sourceRecordID: nil, outcome: "not_applicable")
         }
         guard let row = try Row.fetchOne(db, sql: """
-            SELECT id, user_status FROM evidence_records
+            SELECT id, user_status, applied_at FROM evidence_records
             WHERE profile_id = ? AND source_record_id = ?
             """, arguments: [profileID, srid]) else {
             return EvidenceCascadeOutcome(
@@ -2355,15 +2545,20 @@ actor MCPHandler {
         }
         let evidenceID: String = row["id"] ?? ""
         let current: String = row["user_status"] ?? ""
+        // EV33 follow-up (review C1): read, never written — applied_at stays
+        // app-owned; it is surfaced only so the caller can be warned.
+        let appliedAt: Date? = row["applied_at"]
         guard current != "discarded" else {
             return EvidenceCascadeOutcome(
-                evidenceRecordID: evidenceID, sourceRecordID: srid, outcome: "already_discarded")
+                evidenceRecordID: evidenceID, sourceRecordID: srid,
+                outcome: "already_discarded", appliedAt: appliedAt)
         }
         try db.execute(
             sql: "UPDATE evidence_records SET user_status = 'discarded' WHERE id = ?",
             arguments: [evidenceID])
         return EvidenceCascadeOutcome(
-            evidenceRecordID: evidenceID, sourceRecordID: srid, outcome: "discarded")
+            evidenceRecordID: evidenceID, sourceRecordID: srid,
+            outcome: "discarded", appliedAt: appliedAt)
     }
 
     /// Where a refusal reason goes. Neither `evidence_records` nor the legacy
@@ -2381,10 +2576,18 @@ actor MCPHandler {
     /// caller reports that as `reason_recorded: false` rather than swallowing
     /// it, and the reason is echoed in the response payload regardless.
     static func writeRefusalReasonNote(
-        _ db: Database, noteID: String, profileID: String,
+        _ db: Database, noteID: String, legacyNoteID: String, profileID: String,
         attachedTo: String, content: String
     ) throws -> Bool {
         guard try db.tableExists("workbench_notes") else { return false }
+        // EV33 follow-up (review C2): dedup must span the id change. Notes
+        // filed before the UUID mapping carry the raw `fr_<16hex>` id, so a
+        // replayed refusal whose reason already sits under the legacy id is
+        // treated as recorded, never stacked as a second UUID-keyed row.
+        let alreadyFiled = try Row.fetchOne(
+            db, sql: "SELECT 1 FROM workbench_notes WHERE id IN (?, ?)",
+            arguments: [noteID, legacyNoteID]) != nil
+        guard !alreadyFiled else { return true }
         let now = Date()
         // EV33 verification (2026-08-26) — the tag MUST be a `NoteTag` raw
         // value. This first shipped as `'discard'`, which is not a case:
@@ -2465,7 +2668,9 @@ actor MCPHandler {
         // bulk and requiring a reason would break that workflow. Encouraged in
         // the tool description because the cascade now buries the scored
         // record too.
-        let noteID = idempotencyKey(
+        // EV33 follow-up (review C2): the note id must be a UUID string or
+        // the app's `noteFromRow` drops it on read — see `noteUUIDString`.
+        let (noteID, legacyNoteID) = noteIdempotencyIDs(
             profileID: leadID, field: "dismiss_reason", value: reason, sourceURL: leadID)
 
         let json: String = try db.write { db in
@@ -2477,18 +2682,49 @@ actor MCPHandler {
                 arguments: [leadID])
             var profileID: String?
             if let leadRow { profileID = leadRow["profile_id"] }
+            let priorStatus: String? = leadRow.map { ($0["status"] as String?) ?? "" }
 
-            // Unchanged from before EV33: the UPDATE runs even when the row is
-            // absent (a no-op), so replaying a dismiss over a pruned lead still
-            // succeeds instead of erroring. Not narrowed — only reported on.
-            try db.execute(sql: """
-                UPDATE leads
-                SET status = 'dismissed', resolved_at = ?, resolution = 'dismissed'
-                WHERE id = ?
-                """, arguments: [Date(), leadID])
+            // EV33 follow-up (review C1): a promoted or resolved lead is the
+            // stronger, LATER human decision. `promote_lead` stamps
+            // `resolution = 'promoted_to_<id>'` / `'matched_existing_<id>'`,
+            // and the previously-unconditional UPDATE both demoted the lead
+            // and destroyed that pointer — then the cascade buried the
+            // (possibly applied) evidence row as 'discarded'. Mirrors
+            // `cascadeDismissLead`'s guard on the opposite direction: skip
+            // the write AND the cascade, and name the actual status so a
+            // replayed triage list learns why nothing moved.
+            if let priorStatus, ["promoted", "resolved"].contains(priorStatus) {
+                var skipped: [String: Any] = [
+                    "status": "skipped",
+                    "lead_id": leadID,
+                    "lead_found": true,
+                    "lead_status": priorStatus,
+                    "detail": "Lead \(leadID) is '\(priorStatus)', not open — a settled lead is a stronger, later decision than this dismissal, so neither the lead nor its scored record was touched. If the '\(priorStatus)' ruling is wrong, reverse it in the app first.",
+                ]
+                if let profileID { skipped["profile_id"] = profileID }
+                return Self.jsonString(skipped)
+            }
+
+            // EV33 follow-up (review C1): an already-dismissed lead is a
+            // clean no-op on the lead half — the original resolved_at stamp
+            // records WHEN the human decided and is not re-stamped. The
+            // evidence cascade below still runs: repairing a dismissed-lead /
+            // live-record divergence is exactly what EV33 exists for, and the
+            // repair is idempotent.
+            let alreadyDismissed = priorStatus == "dismissed"
+            if !alreadyDismissed {
+                // Unchanged from before EV33: the UPDATE runs even when the
+                // row is absent (a no-op), so replaying a dismiss over a
+                // pruned lead still succeeds instead of erroring.
+                try db.execute(sql: """
+                    UPDATE leads
+                    SET status = 'dismissed', resolved_at = ?, resolution = 'dismissed'
+                    WHERE id = ?
+                    """, arguments: [Date(), leadID])
+            }
 
             var payload: [String: Any] = [
-                "status": "dismissed",
+                "status": alreadyDismissed ? "already_dismissed" : "dismissed",
                 "lead_id": leadID,
                 "lead_found": leadRow != nil,
             ]
@@ -2521,11 +2757,18 @@ actor MCPHandler {
             if cascade.outcome == "not_applicable" {
                 evidence["detail"] = "Lead \(leadID) mirrors no scored record (household / parent-inference / field-researcher lead) — nothing to discard."
             }
+            // EV33 follow-up (review C1): applied_at parity with
+            // discard_scored_record — burying an applied record must never be
+            // silent. applied_at itself is untouched (un-apply is the app's).
+            if let appliedAt = cascade.appliedAt {
+                evidence["applied_at"] = ISO8601DateFormatter().string(from: appliedAt)
+                payload["warning"] = "This lead's scored record was APPLIED to the profile. Dismissing records the human verdict but does NOT remove the value or its citation — un-apply it in the app, or the profile keeps a fact whose evidence is now refused."
+            }
             payload["evidence"] = evidence
 
             if !reason.isEmpty, let profileID, !profileID.isEmpty {
                 let recorded = try Self.writeRefusalReasonNote(
-                    db, noteID: noteID, profileID: profileID,
+                    db, noteID: noteID, legacyNoteID: legacyNoteID, profileID: profileID,
                     attachedTo: Self.noteAttachmentJSON(id: profileID),
                     content: "Dismissed lead \(leadID) via MCP dismiss_lead: \(reason)")
                 payload["reason"] = reason
@@ -2576,7 +2819,9 @@ actor MCPHandler {
             ])
         }
 
-        let noteID = idempotencyKey(
+        // EV33 follow-up (review C2): the note id must be a UUID string or
+        // the app's `noteFromRow` drops it on read — see `noteUUIDString`.
+        let (noteID, legacyNoteID) = noteIdempotencyIDs(
             profileID: profileID, field: "discard_reason", value: reason, sourceURL: handle)
         let attachedTo = Self.noteAttachmentJSON(id: profileID)
 
@@ -2673,7 +2918,8 @@ actor MCPHandler {
             }
 
             let recorded = try Self.writeRefusalReasonNote(
-                db, noteID: noteID, profileID: profileID, attachedTo: attachedTo,
+                db, noteID: noteID, legacyNoteID: legacyNoteID, profileID: profileID,
+                attachedTo: attachedTo,
                 content: "Discarded scored record \(sourceRecordID) via MCP discard_scored_record: \(reason)")
             payload["reason_recorded"] = recorded
             if recorded {
@@ -2784,7 +3030,12 @@ actor MCPHandler {
         // helper; see its doc comment for the real shape and why.
         let attachedTo = Self.noteAttachmentJSON(kind: kind, id: attachmentID)
 
-        let id = idempotencyKey(
+        // EV33 follow-up (review C2): the id must be a UUID string. This
+        // tool wrote raw `fr_<16hex>` idempotency ids since it shipped, and
+        // the app's `noteFromRow` guards `UUID(uuidString:)` — so every note
+        // it ever filed was silently invisible in the Workbench. Same mapped
+        // id + legacy-id dedup as `writeRefusalReasonNote`.
+        let (id, legacyID) = noteIdempotencyIDs(
             profileID: attachmentID,
             field: "note",
             value: content,
@@ -2792,6 +3043,10 @@ actor MCPHandler {
         )
 
         try db.write { db in
+            let alreadyFiled = try Row.fetchOne(
+                db, sql: "SELECT 1 FROM workbench_notes WHERE id IN (?, ?)",
+                arguments: [id, legacyID]) != nil
+            guard !alreadyFiled else { return }
             try db.execute(sql: """
                 INSERT OR IGNORE INTO workbench_notes
                 (id, content, tag, attached_to, attachment_kind, attachment_id,
@@ -4019,24 +4274,54 @@ actor MCPHandler {
                 FROM field_disputes d
                 LEFT JOIN profiles p ON p.id = d.entity_id
                 """
+            // EV36 (2026-08-26): both clauses are deliberate SUPERSETS of the
+            // answer, narrowed exactly by `disputeStatus` below — the same
+            // narrow-then-confirm shape as ProjectDatabase.allOpenDisputes().
+            // `.deferred` is parked, not decided, so it belongs in "open";
+            // `status: "open"` used to omit every parked dispute, which is
+            // precisely the work an agent should still be doing.
+            //
+            // Review F08/F10 (2026-08-26): the clauses MUST stay supersets —
+            // narrowing them in SQL (e.g. `NOT LIKE '%deferred%'` on the
+            // resolved arm) would drop a genuinely-resolved manual note whose
+            // TEXT mentions deferral, and the decoded key is what decides.
+            // But the LIMIT used to sit on the un-narrowed superset, so on
+            // `status:"resolved"` every parked row ate a result slot and was
+            // then thrown away: 60 resolved + 70 newer parked disputes
+            // returned 30 rows, and `limit:10` against 10 newest parked rows
+            // returned NOTHING while dozens were settled. The cap now applies
+            // to the FILTERED set — stream the superset in rowid order and
+            // stop once `limit` rows have SURVIVED the narrow.
             var clauses: [String] = []
-            if status == "open" { clauses.append("d.resolution IS NULL") }
+            if status == "open" { clauses.append("(d.resolution IS NULL OR d.resolution LIKE '%deferred%')") }
             if status == "resolved" { clauses.append("d.resolution IS NOT NULL") }
+            if status == "deferred" { clauses.append("d.resolution LIKE '%deferred%'") }
             if !clauses.isEmpty { sql += " WHERE " + clauses.joined(separator: " AND ") }
-            sql += " ORDER BY d.rowid DESC LIMIT ?"
-            let rows = try Row.fetchAll(dbConn, sql: sql, arguments: [limit])
-            let out = rows.map { row -> [String: Any] in
+            sql += " ORDER BY d.rowid DESC"
+            let cursor = try Row.fetchCursor(dbConn, sql: sql)
+            var out: [[String: Any]] = []
+            while out.count < limit, let row = try cursor.next() {
+                let resolutionJSON: String? = row["resolution"]
+                let rowStatus = Self.disputeStatus(resolutionJSON)
+                let deferred = Self.disputeIsDeferred(resolutionJSON)
+                switch status {
+                case "open": guard rowStatus == "open" else { continue }
+                case "resolved": guard rowStatus == "resolved" else { continue }
+                case "deferred": guard deferred else { continue }
+                default: break
+                }
                 var d: [String: Any] = [
                     "profile_id": row["entity_id"] as String? ?? "",
                     "kind": row["kind"] as String? ?? "",
                     "field": row["field"] as String? ?? "",
-                    "status": (row["resolution"] as String?) == nil ? "open" : "resolved",
+                    "status": rowStatus,
                 ]
                 let name = "\(row["first_name"] as String? ?? "") \(row["last_name"] as String? ?? "")".trimmingCharacters(in: .whitespaces)
                 if !name.isEmpty { d["profile_name"] = name }
                 if let v: String = row["severity"] { d["severity"] = v }
                 if let v: String = row["detected_by"] { d["detected_by"] = v }
-                return d
+                if deferred { d["deferred"] = true }
+                out.append(d)
             }
             return Self.jsonString(out)
         }
@@ -4456,6 +4741,49 @@ actor MCPHandler {
         return String(format: "fr_%016llx", hash)
     }
 
+    /// EV33 follow-up (review C2) — `workbench_notes` ids MUST be UUID
+    /// strings. The app's only note decoder (`ProjectDatabase.noteFromRow`)
+    /// guards `UUID(uuidString: id)` and returns nil on a miss, so the raw
+    /// `fr_<16hex>` idempotency ids this server used to write made every MCP
+    /// note (refusal reasons and `add_workbench_note` alike) invisible in the
+    /// Workbench while raw-SQL `get_workbench_notes` still showed them.
+    ///
+    /// Derivation — byte-for-byte identical on both ends; the app's legacy
+    /// read fallback (`ProjectDatabase.noteUUID(fromLegacyFieldResearcherID:)`
+    /// in `Ancestor Research/Services/ProjectDatabase+Workbench.swift`)
+    /// mirrors it so pre-fix rows render without a migration:
+    ///   1. take the 16 lowercase hex digits after "fr_",
+    ///   2. concatenate the run with itself to make 32 hex digits,
+    ///   3. uppercase and hyphenate 8-4-4-4-12.
+    /// Same content hash → same UUID on both ends, so replay dedup survives
+    /// the id change; the doubled pattern (first 16 nibbles == last 16) is
+    /// what lets the app invert the mapping, and a genuine random UUID
+    /// collides with it with probability 2⁻⁶⁴.
+    static func noteUUIDString(fromLegacyID legacy: String) -> String? {
+        guard legacy.hasPrefix("fr_") else { return nil }
+        let hex = String(legacy.dropFirst("fr_".count)).lowercased()
+        guard hex.count == 16, hex.allSatisfy(\.isHexDigit) else { return nil }
+        let digits = Array((hex + hex).uppercased())
+        return [digits[0..<8], digits[8..<12], digits[12..<16], digits[16..<20], digits[20..<32]]
+            .map { String($0) }
+            .joined(separator: "-")
+    }
+
+    /// The idempotency id pair for a workbench note: the same content hash as
+    /// `idempotencyKey`, mapped through `noteUUIDString` so the app can read
+    /// the row back, plus the raw legacy form so the write can dedup against
+    /// rows filed before the mapping existed (EV33 follow-up, review C2).
+    func noteIdempotencyIDs(
+        profileID: String, field: String, value: String, sourceURL: String
+    ) -> (noteID: String, legacyID: String) {
+        let legacy = idempotencyKey(
+            profileID: profileID, field: field, value: value, sourceURL: sourceURL)
+        // The legacy id is "fr_" + 16 hex by construction, so the mapping
+        // cannot miss; falling back to the legacy id (old dedup, old
+        // invisibility) beats trapping if that construction ever changes.
+        return (Self.noteUUIDString(fromLegacyID: legacy) ?? legacy, legacy)
+    }
+
     func resource(_ uri: String, _ name: String, _ description: String) -> [String: String] {
         ["uri": uri, "name": name, "description": description, "mimeType": "application/json"]
     }
@@ -4817,6 +5145,12 @@ actor MCPHandler {
             // recomputation cannot see. Human resolves first.
             // Defensive on pre-v41 databases: no field_disputes table
             // means no dispute ledger exists to consult — not a failure.
+            //
+            // NB (EV36, 2026-08-26) — `resolution IS NULL` ONLY, deliberately.
+            // A DEFERRED dispute reads as OPEN on the read surfaces above but
+            // does NOT block this gate: HealthTriage.blocksAutoApproval and
+            // the Health "blocks auto-approval" badge mirror exactly this
+            // predicate. Do not "align" it with `disputeStatus`.
             let openDisputeRows = (try? Row.fetchAll(db, sql: """
                 SELECT kind, field FROM field_disputes
                 WHERE entity_id = ? AND resolution IS NULL

@@ -347,6 +347,13 @@ struct CensusHouseholdFixRow: View {
     /// entry carries no census relation, because a tick would be a claim the
     /// evidence does not support (EV18, 2026-08-26).
     private func statusLabel(for member: HouseholdMember, status: RosterStatus?) -> String {
+        // EV20 (2026-08-26): a nameless row is excluded from the family-link
+        // proposals (`CensusFamilyLinker` cannot create a profile without a
+        // name), which lands it in `.outOfScope`. "not family" is a false
+        // statement about an unnamed daughter.
+        if member.name.trimmingCharacters(in: .whitespaces).isEmpty {
+            return "no name recorded"
+        }
         switch status {
         case .subject:                       return "this person"
         case .inTree(let pid):               return "✓ \(name(pid))"
@@ -368,11 +375,18 @@ struct CensusHouseholdFixRow: View {
         return .secondary
     }
 
+    /// EV20 (2026-08-26): an unnamed infant's row has no name to print. Say so,
+    /// rather than emitting a leading em-dash that reads as a broken row.
+    nonisolated static func rosterDisplayName(_ m: HouseholdMember) -> String {
+        let n = m.name.trimmingCharacters(in: .whitespaces)
+        return n.isEmpty ? "(no name recorded)" : n
+    }
+
     /// One household line: "• Name — daughter · age 6 · born Via Gellia".
     /// Unlike `rosterLine` this takes a raw roster member, because the list now
     /// shows every row rather than only the net-new ones.
     nonisolated static func householdLine(_ m: HouseholdMember) -> String {
-        var parts = ["\(m.name) — \(m.relationship.lowercased())"]
+        var parts = ["\(rosterDisplayName(m)) — \(m.relationship.lowercased())"]
         if let a = m.age { parts.append("age \(a)") }
         else if let raw = m.rawAge?.trimmingCharacters(in: .whitespaces), !raw.isEmpty {
             parts.append("age \(raw)")
@@ -386,7 +400,7 @@ struct CensusHouseholdFixRow: View {
     /// One roster line: "• Name — father · age 56 · born Wigan".
     nonisolated static func rosterLine(_ link: CensusFamilyLinker.Link) -> String {
         let m = link.member
-        var parts = ["\(m.name) — \(relationLabel(link))"]
+        var parts = ["\(rosterDisplayName(m)) — \(relationLabel(link))"]
         if let a = m.age { parts.append("age \(a)") }
         else if let raw = m.rawAge?.trimmingCharacters(in: .whitespaces), !raw.isEmpty {
             parts.append("age \(raw)")

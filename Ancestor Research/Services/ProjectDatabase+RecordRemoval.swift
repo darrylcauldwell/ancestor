@@ -156,6 +156,29 @@ extension ProjectDatabase {
                 targets.append(RemovalTarget(field: .middleName, raw: SourceRecord.recasedName(middle), isDate: false))
             }
         }
+        // EV30 (2026-08-26) — LEGACY district-as-place targets. Builds before
+        // EV30 emitted `.birthLocation`/`.deathLocation` from a BMD record's
+        // registration `district` when the record carried no place of its own.
+        // The plan no longer does, and without this shim a profile that already
+        // took that write would have become UNREMOVABLE — the same stranding
+        // `SourceRecord.baptismInferredBirthDate` documents. Removal enumerates
+        // CANDIDATES and matches them against actual `field_sources` rows, so a
+        // candidate that was never written is inert: this costs nothing on new
+        // data and rescues old data.
+        switch record {
+        case .birth(let r):
+            if (r.birthPlace ?? "").trimmingCharacters(in: .whitespaces).isEmpty,
+               let d = r.district?.trimmingCharacters(in: .whitespaces), !d.isEmpty {
+                targets.append(RemovalTarget(field: .birthLocation, raw: d, isDate: false))
+            }
+        case .death(let r):
+            if (r.deathPlace ?? "").trimmingCharacters(in: .whitespaces).isEmpty,
+               let d = r.district?.trimmingCharacters(in: .whitespaces), !d.isEmpty {
+                targets.append(RemovalTarget(field: .deathLocation, raw: d, isDate: false))
+            }
+        default:
+            break
+        }
         return targets
     }
 

@@ -178,6 +178,12 @@ enum CampaignReviewService {
         switch lead.relationship?.lowercased() {
         case "child": return .child
         case "spouse": return .spouse
+        case let rel? where isHalfSiblingWord(rel):
+            // Review C10 — a half-sibling shares exactly ONE parent and the
+            // record does not say which, so "Add as child of X & Y" would
+            // assert a biological edge to the wrong parent half the time.
+            // Research first (`halfSiblingExplanation` says why).
+            return nil
         case let rel? where isSiblingWord(rel):
             guard !generatorParents.isEmpty else { return nil }
             return .childOfParents(
@@ -188,21 +194,83 @@ enum CampaignReviewService {
         }
     }
 
+    /// The generator's parents eligible to head an "Add as child of X & Y"
+    /// promotion — resolved from the snapshot HERE so every lead surface
+    /// applies the same rule. Review C10: `snapshot.parentsOf` returns every
+    /// parent edge, but `promoteLeadToProfile(asChildOfParents:)` mints a
+    /// BIOLOGICAL edge per parent, so explicitly non-biological parents —
+    /// `.step` / `.adoptive` — must not be offered: one click would assert
+    /// the sibling as the step-parent's biological child. `.unknown`
+    /// subtype stays eligible — it is what GEDCOM (no PEDI tag) and
+    /// WikiTree imports stamp on ordinary biological parents, and excluding
+    /// it would kill the #37 add-path on every imported tree; the same
+    /// presumption `AuditRule.treeChildTally` makes (non-step, non-adoptive
+    /// = counts as her child).
+    nonisolated static func generatorParents(
+        for profileID: String, snapshot: FamilyGraphSnapshot
+    ) -> [(id: String, name: String)] {
+        snapshot.relationships
+            .filter {
+                $0.type == .parent && $0.to == profileID
+                    && $0.subtype != .step && $0.subtype != .adoptive
+            }
+            .compactMap { snapshot.profiles[$0.from] }
+            .map { p in
+                let full = [p.firstName, p.lastName].compactMap { $0 }
+                    .joined(separator: " ")
+                    .trimmingCharacters(in: .whitespaces)
+                return (p.id, full.isEmpty ? p.id : full)
+            }
+    }
+
     /// Whether a lead claims siblinghood — the vocabulary the several lead
-    /// emitters use.
+    /// emitters use. Half-siblings count: they ARE a sibling claim, they
+    /// just never qualify for the child-of-both-parents promotion.
     static func isSiblingLead(_ lead: Lead) -> Bool {
-        lead.relationship.map { isSiblingWord($0.lowercased()) } ?? false
+        lead.relationship.map {
+            let rel = $0.lowercased()
+            return isSiblingWord(rel) || isHalfSiblingWord(rel)
+        } ?? false
+    }
+
+    /// Whether a lead claims HALF-siblinghood specifically — see `addAction`.
+    static func isHalfSiblingLead(_ lead: Lead) -> Bool {
+        lead.relationship.map { isHalfSiblingWord($0.lowercased()) } ?? false
     }
 
     private static func isSiblingWord(_ raw: String) -> Bool {
-        ["sibling", "brother", "sister", "half-brother", "half-sister"]
+        ["sibling", "brother", "sister"]
             .contains(raw.trimmingCharacters(in: .whitespaces))
+    }
+
+    /// Review C10 — half-sibling vocabulary is matched squashed (hyphens and
+    /// spaces removed) so every emitter's spelling lands here: the MCP
+    /// submit_lead free-text "half-brother"/"half-sister", a census
+    /// schedule's "Half Brother", and FindAGrave's camelCase "halfSibling"
+    /// (which used to dodge the sibling match entirely).
+    private static func isHalfSiblingWord(_ raw: String) -> Bool {
+        let squashed = raw.trimmingCharacters(in: .whitespaces)
+            .replacingOccurrences(of: "-", with: "")
+            .replacingOccurrences(of: " ", with: "")
+        return ["halfsibling", "halfbrother", "halfsister"].contains(squashed)
     }
 
     /// #37 — the honest row caption for a sibling lead that CANNOT offer an
     /// add action, so "Research" alone stops reading as a dead end.
     static let siblingExplanation =
         "Siblings are added as children of shared parents — add this person's parents to the tree first, and this lead will offer \"Add as child of…\"."
+
+    /// Review C10 — the half-sibling counterpart: the shared parent is
+    /// unknowable from the record, so no add action can ever be offered.
+    static let halfSiblingExplanation =
+        "A half-sibling shares exactly one parent, and the record doesn't say which — research this person to establish the shared parent before adding."
+
+    /// The Research button's help text for a lead with no add action.
+    static func researchExplanation(for lead: Lead) -> String {
+        if isHalfSiblingLead(lead) { return halfSiblingExplanation }
+        if isSiblingLead(lead) { return siblingExplanation }
+        return "Investigate this candidate before deciding."
+    }
 
     /// May a promoted lead ATTACH to this existing profile, or must it create a
     /// new one?

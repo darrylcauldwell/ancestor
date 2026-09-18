@@ -84,9 +84,10 @@ struct DisputeSurfaceTests {
             try db.execute(sql: """
                 CREATE TABLE negative_searches (
                     profile_id TEXT, source_id TEXT, record_type TEXT,
-                    searched_at DATETIME, query_key TEXT
+                    searched_at DATETIME, query_key TEXT, result_kind TEXT
                 )
                 """)
+            try db.execute(sql: "CREATE TABLE research_hypotheses (id TEXT PRIMARY KEY, subject_profile_id TEXT, kind_discriminator TEXT, verdict TEXT, origin TEXT, reasoning TEXT, attempts INTEGER, user_rejected INTEGER DEFAULT 0)")
             // CL1-shaped dispute ledger (the columns the CL6 surface reads).
             try db.execute(sql: """
                 CREATE TABLE field_disputes (
@@ -102,7 +103,8 @@ struct DisputeSurfaceTests {
     }
 
     private func addDispute(
-        dbPath: String, kind: String, field: String, resolved: Bool = false
+        dbPath: String, kind: String, field: String, resolved: Bool = false,
+        resolutionJSON: String? = nil
     ) throws {
         let queue = try DatabaseQueue(path: dbPath)
         try queue.write { db in
@@ -112,7 +114,11 @@ struct DisputeSurfaceTests {
                  detected_at, resolution, kind, severity, detected_by, ladder_trace)
                 VALUES ('P1', 'profile', ?, 'valueMismatch', '[]', ?, ?, ?, 'conflict',
                         'consistencySweep', '[]')
-                """, arguments: [field, Date(), resolved ? "{\"manual\":{\"_0\":\"kept\"}}" : nil, kind])
+                """, arguments: [
+                    field, Date(),
+                    resolutionJSON ?? (resolved ? "{\"manual\":{\"_0\":\"kept\"}}" : nil),
+                    kind,
+                ])
         }
     }
 
@@ -185,5 +191,140 @@ struct DisputeSurfaceTests {
         #expect(reason != "open_dispute_on_target")
         // (The fact may still refuse on other gates — convergence etc. —
         // but never on a RESOLVED dispute.)
+    }
+
+    // MARK: - EV36: a DEFERRED dispute is parked, not settled
+
+    /// `DisputeResolution.deferred` carries no payload, so Swift's synthesised
+    /// Codable writes exactly this. Pinning the literal is the point: if the
+    /// encoding ever moves, these tests fail loudly instead of silently
+    /// reclassifying every parked dispute as resolved.
+    private static let deferredJSON = "{\"deferred\":{}}"
+
+    private func decodeRows(_ json: String) throws -> [[String: Any]] {
+        (try JSONSerialization.jsonObject(with: Data(json.utf8))) as? [[String: Any]] ?? []
+    }
+
+    @Test func deferredDisputeReadsAsOpenOnEveryMCPSurface() async throws {
+        let dbPath = try makeDB()
+        try addDispute(dbPath: dbPath, kind: "fieldValue", field: "birthLocation",
+                       resolutionJSON: Self.deferredJSON)
+        let handler = try MCPHandler(dbPath: dbPath)
+
+        let resource = try await handler.disputesResource(profileID: "P1")
+        let ledger = ((try JSONSerialization.jsonObject(with: Data(resource.utf8)))
+            as? [String: Any])?["disputes"] as? [[String: Any]] ?? []
+        #expect(ledger.count == 1)
+        #expect(ledger[0]["status"] as? String == "open",
+                "a parked dispute is not a settled one — the app never shows it as Resolved")
+        #expect(ledger[0]["deferred"] as? Bool == true)
+
+        let detail = try await handler.profileDetail(id: "P1")
+        let disputes = ((try JSONSerialization.jsonObject(with: Data(detail.utf8)))
+            as? [String: Any])?["disputes"] as? [[String: Any]] ?? []
+        #expect(disputes.first?["status"] as? String == "open")
+
+        let dossier = try await handler.dossierResource(profileID: "P1")
+        let d2 = ((try JSONSerialization.jsonObject(with: Data(dossier.utf8)))
+            as? [String: Any])?["d2_what_conflicts"] as? [[String: Any]] ?? []
+        #expect(d2.first?["status"] as? String == "open",
+                "the MCP dossier must agree with DossierAssembler.isOpen")
+    }
+
+    @Test func getOpenDisputesListsDeferredRowsAsOpen() async throws {
+        let dbPath = try makeDB()
+        try addDispute(dbPath: dbPath, kind: "fieldValue", field: "birthLocation",
+                       resolutionJSON: Self.deferredJSON)
+        try addDispute(dbPath: dbPath, kind: "fieldValue", field: "deathDate", resolved: true)
+        try addDispute(dbPath: dbPath, kind: "timeline", field: "death-vs-alive")
+        let handler = try MCPHandler(dbPath: dbPath)
+
+        let open = try decodeRows(try await handler.getOpenDisputesResponseText(["status": "open"]))
+        let openFields = Set(open.compactMap { $0["field"] as? String })
+        #expect(openFields == ["birthLocation", "death-vs-alive"],
+                "status:'open' must not silently omit the parked disputes an agent should be working on")
+
+        let resolved = try decodeRows(try await handler.getOpenDisputesResponseText(["status": "resolved"]))
+        #expect(Set(resolved.compactMap { $0["field"] as? String }) == ["deathDate"])
+
+        let parked = try decodeRows(try await handler.getOpenDisputesResponseText(["status": "deferred"]))
+        #expect(Set(parked.compactMap { $0["field"] as? String }) == ["birthLocation"])
+
+        let all = try decodeRows(try await handler.getOpenDisputesResponseText(["status": "all"]))
+        #expect(all.count == 3)
+    }
+
+    @Test func manualNoteMentioningDeferralIsStillResolved() async throws {
+        let dbPath = try makeDB()
+        try addDispute(dbPath: dbPath, kind: "fieldValue", field: "birthDate",
+                       resolutionJSON: "{\"manual\":{\"_0\":\"deferred to the GRO certificate\"}}")
+        let handler = try MCPHandler(dbPath: dbPath)
+
+        let open = try decodeRows(try await handler.getOpenDisputesResponseText(["status": "open"]))
+        #expect(open.isEmpty, "the SQL LIKE is a coarse net; the decoded key is what decides")
+
+        let resolved = try decodeRows(try await handler.getOpenDisputesResponseText(["status": "resolved"]))
+        #expect(resolved.count == 1)
+        #expect(resolved[0]["deferred"] == nil)
+    }
+
+    // MARK: - Review F08/F10: the LIMIT caps the FILTERED set, not the superset
+
+    /// The `resolved` SQL clause (`d.resolution IS NOT NULL`) matches parked
+    /// rows too, and the Swift narrow then drops them. With the cap on the
+    /// un-narrowed superset, the newest parked disputes ate every slot and
+    /// the tool answered "nothing has ever been resolved" while plenty had.
+    @Test func resolvedDisputesAreNotCrowdedOutByNewerParkedOnes() async throws {
+        let dbPath = try makeDB()
+        // Older rows (lower rowid) are the genuinely-resolved ones …
+        for i in 0..<6 {
+            try addDispute(dbPath: dbPath, kind: "fieldValue", field: "settled-\(i)", resolved: true)
+        }
+        // … and the owner has since parked ten newer conflicts with
+        // "Decide later", which is exactly what `ORDER BY rowid DESC` sees first.
+        for i in 0..<10 {
+            try addDispute(dbPath: dbPath, kind: "fieldValue", field: "parked-\(i)",
+                           resolutionJSON: Self.deferredJSON)
+        }
+        let handler = try MCPHandler(dbPath: dbPath)
+
+        let capped = try decodeRows(
+            try await handler.getOpenDisputesResponseText(["status": "resolved", "limit": 4]))
+        #expect(capped.count == 4,
+                "limit:4 with 6 resolved disputes must return 4 — parked rows must not consume result slots")
+        #expect(capped.allSatisfy { $0["status"] as? String == "resolved" })
+        #expect(capped.allSatisfy { ($0["field"] as? String)?.hasPrefix("settled-") == true })
+
+        // And a limit above the true count returns the whole answer, so a
+        // short result honestly means "that is all there is".
+        let everything = try decodeRows(
+            try await handler.getOpenDisputesResponseText(["status": "resolved", "limit": 100]))
+        #expect(everything.count == 6)
+
+        // The mirror image on the open arm: newer RESOLVED rows must not
+        // crowd out the open ones the superset also sweeps in.
+        for i in 0..<8 {
+            try addDispute(dbPath: dbPath, kind: "fieldValue", field: "open-\(i)")
+        }
+        for i in 0..<8 {
+            try addDispute(dbPath: dbPath, kind: "fieldValue", field: "closed-\(i)",
+                           resolutionJSON: "{\"manual\":{\"_0\":\"deferred to the GRO certificate\"}}")
+        }
+        let handler2 = try MCPHandler(dbPath: dbPath)
+        let open = try decodeRows(
+            try await handler2.getOpenDisputesResponseText(["status": "open", "limit": 5]))
+        #expect(open.count == 5)
+        #expect(open.allSatisfy { $0["status"] as? String == "open" })
+    }
+
+    /// Regression fence on the gate that must NOT move with the read surfaces.
+    @Test func deferredDisputeStillDoesNotBlockAutoApproval() async throws {
+        let dbPath = try makeDB()
+        try addDispute(dbPath: dbPath, kind: "fieldValue", field: "birthDate",
+                       resolutionJSON: Self.deferredJSON)
+        let handler = try MCPHandler(dbPath: dbPath)
+        let reason = try await handler.approvalRefusalReason(pendingFactID: "PF1")
+        #expect(reason != "open_dispute_on_target",
+                "the §14.3 gate is `resolution IS NULL` by design — HealthTriage.blocksAutoApproval mirrors it")
     }
 }

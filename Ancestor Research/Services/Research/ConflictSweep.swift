@@ -63,6 +63,15 @@ nonisolated struct ConflictSweep {
             return report
         }
 
+        // Review F03 (2026-08-26) — one query, not one per profile. See the
+        // re-derivation arm below for why the sweep needs the APPROVED half of
+        // the proposal queue at all. Deliberately NOT `try?`: swallowing this
+        // read would leave the retraction pass unable to re-derive the re-role
+        // shape, which is precisely the state that silently closed the dispute.
+        let approvedRoleProposals = try db.approvedParentRoleProposals()
+        let roleProposalsBySubject = Dictionary(
+            grouping: approvedRoleProposals, by: \.toProfileID)
+
         for profile in snapshot.profiles.values {
             report.profilesScanned += 1
             let events = snapshot.lifeEvents[profile.id] ?? []
@@ -88,10 +97,15 @@ nonisolated struct ConflictSweep {
             for (field, canonical) in [(ProfileField.birthLocation, profile.birthLocation),
                                        (ProfileField.deathLocation, profile.deathLocation)] {
                 let sources = try db.fieldSources(profileID: profile.id, field: field)
+                // EV9 (2026-08-26): the pending-facts accept path stores raw as
+                // "<value> [<sourceTitle>]" (ProjectDatabase+PendingFactsReview)
+                // while the profile column holds the bare value, so comparing the
+                // stored raw against the column disputed a value with itself.
                 for source in sources {
                     if let conflict = ConflictDetector.stringFieldConflict(
                         field: field, existing: canonical, existingSources: sources,
-                        candidate: source.raw, candidateOrigin: source.origin,
+                        candidate: AppliedFactTarget.parseRaw(source.raw).value,
+                        candidateOrigin: source.origin,
                         profileID: profile.id, detectedBy: .consistencySweep) {
                         conflicts.append(conflict)
                     }
@@ -138,6 +152,54 @@ nonisolated struct ConflictSweep {
                     profileID: profile.id, role: role.rawValue,
                     candidateNames: candidates)
                 try db.upsertHypotheses(seeds)
+            }
+
+            // EV27 / Review F03 (2026-08-26) — the RE-ROLE arm. When an
+            // approved parent proposal re-roles an EXISTING edge (same parent,
+            // same child, father↔mother), `approvePendingRelationship`
+            // deliberately leaves the edge alone and records the disagreement
+            // as a `.parentRole` dispute keyed `role:<parentID>`.
+            //
+            // The F4a arm above only ever emits `father`/`mother`, so that key
+            // was never in `detected` — and the retraction pass at the bottom
+            // of this loop closes every open structural dispute it cannot
+            // re-derive. The very next sweep therefore auto-resolved the
+            // dispute while the edge kept its old role and the proposal sat
+            // marked approved: the disagreement EV27 exists to preserve was
+            // destroyed by an unrelated background pass, with no record
+            // anywhere and nothing left asking the human to re-role.
+            //
+            // Re-derived here rather than exempted from retraction, because
+            // exemption would only swap the failure round: a dispute nothing
+            // re-derives is also a dispute nothing can CLOSE, so re-rolling
+            // the edge with the in-row Father/Mother menu — exactly what the
+            // dispute's own reasoning tells the user to do — would leave a
+            // permanent red banner over a tree that now agrees with itself.
+            // Re-derivation keeps the reconcile running in both directions.
+            for proposal in roleProposalsBySubject[profile.id] ?? [] {
+                guard let proposed = ParentRole(rawValue: proposal.role),
+                      proposed != .unspecified,
+                      let edge = snapshot.relationships.first(where: {
+                          $0.type == .parent
+                              && $0.from == proposal.fromProfileID
+                              && $0.to == profile.id
+                      }),
+                      let current = edge.role,
+                      current != .unspecified, current != proposed,
+                      let occupant = snapshot.profiles[proposal.fromProfileID]
+                else { continue }
+                // Identity and competing-source RAWS reproduced verbatim from
+                // `ProjectDatabase.recordParentRoleDispute`, so a re-derivation
+                // JOINS the open row as a no-op (§4.3 upsert identity) instead
+                // of appending a duplicate witness on every sweep.
+                conflicts.append(ConflictDetector.parentRoleReassignmentConflict(
+                    subjectID: profile.id, currentRole: current,
+                    occupant: occupant, occupantEdge: edge,
+                    proposedDescription:
+                        "same parent re-roled \(current.rawValue) → \(proposed.rawValue)",
+                    proposedOrigin: SourceOrigin(
+                        identifier: "relationship-proposal.\(proposal.id.prefix(12))"),
+                    detectedBy: .consistencySweep))
             }
 
             // F4b — fact-grade marriage attestations whose record spouse
@@ -242,7 +304,46 @@ nonisolated struct ConflictSweep {
 
 // MARK: - Sweep persistence helpers
 
+/// One APPROVED `pending_relationships` parent proposal that names a role —
+/// the input `ConflictSweep` needs to re-derive EV27's role-reassignment
+/// dispute (Review F03, 2026-08-26).
+nonisolated struct ApprovedParentRoleProposal: Sendable, Equatable {
+    let id: String
+    /// The proposed PARENT — the `from` side of the parent edge, and the
+    /// second half of the dispute's `role:<parentID>` field key.
+    let fromProfileID: String
+    /// The CHILD — the profile the dispute is filed against.
+    let toProfileID: String
+    /// Raw `pending_relationships.role`; parsed by the caller so an
+    /// unparseable value is skipped exactly as `approvePendingRelationship`
+    /// skips it (it coerces to `.unspecified`, which writes no dispute).
+    let role: String
+}
+
 nonisolated extension ProjectDatabase {
+
+    /// Approved parent proposals that name a real role, oldest first.
+    /// Read-only — the Evidence Firewall's write rules are untouched.
+    func approvedParentRoleProposals() throws -> [ApprovedParentRoleProposal] {
+        try dbQueue.read { db in
+            let rows = try Row.fetchAll(db, sql: """
+                SELECT id, from_profile_id, to_profile_id, role
+                FROM pending_relationships
+                WHERE review_status = 'approved'
+                  AND rel_type = 'parent'
+                  AND role IS NOT NULL
+                  AND role NOT IN ('', 'unspecified')
+                ORDER BY created_at ASC
+                """)
+            return rows.map { row in
+                ApprovedParentRoleProposal(
+                    id: row["id"] ?? "",
+                    fromProfileID: row["from_profile_id"] ?? "",
+                    toProfileID: row["to_profile_id"] ?? "",
+                    role: row["role"] ?? "")
+            }
+        }
+    }
 
     /// Attested field_sources rows for one (profile, field), oldest first.
     /// Carries each row's stored `Citation` (repository/collection/page/url)

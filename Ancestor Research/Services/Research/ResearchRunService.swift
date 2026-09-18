@@ -392,6 +392,35 @@ enum ResearchRunService {
                 }
             }
 
+            // EV7 (2026-08-26) — the clean-zero queries EXCLUDED from
+            // `genuineNegativeKeys` because their premise was uncited. Until
+            // now nothing about them survived the run: the caveat lived only
+            // in a 30-entry in-memory activity ring, so a fan-out that rested
+            // on a GEDCOM-only maiden name ended up indistinguishable from one
+            // that was never run. Recorded as `result_kind = "assumed"`, which
+            // `loadNegativeSearchKeys` refuses to load (so it can NEVER
+            // suppress a re-search), `loadNegativeSearches` refuses to load
+            // (so it never counts as a searched surface for GPS criterion 1),
+            // and `NegativeSearchRow.isCleanNegative` reads as false (so the
+            // Dossier labels it a partial answer, never absence).
+            for assumed in NegativeSearchAggregator.assumedNegatives(
+                outcomes: result.searchOutcomes,
+                scoredRecords: result.allScoredRecords
+            ) {
+                do {
+                    try db.saveNegativeSearch(
+                        profileID: profileID,
+                        sourceID: assumed.sourceID,
+                        recordType: assumed.recordType.rawValue,
+                        params: assumed.queryKey,
+                        resultKind: "assumed",
+                        hitCount: 0
+                    )
+                } catch {
+                    failures.append(.init(what: "Save assumed negative", error: error))
+                }
+            }
+
             // T1-01 / FT-23 — outcome-aware accounting: sources that only
             // errored / were blocked / returned truncated pages no longer
             // count toward "reasonably exhaustive search".

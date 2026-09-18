@@ -11,11 +11,12 @@ import SwiftUI
 //      LifeEvent with confidence == .tentative
 //
 // Leads are deliberately NOT a task stream (owner decision 2026-07-17):
-// they are research findings, and Triage is their one home — the identity-
-// grouped Findings queue and the Possible People discovery panel. Tasks
-// shows only a one-line pointer ("N leads awaiting triage") so the queue's
-// existence stays visible without re-hosting it; the old flat per-lead rows
-// were the pre-pivot presentation of the raw noise pool, superseded twice
+// they are research findings, reviewed on the person's profile card and
+// routed by the Workbench's Attention section (SC-9 retired the Triage
+// tab and its Possible People panel — review M9). Tasks shows only a
+// one-line pointer ("N leads awaiting review") so the queue's existence
+// stays visible without re-hosting it; the old flat per-lead rows were
+// the pre-pivot presentation of the raw noise pool, superseded twice
 // (identity grouping, then clustering).
 //
 // The data layer is pure/nonisolated so the aggregator is trivially testable
@@ -327,7 +328,10 @@ struct UnifiedTasksView: View {
     @AppStorage("tasksGroupByProfile") private var groupByProfile: Bool = true
 
     /// Callback fired by the leads-pointer banner — hands the user off to
-    /// the Triage tab, the one home for leads (Findings + Possible People).
+    /// the Workbench, whose Attention section routes lead review to the
+    /// person's profile card (SC-9 retired the Triage tab; the callback
+    /// keeps its historical name because ContentView owns the wiring —
+    /// review M9).
     let onOpenTriage: () -> Void
 
     /// Callback fired when the user clicks the label area of a task row
@@ -580,7 +584,8 @@ struct UnifiedTasksView: View {
 
     // MARK: - Leads pointer (owner decision 2026-07-17)
 
-    /// Leads live in Triage, not here — this one-line banner keeps the queue
+    /// Leads are reviewed on profile cards (routed via the Workbench's
+    /// Attention section), not here — this one-line banner keeps the queue
     /// visible from Tasks without re-hosting it as task rows.
     private var activeLeadCount: Int {
         leads.filter {
@@ -600,7 +605,10 @@ struct UnifiedTasksView: View {
                 Button {
                     onOpenTriage()
                 } label: {
-                    Label("Open Triage", systemImage: "arrow.right")
+                    // SC-9 follow-up (review M9): the handler routes to the
+                    // Workbench now — the button must name where it goes,
+                    // not the retired Triage tab.
+                    Label("Open Workbench", systemImage: "arrow.right")
                 }
                 .buttonStyle(.glass)
                 .controlSize(.small)

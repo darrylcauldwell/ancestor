@@ -45,18 +45,24 @@ struct ResearchProgressSheet: View {
             Divider()
             HStack {
                 if vm.isResearching {
-                    Text("Running in the background. You can close this and check progress on the Research tab.")
+                    // SC-9 follow-up (review M9): the Research tab this copy
+                    // used to point at was retired with the surface
+                    // consolidation — closing mid-run now lands the outcome
+                    // on the person's profile card when it arrives.
+                    Text("Running in the background. You can close this — results land on the person's profile card when the run finishes.")
                         .font(AppTypography.cardMeta)
                         .foregroundStyle(.secondary)
                 } else if let result = vm.currentResult, result.consensusProposalCount > 0 {
                     // Slice B3 — surface subject-self-narrowing proposals so
-                    // the user notices them in Triage. Per
+                    // the user notices them. Per
                     // `SUBJECT_SELF_NARROWING_SPEC.md` §6: footer-only,
-                    // no accept/reject here — the real decision happens
-                    // in Triage where the supporting evidence renders.
+                    // no accept/reject here — the real decision happens in
+                    // the record review where the supporting evidence
+                    // renders (SC-3: the detached review window, not the
+                    // retired Triage tab — review M9).
                     let n = result.consensusProposalCount
                     let plural = n == 1 ? "" : "s"
-                    Label("\(n) narrowing proposal\(plural) — review in Triage", systemImage: "sparkles")
+                    Label("\(n) narrowing proposal\(plural) — included when you review the results", systemImage: "sparkles")
                         .font(AppTypography.cardMeta)
                         .foregroundStyle(.blue)
                 }
@@ -70,9 +76,10 @@ struct ResearchProgressSheet: View {
                     .buttonStyle(.glass)
                     .keyboardShortcut(".", modifiers: .command)
                 }
-                // The dismiss hands off to Triage where the run's review
-                // renders immediately — say so (owner request 2026-07-15:
-                // 'Done' read as a dead end and sent the user hunting).
+                // The dismiss hands off to the detached record-review window
+                // (SC-3) where the run's review renders immediately — say so
+                // (owner request 2026-07-15: 'Done' read as a dead end and
+                // sent the user hunting).
                 Button(vm.isResearching
                        ? "Close"
                        : (vm.currentResult != nil ? "Review results" : "Done")) { onDismiss() }

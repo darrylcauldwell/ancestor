@@ -124,9 +124,11 @@ struct HealthTriageTests {
     @Test func oneClickLeadsItsBandButNeverOutranksSeverity() {
         let snap = snapshot()
         // Both amber, same person. The quick win's label sorts AFTER the
-        // judgement row's ("Freebmd link missing" > "Birth before death"), so
+        // judgement row's ("Census parent unlock" > "Birth before death"), so
         // only K3 can put it first — with K3 removed this goes red.
-        let amberQuick = key(finding("freebmdLinkMissing", severity: .warning), snap)
+        // (Was freebmdLinkMissing until review M6 ejected it from the
+        // registry — its only click is a network fetch.)
+        let amberQuick = key(finding("censusParentUnlock", severity: .warning), snap)
         let amberJudge = key(finding("birthBeforeDeath", severity: .warning), snap)
         #expect(amberQuick.ruleLabel > amberJudge.ruleLabel,
                 "premise: the label opposes the quick-win rank")
@@ -177,7 +179,6 @@ struct HealthTriageTests {
     @Test func alwaysOneClickRules() {
         let snap = snapshot()
         #expect(isOneClick(finding("censusParentUnlock", severity: .warning), snap))
-        #expect(isOneClick(finding("freebmdLinkMissing", severity: .info), snap))
     }
 
     /// Review fix 2026-08-25 — these two LOOK like quick wins and are not:
@@ -188,12 +189,6 @@ struct HealthTriageTests {
         let snap = snapshot()
         #expect(!isOneClick(finding("censusUnabsorbed", severity: .warning), snap))
         #expect(!isOneClick(finding("parishFamilyUnabsorbed", severity: .warning), snap))
-    }
-
-    /// The FreeBMD enrich button sits behind `appState.currentDatabase`.
-    @Test func freebmdEnrichNeedsALiveDatabase() {
-        let snap = snapshot()
-        #expect(!isOneClick(finding("freebmdLinkMissing", severity: .info), snap, hasDatabase: false))
     }
 
     @Test func judgementRowsAreNeverOneClick() {
@@ -226,7 +221,9 @@ struct HealthTriageTests {
         // snapshot (no spouse, no census), so no ⚡ is promised.
         #expect(!isOneClick(finding("marriedSurnameFromSpouse", severity: .warning), snap))
         #expect(!isOneClick(finding("censusAgeBirthYear", severity: .warning), snap))
-        // censusRelationship needs .info AND more than one missing relative.
+        // censusRelationship needs .info AND an actionable census roster —
+        // none exists on a snapshot with no census life events. (The positive
+        // cases live in CensusReconciliationQuickWinTests.)
         #expect(!isOneClick(finding("censusRelationship", severity: .warning), snap))
         #expect(!isOneClick(finding("censusRelationship", severity: .info), snap))
     }

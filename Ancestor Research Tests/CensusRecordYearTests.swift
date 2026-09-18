@@ -141,4 +141,31 @@ struct CensusRecordYearTests {
             censusYear: 0))
         #expect(ProfileSourcesLedger.censusYear(of: broken) == nil)
     }
+
+    /// A marriage record is the evidence that would CREATE the spouse edge, so
+    /// gating the marriage axis on that edge made it unreachable. William
+    /// Gladwin jr had 22 marriage records — 19 FreeBMD index rows and three
+    /// FreeREG parish weddings — no spouse, and not one record visible on his
+    /// card (EV34, owner dogfood 2026-08-26).
+    @Test func theMarriageAxisSurvivesAMissingSpouseEdge() {
+        #expect(SharedProfileLayout.marriageAxisTitle(
+            spouseEdgeCount: 0, marriageRecordCount: 22)
+            == "Marriage records — no spouse on the tree yet")
+    }
+
+    /// With a spouse on the tree the axis keeps its own heading — the marriage
+    /// evidence belongs beside the edge it attests.
+    @Test func theSpousesHeadingIsUnchangedWhenAnEdgeExists() {
+        #expect(SharedProfileLayout.marriageAxisTitle(
+            spouseEdgeCount: 1, marriageRecordCount: 0) == "Spouses")
+        #expect(SharedProfileLayout.marriageAxisTitle(
+            spouseEdgeCount: 2, marriageRecordCount: 3) == "Spouses")
+    }
+
+    /// Nothing to show renders nothing — the fix must not stamp an empty
+    /// heading onto every spouse-less profile in the tree.
+    @Test func theMarriageAxisStaysHiddenWithNoEdgeAndNoRecords() {
+        #expect(SharedProfileLayout.marriageAxisTitle(
+            spouseEdgeCount: 0, marriageRecordCount: 0) == nil)
+    }
 }

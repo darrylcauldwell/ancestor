@@ -142,14 +142,17 @@ struct CensusNearMatchIdentityTests {
                 "James's own row is resolved to James — so he cannot also be an open rival for Thomas")
     }
 
-    /// And the rival set is what refuses the pairing, not the tree side. Take
-    /// James's row off the schedule and every other guard still passes: Thomas is
-    /// the only tree child the years and sex allow, the surname agrees, and the
-    /// forenames do not. His presence is the whole difference.
+    /// And the rival set is what refused the pairing, not the tree side. With
+    /// James's row off the schedule every other guard passes: Thomas is the only
+    /// tree child the years and sex allow, the surname agrees, and the forenames
+    /// do not.
     ///
-    /// `yearTolerance` is 3 and |1864 − 1861| is exactly 3, so James sits on the
-    /// boundary — he qualifies as a rival by one year of census-age slack while
-    /// being, on the tree, a 1865-born boy four years off the candidate.
+    /// `yearTolerance` is 3 and |1864 − 1861| is exactly 3, so James sat exactly
+    /// on the boundary — he qualified as a rival by one year of census-age slack
+    /// while being, on the tree, a 1865-born boy four years off the candidate.
+    /// Since EV18 the outcome no longer depends on his absence (the test below
+    /// asserts the same result with the full schedule); this one holds the
+    /// simpler half of the pair.
     @Test func removingTheAlreadyMatchedPeerIsWhatUnblocksTheNearMatch() throws {
         let snapshot = gladwinTree(household: whittington1871(includeJames: false))
         let john = try #require(entry("John H Gladwin", in: snapshot))
@@ -158,6 +161,46 @@ struct CensusNearMatchIdentityTests {
             return
         }
         #expect(candidateID == "thomas")
+    }
+
+    /// EV18. James's row is already resolved to the tree's James, so he is not an
+    /// open rival for Thomas's identity — the question about John H must be asked
+    /// with the whole schedule present, not only when his brother is deleted.
+    @Test func anAlreadyResolvedRosterPeerDoesNotVetoTheNearMatch() throws {
+        let snapshot = gladwinTree(household: whittington1871())
+        let john = try #require(entry("John H Gladwin", in: snapshot))
+        guard case .nearMatch(let candidateID, _) = john.status else {
+            Issue.record("an already-matched brother must not veto the question, got \(john.status)")
+            return
+        }
+        #expect(candidateID == "thomas")
+    }
+
+    /// The rung must not swing the other way. Samuel's 1861 roster lists his
+    /// father John (Head, b.1824) and his mother Ruth (Wife, b.1824). Both are
+    /// `.parent` to Samuel, same surname, same year, no sex column — and John's
+    /// row already resolves to the tree's John. Excluding a spoken-for peer must
+    /// never leave Ruth free to near-match onto her own husband.
+    @Test func aPeerResolvedToTheCandidateStillRefusesTheNearMatch() throws {
+        let samuel = person("samuel", "Samuel", "Wheeldon", birthYear: 1853, gender: .male)
+        let john   = person("john", "John", "Wheeldon", birthYear: 1824, gender: .male)
+        // No sex column and no stated birth year — the year comes from
+        // census-year − age, exactly as the transcription leaves it.
+        let household = [
+            HouseholdMember(name: "John Wheeldon", relationship: "Head", age: 37),
+            HouseholdMember(name: "Ruth Wheeldon", relationship: "Wife", age: 37),
+            HouseholdMember(name: "Samuel Wheeldon", relationship: "Son", age: 8, isTarget: true)]
+        let event = LifeEvent(id: UUID(), profileID: "samuel", type: .census,
+                              date: GenealogicalDate(parsing: "1861"),
+                              details: .census(CensusDetails(household: household)))
+        let snapshot = FamilyGraphSnapshot(
+            profiles: ["samuel": samuel, "john": john],
+            relationships: [parentEdge("john", "samuel")],
+            lifeEvents: ["samuel": [event]])
+
+        let recon = try #require(CensusRelationshipReconciler.reconciliations(for: samuel, in: snapshot).first)
+        let ruth = try #require(recon.entries.first { $0.member.name == "Ruth Wheeldon" })
+        #expect(ruth.status == .missing, "Ruth is a missing mother, never a near-match of her husband")
     }
 
     // MARK: - Problem 2: a proposal must never read as a decision
@@ -291,5 +334,35 @@ struct CensusNearMatchIdentityTests {
         let thomas = try #require(snap.profiles["thomas"])
         #expect(thomas.firstName == "Thomas")
         #expect(thomas.birthDate?.bestYear == 1861)
+    }
+
+    // MARK: - An unconfirmed match is never resolved by silence
+
+    /// A household where every other row is settled and one row is only
+    /// PROPOSED must still reach a review surface: with no `.missing`, no
+    /// `.unlinkedInTree` and no in-law, the census-relationship rule was the
+    /// last surface left and it emitted nothing at all (EV18, 2026-08-26).
+    @Test func aLoneUnconfirmedNameMatchStillRaisesAReviewableGap() throws {
+        let samuel  = person("samuel", "Samuel", "Holmes", birthYear: 1847, gender: .male)
+        let harriet = person("harriet", "Harriet", "Holmes", birthYear: 1857, gender: .female)
+        let household = [
+            HouseholdMember(name: "Samuel Holmes", relationship: "Head", age: 44, sex: "M", isTarget: true),
+            HouseholdMember(name: "Harriett Holmes", relationship: "Wife", age: 34, sex: "F")]
+        let event = LifeEvent(id: UUID(), profileID: "samuel", type: .census,
+                              date: GenealogicalDate(parsing: "1891"),
+                              details: .census(CensusDetails(household: household)))
+        let snapshot = FamilyGraphSnapshot(
+            profiles: ["samuel": samuel, "harriet": harriet],
+            relationships: [spouseEdge("samuel", "harriet")],
+            lifeEvents: ["samuel": [event]])
+
+        // Nothing is missing, unlinked, or an in-law — the near-match is all there is.
+        #expect(CensusRelationshipReconciler.findings(for: samuel, in: snapshot).isEmpty)
+        let proposals = CensusRelationshipReconciler.nearMatchProposals(for: samuel, in: snapshot)
+        #expect(proposals.count == 1)
+        #expect(proposals.first?.candidateID == "harriet")
+        let results = CensusRelationshipRule().evaluate(profile: samuel, snapshot: snapshot)
+        #expect(results.contains { $0.ruleID == "censusRelationship" && $0.severity == .info },
+                "the only unconfirmed row on the schedule must still be reachable for review")
     }
 }

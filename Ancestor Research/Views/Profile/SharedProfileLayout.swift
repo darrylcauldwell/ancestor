@@ -44,7 +44,8 @@ struct DisputeSheetItem: Identifiable {
             reason: dispute.reason,
             competingSources: Self.liveCompetingSources(
                 stored: dispute.competingSources,
-                attested: profile.sources[dispute.field] ?? []),
+                attested: profile.sources[dispute.field] ?? [],
+                detectedBy: dispute.detectedBy),
             detectedAt: dispute.detectedAt,
             resolution: dispute.resolution,
             kind: dispute.kind,
@@ -67,24 +68,73 @@ struct DisputeSheetItem: Identifiable {
     /// row represents it (imports predating the provenance journal), and the
     /// pending-facts accept path does the same for the value it displaced. Those
     /// are the only route back to that value — dropping them would empty the
-    /// picker of the very side the user usually wants. So a value is dropped
-    /// only when its own SOURCE is still on this field under some other value,
-    /// which is exactly what record removal leaves behind: that one row gone,
-    /// the source's others intact.
+    /// picker of the very side the user usually wants.
+    ///
+    /// EV11 follow-up (review C4): "its origin holds no row on this field" is
+    /// NOT proof a competitor was synthesised — it is equally the state record
+    /// removal leaves behind when the removed row was that origin's ONLY one
+    /// here (a DEFERRED dispute survives un-apply, so its withdrawn value
+    /// stayed selectable and picking it wrote another family's registration
+    /// back onto the profile). The discriminator is origin kind plus producer:
+    /// origins record removal can never withdraw (`tree`, initial-import,
+    /// manual, engine-derived) may survive rowless, while a RECORD origin may
+    /// do so only on a `.runSweep` dispute — the run sweep detects
+    /// discrepancies before any apply (CL3 T-B), so its candidate side is
+    /// rowless by design. Every other producer attests record-origin
+    /// competitors at detection (`recordAlternativeFact` writes the
+    /// `field_sources` row even when the value loses the overwrite policy), so
+    /// a rowless record origin there means its evidence was fully withdrawn.
     ///
     /// Matched on (origin, case-folded value). The offered set can only SHRINK —
     /// nothing is introduced that the detector never weighed.
     nonisolated static func liveCompetingSources(
-        stored: [FieldSource], attested: [FieldSource]
+        stored: [FieldSource], attested: [FieldSource],
+        detectedBy: DisputeProducer? = nil
     ) -> [FieldSource] {
         func key(_ s: FieldSource) -> String {
             "\(s.origin.identifier)|\(s.raw.trimmingCharacters(in: .whitespaces).lowercased())"
         }
         let live = Set(attested.map(key))
         let originsOnField = Set(attested.map(\.origin.identifier))
-        return stored.filter {
-            live.contains(key($0)) || !originsOnField.contains($0.origin.identifier)
+        return stored.filter { source in
+            if live.contains(key(source)) { return true }
+            // Origin still on this field under some OTHER value: this one was
+            // withdrawn (the Emma Gladwin shape — one registration discarded,
+            // the source's other rows intact).
+            guard !originsOnField.contains(source.origin.identifier) else { return false }
+            if originSurvivesRowless(source.origin) { return true }
+            return detectedBy == .runSweep
         }
+    }
+
+    /// Origin kinds no record-removal path can withdraw. Removal deletes
+    /// `field_sources` rows only for the removed record's own source ID —
+    /// always a research-record plugin — so a rowless competitor from `tree`
+    /// (synthetic), engine enrichment, a manual entry, or an initial import
+    /// legitimately never had a row to lose and must stay on offer.
+    private nonisolated static func originSurvivesRowless(_ origin: SourceOrigin) -> Bool {
+        origin.identifier == "tree"
+            || origin.identifier == SourceOrigin.engineEnrichment.identifier
+            || origin.tier != .researchSource
+    }
+}
+
+/// Pure display policy for the ledger's research buckets (review C8): how many
+/// rows a bucket shows and when the show-all affordance appears. Extracted from
+/// the view so the expand-in-place behaviour is testable — the affordance must
+/// reveal the bucket's own rows, never route to a different review queue.
+nonisolated enum EvidenceBucketDisplay {
+    /// Rows a bucket shows before the user asks for the rest.
+    static let cap = 20
+
+    static func visibleCount(total: Int, showAll: Bool) -> Int {
+        showAll ? total : min(total, cap)
+    }
+
+    /// Shown only while rows are hidden; tapping it expands the bucket in
+    /// place with the same per-record Apply/Reject rows.
+    static func showsExpandAffordance(total: Int, showAll: Bool) -> Bool {
+        visibleCount(total: total, showAll: showAll) < total
     }
 }
 
@@ -419,6 +469,9 @@ struct SharedProfileLayout: View {
     @State private var expandedEvidenceKeys: Set<String> = []
     /// "<contextKey>|<standing>" for each open nested research bucket.
     @State private var expandedEvidenceBuckets: Set<String> = []
+    /// Buckets the user has asked to see past the row cap (review C8) —
+    /// cleared when the bucket collapses so a reopen starts capped again.
+    @State private var fullyShownEvidenceBuckets: Set<String> = []
     /// An applied record the user is confirming removal of (un-apply inline).
     @State private var recordRemovalCandidate: ProfileSourcesLedger.RecordDetail?
     /// Record ids whose evidence fetch is in flight (a census household or a
@@ -496,14 +549,19 @@ struct SharedProfileLayout: View {
                         .foregroundStyle(evidence.backed == evidence.present ? .green : .secondary)
                         .help("Evidenced — how many of the filled-in life facts (birth/death date and place) have an actual research record behind them, as opposed to only a GEDCOM/WikiTree import or a manually typed value.")
                     }
-                    // Pending-facts badge — small orange pill linking
-                    // to the firewall queue for this profile. Hidden
-                    // when zero so it doesn't clutter the common case.
-                    pendingFactsBadge
                 }
             }
 
             Divider()
+
+            // #EV29 — the firewall queue is the ONLY way external research
+            // enters the tree, so its door is a full-width row at the top of
+            // the card, not a caption2 pill in the metrics line where it read
+            // as a third statistic beside completeness and "N/M evidenced".
+            // Same sheet, same one click. The other three firewall queues
+            // (narratives, relationship proposals, leads) already render as
+            // their own blocks further down.
+            pendingFactsBanner
 
             // FreeREG parish-register lookup — LINK-ONLY by design (2026-07-27):
             // FreeREG's terms forbid programmatic searching, so the app can't
@@ -592,7 +650,8 @@ struct SharedProfileLayout: View {
                     // resolver (see `DisputeSheetItem.liveCompetingSources`).
                     let competing = DisputeSheetItem.liveCompetingSources(
                         stored: dispute.competingSources,
-                        attested: profile.sources[dispute.field] ?? [])
+                        attested: profile.sources[dispute.field] ?? [],
+                        detectedBy: dispute.detectedBy)
                     HStack(alignment: .top) {
                         VStack(alignment: .leading, spacing: 2) {
                             Text(dispute.field.rawValue)
@@ -1494,8 +1553,14 @@ struct SharedProfileLayout: View {
     }
 
     private func toggleEvidenceBucket(_ key: String) {
-        if expandedEvidenceBuckets.contains(key) { expandedEvidenceBuckets.remove(key) }
-        else { expandedEvidenceBuckets.insert(key) }
+        if expandedEvidenceBuckets.contains(key) {
+            expandedEvidenceBuckets.remove(key)
+            // Review C8 — a collapsed bucket forgets its "show all": reopening
+            // a 90-row bucket should start back at the bounded view.
+            fullyShownEvidenceBuckets.remove(key)
+        } else {
+            expandedEvidenceBuckets.insert(key)
+        }
     }
 
     // MARK: - Per-profile Health strip
@@ -1705,7 +1770,26 @@ struct SharedProfileLayout: View {
             let bkey = "\(key)|\(standing.rawValue)"
             let open = expandedEvidenceBuckets.contains(bkey)
             VStack(alignment: .leading, spacing: 4) {
-                Button { toggleEvidenceBucket(bkey) } label: {
+                Button {
+                    toggleEvidenceBucket(bkey)
+                    // EV31 (2026-08-26) — opening a research bucket IS the
+                    // decision gesture. `open` was captured before the toggle,
+                    // so `!open` means "was closed, now opening". Pull the
+                    // register entries for the top few parish candidates so the
+                    // parents — the fact that actually decides a namesake — are
+                    // on screen when the Apply/Reject buttons are. Capped,
+                    // session-deduped and budget-counted inside AppState;
+                    // changes nothing on the tree.
+                    if !open, standing == .researched {
+                        let bucketRows = records
+                        Task {
+                            if await appState.loadParishDetailsForReview(
+                                rows: bucketRows, profileID: profile.id) {
+                                reloadFactRecords()
+                            }
+                        }
+                    }
+                } label: {
                     HStack(spacing: 4) {
                         Image(systemName: open ? "chevron.down" : "chevron.right")
                         Text("\(label) (\(records.count))")
@@ -1716,8 +1800,9 @@ struct SharedProfileLayout: View {
                 }
                 .buttonStyle(.plain)
                 if open {
-                    let cap = 20
-                    let shown = Array(records.prefix(cap))
+                    let showAll = fullyShownEvidenceBuckets.contains(bkey)
+                    let shown = Array(records.prefix(
+                        EvidenceBucketDisplay.visibleCount(total: records.count, showAll: showAll)))
                     VStack(alignment: .leading, spacing: 4) {
                         // A rule between candidates. Rival records for the SAME
                         // fact stack here — three mutually exclusive 1861
@@ -1733,12 +1818,22 @@ struct SharedProfileLayout: View {
                             }
                             recordLine(rec, showPill: false)
                         }
-                        // A pending bucket can hold hundreds of namesake leads —
-                        // capping keeps the view tree bounded; the full review
-                        // opens in the card's own sheet (SC-1).
-                        if records.count > cap {
-                            Button { showingPendingReview = true } label: {
-                                Text("Showing \(cap) of \(records.count) — review all →")
+                        // A research bucket can hold dozens of namesake leads —
+                        // capping keeps the view tree bounded until the user asks
+                        // for the rest, and the ask expands THIS bucket in place.
+                        //
+                        // SC-1 follow-up (review C8): this button used to open
+                        // the pending-facts sheet — a DIFFERENT queue (the
+                        // firewall's `pending_facts` via PendingFactsProcessor),
+                        // which never lists these scored records and reads "No
+                        // Pending Findings" when that queue is empty. Rows past
+                        // the cap were unreachable from the very button that
+                        // promised them; the two rejected buckets' tails had no
+                        // view path at all.
+                        if EvidenceBucketDisplay.showsExpandAffordance(
+                            total: records.count, showAll: showAll) {
+                            Button { fullyShownEvidenceBuckets.insert(bkey) } label: {
+                                Text("Showing \(shown.count) of \(records.count) — show all →")
                                     .font(AppTypography.badge)
                                     .foregroundStyle(.blue)
                             }
@@ -2073,36 +2168,53 @@ struct SharedProfileLayout: View {
         appState.currentDatabase?.pendingFactCount(profileID: profile.id) ?? 0
     }
 
-    /// Pill that surfaces firewall-queued evidence on the profile detail
-    /// header. Tapping opens the review sheet right on the card (SC-1).
-    /// Hidden when nothing is pending so the badge doesn't accrue visual
-    /// noise on most profiles.
+    /// Full-width row surfacing firewall-queued evidence for this profile.
+    /// Tapping opens the review sheet right on the card (SC-1). Hidden when
+    /// nothing is pending so it doesn't accrue visual noise on most profiles.
+    ///
+    /// #EV29 (2026-08-26) — this was a `caption2` pill wedged into the metrics
+    /// HStack beside completeness and "N/M evidenced", where it read as a
+    /// third statistic rather than a queue with work in it. The pending-facts
+    /// queue is the only route external research (MCP `submit_evidence`, MLX
+    /// extraction) enters the tree, and it was the one firewall queue without
+    /// a block of its own on the card.
     @ViewBuilder
-    private var pendingFactsBadge: some View {
+    private var pendingFactsBanner: some View {
         let count = pendingFactCount
         if count > 0 {
             Button {
                 // SC-1 — review opens right here, in a sheet on the card.
                 // (Formerly a two-part deep-link into the Triage tab, which
-                // is being retired.)
+                // has since been retired.)
                 showingPendingReview = true
             } label: {
-                HStack(spacing: 4) {
+                HStack(spacing: 8) {
                     Image(systemName: "tray.full.fill")
-                        .font(.system(size: 9, weight: .semibold))
-                    Text("\(count) pending")
-                        .font(.caption2.weight(.semibold))
+                        .foregroundStyle(.orange)
+                    VStack(alignment: .leading, spacing: 1) {
+                        Text("\(count) fact\(count == 1 ? "" : "s") awaiting review")
+                            .font(AppTypography.cardTitle)
+                        Text("Submitted through the Evidence Firewall — nothing reaches the tree until you rule on it.")
+                            .font(AppTypography.cardMeta)
+                            .foregroundStyle(.secondary)
+                    }
+                    Spacer()
+                    Text("Review")
+                        .font(AppTypography.controlLabel)
+                        .foregroundStyle(.blue)
+                    Image(systemName: "chevron.right")
+                        .font(AppTypography.badge)
+                        .foregroundStyle(.tertiary)
                 }
-                .padding(.horizontal, 6)
-                .padding(.vertical, 2)
-                .background(Color.orange.opacity(0.18))
-                .foregroundStyle(.orange)
-                .clipShape(.capsule)
+                .padding(10)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .background(Color.orange.opacity(0.12), in: .rect(cornerRadius: 10))
+                .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
             .help("Evidence proposals awaiting human review for this profile. Click to review here.")
-            .accessibilityLabel("\(count) pending facts")
-            .accessibilityHint("Opens Triage to review evidence proposals")
+            .accessibilityLabel("\(count) pending fact\(count == 1 ? "" : "s") awaiting review")
+            .accessibilityHint("Opens the pending-review sheet on this card")
         }
     }
 
@@ -2491,7 +2603,9 @@ struct SharedProfileLayout: View {
     /// jumps the tree to the relative (chevron affordance); otherwise plain
     /// text. Button, not `.onTapGesture` — tap gestures inside a ScrollView
     /// are unreliably delivered on macOS.
-    @ViewBuilder
+    // No @ViewBuilder: this function returns a single view explicitly, which
+    // disables the builder anyway. Keeping the attribute would imply a bare
+    // `if` branch here composes — it would be silently dropped instead.
     private func relativeRow(
         _ relative: Profile,
         removeEdgeID: UUID? = nil,
@@ -2582,7 +2696,10 @@ struct SharedProfileLayout: View {
     /// is how the wrong one gets applied, which happened twice in one evening.
     @ViewBuilder
     private func censusEvidence(forYear year: Int, key: String) -> some View {
-        let records = factRecords.filter { $0.recordType == .census && $0.censusYear == year }
+        // EV26 (2026-08-26) — one shared partition with `unplacedCensusEvidenceRow`
+        // below, so "under its event" and "unplaced" cannot drift apart and
+        // strand a record between them.
+        let records = ProfileSourcesLedger.partitionCensus(factRecords, eventYears: [year]).byYear[year] ?? []
         if !records.isEmpty {
             VStack(alignment: .leading, spacing: 2) {
                 HStack {
@@ -2610,9 +2727,8 @@ struct SharedProfileLayout: View {
         let eventYears = Set(appState.lifeEventsForProfile(profile.id)
             .filter { $0.type == .census }
             .compactMap(\.sortYear))
-        let orphans = factRecords.filter {
-            $0.recordType == .census && !eventYears.contains($0.censusYear ?? -1)
-        }
+        // EV26 — the exact complement of what `censusEvidence(forYear:)` shows.
+        let orphans = ProfileSourcesLedger.partitionCensus(factRecords, eventYears: eventYears).unplaced
         if !orphans.isEmpty {
             VStack(alignment: .leading, spacing: 2) {
                 HStack {
@@ -2632,6 +2748,24 @@ struct SharedProfileLayout: View {
         }
     }
 
+    /// The heading the marriage axis renders under, or nil when there is
+    /// nothing to show.
+    ///
+    /// Gating the axis on a spouse EDGE was a chicken-and-egg failure: a
+    /// marriage record is the evidence that would CREATE that edge, so until
+    /// the edge existed the record had nowhere on the card to appear. William
+    /// Gladwin jr had 22 marriage records — three of them FreeREG parish
+    /// weddings whose register entry names both fathers, the very page that
+    /// would identify the bride — and not one was reachable, because he has no
+    /// spouse (EV34, owner dogfood 2026-08-26). Same shape as
+    /// `unplacedCensusEvidenceRow`: evidence with no event to sit under still
+    /// gets a row, or it is invisible.
+    nonisolated static func marriageAxisTitle(spouseEdgeCount: Int,
+                                              marriageRecordCount: Int) -> String? {
+        if spouseEdgeCount > 0 { return "Spouses" }
+        return marriageRecordCount > 0 ? "Marriage records — no spouse on the tree yet" : nil
+    }
+
     @ViewBuilder
     private func spousesSection(for subject: Profile, snapshot: FamilyGraphSnapshot) -> some View {
         let spouseEdges = snapshot.relationships.filter { rel in
@@ -2642,10 +2776,11 @@ struct SharedProfileLayout: View {
         // wedding — the record whose detail names both fathers — invisible
         // beside the very spouse edge it attests (owner dogfood 2026-08-23).
         let marriageRecords = factRecords.filter { $0.recordType == .marriage || $0.isParishMarriage }
-        if !spouseEdges.isEmpty {
+        if let title = Self.marriageAxisTitle(spouseEdgeCount: spouseEdges.count,
+                                              marriageRecordCount: marriageRecords.count) {
             VStack(alignment: .leading, spacing: 4) {
                 HStack {
-                    Text("Spouses")
+                    Text(title)
                         .font(.caption)
                         .foregroundStyle(.secondary)
                     Spacer()

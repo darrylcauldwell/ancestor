@@ -87,7 +87,11 @@ struct GettingStartedView: View {
         VStack(alignment: .leading, spacing: 8) {
             Text("The flow")
                 .font(.title3).fontWeight(.semibold)
-            Text("Ancestor keeps a private, well-sourced copy of your family tree and researches it against free UK record sources. The loop is: your **Tree** holds what you know → **Research** finds new records → **Triage** is where you accept the right ones → accepted evidence flows back onto the Tree. **Tasks** flags data-quality issues, **Sourcing** shows citation coverage, and the **Workbench** holds your notes and questions.")
+            // SC-9 follow-up (review M9): the flow paragraph still walked the
+            // retired Research → Triage tabs. Rewritten to match the entries
+            // below — review happens on the person's card, routed by the
+            // Workbench's Attention section.
+            Text("Ancestor keeps a private, well-sourced copy of your family tree and researches it against free UK record sources. The loop is: your **Tree** holds what you know → research runs find new records → the **Workbench**'s Attention section points you at everything awaiting review, which happens on the person's card → accepted evidence flows back onto the Tree. **Health** flags data-quality issues, **Sourcing** shows citation coverage, and **Tasks** is your research worklist.")
                 .font(.callout)
                 .fixedSize(horizontal: false, vertical: true)
             Text("Nothing you don't confirm ever changes the tree, and the app works fully without any AI models.")

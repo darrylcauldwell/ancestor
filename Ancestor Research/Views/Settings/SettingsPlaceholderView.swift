@@ -17,8 +17,6 @@ struct SettingsPlaceholderView: View {
     @AppStorage("reasoningModelChoice") private var reasoningModelChoiceRaw: String = ReasoningModel.default.rawValue
     /// Launch-load opt-in — mirrors ContentRoot's gate; default OFF.
     @AppStorage("autoLoadReasoningModelAtLaunch") private var autoLoadReasoningModelAtLaunch = false
-    /// PROJECT_ONBOARDING_SPEC Part A Step 2 — semantic embedder consent
-    /// (shared with the setup wizard + the launch auto-load).
 
     /// Email extracted from project source — single source of truth.
     private var wikiTreeEmail: String {
@@ -213,12 +211,10 @@ struct SettingsPlaceholderView: View {
                 reasoningModelSection
             }
 
-            // PROJECT_ONBOARDING_SPEC Part A Step 2 — the semantic embedder's
-            // opt-in, matching the setup wizard. Enabling downloads it (if
-            // absent) and the app auto-uses it whenever present thereafter;
-            // disabling stops the launch auto-load next session.
-            Section("Semantic clustering") {
-            }
+            // SC-consolidation follow-up (review M8): the "Semantic
+            // clustering" section was removed with the embedder opt-in UI
+            // (3356bbb); the empty Section shell it left rendered a bare
+            // heading with nothing under it.
 
             Section {
                 DisclosureGroup("Backups") {

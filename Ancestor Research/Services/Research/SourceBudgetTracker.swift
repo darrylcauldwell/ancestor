@@ -99,6 +99,64 @@ actor SourceBudgetTracker {
 
     // MARK: - Mutations
 
+    /// Fold externally-persisted windows into the live ones, taking whichever
+    /// count is HIGHER within the same reset period.
+    ///
+    /// Review F02 (2026-08-26) — more than one tracker is alive at a time: a
+    /// research run's, `RunRequestWatcher`'s, and the on-demand parish-detail
+    /// fetcher's. Each rehydrates from `source_budget_state` when it is built
+    /// and never again, so each holds a private, drifting copy of a number that
+    /// belongs to a volunteer host, not to us. `saveSourceBudgetWindow` now
+    /// merges non-destructively, which stops a stale tracker un-spending a
+    /// budget — but it does so by DISCARDING the lower writer's count, so the
+    /// detail fetcher's requests became invisible whenever a run was
+    /// concurrently in flight, and the day's true total ran over the declared
+    /// ceiling. `absorb` is the read half of that merge: call it before a
+    /// dispatch decision and the tracker decides — and then counts — against
+    /// what has actually been spent.
+    ///
+    /// The merge rule mirrors `saveSourceBudgetWindow`'s exactly, but keyed on
+    /// the source's own declared reset rather than the UTC day the SQL has to
+    /// approximate with: same reset period → higher count wins and the window
+    /// keeps its earliest anchor (a source's first window is anchored at the
+    /// wall-clock moment of its first request, so two trackers legitimately
+    /// carry different `windowStart`s for the same day); a strictly LATER
+    /// period → the window rolled, which is the one legitimate reset, and the
+    /// once-per-window exhaustion announcement re-arms; an EARLIER period → a
+    /// writer that has not rolled forward yet, which cannot touch today.
+    func absorb(_ persisted: [SourceBudgetWindow]) {
+        let stamp = now()
+        for incoming in persisted {
+            let policy = policies[incoming.sourceID] ?? .unlimited
+            let incomingRolled = incoming.rolledForward(policy: policy, now: stamp)
+            guard let current = windows[incoming.sourceID] else {
+                windows[incoming.sourceID] = incomingRolled
+                continue
+            }
+            let currentRolled = current.rolledForward(policy: policy, now: stamp)
+            let incomingReset = policy.nextReset(after: incomingRolled.windowStart)
+            let currentReset = policy.nextReset(after: currentRolled.windowStart)
+            let merged: SourceBudgetWindow
+            if incomingReset > currentReset {
+                merged = incomingRolled
+            } else if incomingReset < currentReset {
+                merged = currentRolled
+            } else {
+                merged = SourceBudgetWindow(
+                    sourceID: incoming.sourceID,
+                    windowStart: min(currentRolled.windowStart, incomingRolled.windowStart),
+                    requestCount: max(currentRolled.requestCount, incomingRolled.requestCount))
+            }
+            windows[incoming.sourceID] = merged
+            // Re-arm the once-per-window announcement only on a genuine roll —
+            // taking an earlier anchor within the same period is not a new day.
+            if policy.nextReset(after: merged.windowStart)
+                > policy.nextReset(after: current.windowStart) {
+                announcedExhausted.remove(incoming.sourceID)
+            }
+        }
+    }
+
     /// Count one request that just fired against `sourceID`. Rolls the reset
     /// window if the day turned over (a fresh window resets the announced-
     /// exhausted flag), persists the new count, and — the first time the

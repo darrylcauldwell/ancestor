@@ -187,6 +187,35 @@ enum ProfileSourcesLedger {
         return c.censusYear > 0 ? c.censusYear : nil
     }
 
+    /// Every census record routed to exactly ONE home on the profile: the
+    /// census event for its year, or the unplaced bucket. TOTAL and DISJOINT
+    /// by construction.
+    ///
+    /// EV26 (2026-08-26) asked whether an unreviewed RIVAL falls out of the UI
+    /// once its year already carries an applied census. It does not — but that
+    /// was true only by two view-local `.filter`s in `SharedProfileLayout`
+    /// agreeing, and nothing enforced the agreement. This is the enforcement:
+    /// one predicate, two call sites, a record that leaves one bucket has to
+    /// arrive in the other.
+    nonisolated static func partitionCensus(
+        _ records: [RecordDetail], eventYears: Set<Int>
+    ) -> (byYear: [Int: [RecordDetail]], unplaced: [RecordDetail]) {
+        var byYear: [Int: [RecordDetail]] = [:]
+        var unplaced: [RecordDetail] = []
+        for rec in records where rec.recordType == .census {
+            if let year = rec.censusYear, eventYears.contains(year) {
+                byYear[year, default: []].append(rec)
+            } else {
+                // An unparsed census year (0 → nil, the EV22/EV3 specimens) is
+                // NOT silently dropped: it lands unplaced, which is where an
+                // applied-but-undateable record already belongs. Dropping it
+                // would be the real version of the bug EV26 imagined.
+                unplaced.append(rec)
+            }
+        }
+        return (byYear, unplaced)
+    }
+
     /// A census whose household roster could still be fetched: a census record
     /// with a detail URL but no roster yet. Pure — testable without a database.
     /// FreeCen enriches only the TOP search hit at search time, so every other

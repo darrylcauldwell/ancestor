@@ -666,8 +666,9 @@ public nonisolated struct MuddledIdentityRule: AuditRuleDefinition {
 /// whatever the evidence store does or doesn't remember.
 ///
 /// Index TWINS are not rivals: one registration is indexed under several row
-/// ids, so entries group by volume+page — the same registration identity the
-/// scorer's own exclusivity pass uses.
+/// ids, so entries group by the same registration identity the scorer's own
+/// exclusivity pass uses (`RecordScorer.isSameRegistration`): quarter +
+/// district + volume + page, tolerant of a citation that omits a component.
 public nonisolated struct RivalBirthRegistrationsRule: AuditRuleDefinition {
     public init() {}
 
@@ -675,7 +676,7 @@ public nonisolated struct RivalBirthRegistrationsRule: AuditRuleDefinition {
     public let category: AuditCategory = .issue
     public let displayName = "Rival Birth Registrations"
     public let description = "Two or more different GRO birth-index entries are cited on one profile's birth date — but a person is registered once."
-    public let fireCondition = "birthDate carries cited birth-index references with 2+ distinct volume/page pairs."
+    public let fireCondition = "birthDate carries cited birth-index references identifying 2+ distinct registrations (quarter + district + volume/page)."
     public let warningCondition: String? = nil
     public let workedExample = "Emma Gladwin's birth date cited both \u{201C}Dec 1867, Belper, vol. 7b/513\u{201D} and \u{201C}Dec 1865, Belper, vol. 7b/515\u{201D} — two babies, one profile."
     public let defaultSeverity = Severity.error
@@ -690,16 +691,68 @@ public nonisolated struct RivalBirthRegistrationsRule: AuditRuleDefinition {
     /// The DISTINCT birth registrations cited on a profile's birth date, in
     /// first-seen order. Shared by the rule and any fix that resolves it, so
     /// the finding and the action can never disagree about which entries rival.
+    ///
+    /// EV1-14 follow-up (review M3): vol/page ALONE is not a registration
+    /// identity — FreeBMD volume/page numbering restarts every quarter, so
+    /// "Dec 1865, Chesterfield, vol. 7b/513" and "Jun 1868, Chesterfield,
+    /// vol. 7b/513" are two different babies, and one district's page range
+    /// can collide with another's inside a quarter. Identity here mirrors
+    /// `RecordScorer.isSameRegistration` (type + quarter + district + vol +
+    /// page): entries sharing a vol/page are ONE registration unless a
+    /// discriminator — quarter, year, or district — is present on BOTH sides
+    /// and differs. A citation that OMITS a discriminator cannot be told apart
+    /// on that basis and is never split off for the omission.
     public static func registrations(for profile: Profile) -> [Registration] {
-        var out: [Registration] = []
-        var seen: Set<String> = []
-        for source in profile.sources[.birthDate] ?? [] {
-            guard let ref = birthRegistrationReference(source),
-                  seen.insert(ref).inserted else { continue }
-            let value = source.raw.trimmingCharacters(in: .whitespaces)
-            out.append(Registration(reference: ref, value: value.isEmpty ? "unstated date" : value))
+        struct Entry {
+            let reference: String
+            var quarter: Int?
+            var year: Int?
+            var district: String?
+            let value: String
         }
-        return out
+        var entries: [Entry] = []
+        for source in profile.sources[.birthDate] ?? [] {
+            guard let text = birthRegistrationCitationText(source),
+                  let match = volumePageMatch(in: text) else { continue }
+            let raw = source.raw.trimmingCharacters(in: .whitespaces)
+            // Quarter/year from the short VALUE string first — citation prose
+            // also carries an access date ("accessed 21 Jul 2026") and the
+            // collection's nominal year, either of which would poison a
+            // prose-wide scan. The citation's own date component (read
+            // shape-anchored beside the vol/page) fills in for an unstated one.
+            let shape = citedDateAndDistrict(in: text, before: match.range)
+            var (quarter, year) = quarterYear(in: raw)
+            if quarter == nil { quarter = shape.quarter }
+            if year == nil { year = shape.year }
+            let candidate = Entry(
+                reference: match.reference, quarter: quarter, year: year,
+                district: shape.district,
+                value: raw.isEmpty ? "unstated date" : raw)
+            if let i = entries.firstIndex(where: { existing in
+                existing.reference == candidate.reference
+                    && !conflicts(existing.quarter, candidate.quarter)
+                    && !conflicts(existing.year, candidate.year)
+                    && !conflicts(existing.district, candidate.district)
+            }) {
+                // The same registration seen through another index row — adopt
+                // any discriminator this row carries that the first sighting
+                // lacked, so later rows are judged against the fullest identity.
+                if entries[i].quarter == nil { entries[i].quarter = candidate.quarter }
+                if entries[i].year == nil { entries[i].year = candidate.year }
+                if entries[i].district == nil { entries[i].district = candidate.district }
+            } else {
+                entries.append(candidate)
+            }
+        }
+        return entries.map { Registration(reference: $0.reference, value: $0.value) }
+    }
+
+    /// Omission-tolerant inequality: a discriminator separates two entries only
+    /// when BOTH sides carry it — mirroring `RecordScorer.isSameRegistration`'s
+    /// quarter handling.
+    private static func conflicts<T: Equatable>(_ a: T?, _ b: T?) -> Bool {
+        guard let a, let b else { return false }
+        return a != b
     }
 
     /// The `volume/page` of a field source's citation when that citation is a
@@ -708,18 +761,32 @@ public nonisolated struct RivalBirthRegistrationsRule: AuditRuleDefinition {
     /// reached the birth date (an age-at-death backfill cites the DEATH) is not
     /// a rival birth registration.
     static func birthRegistrationReference(_ source: FieldSource) -> String? {
+        birthRegistrationCitationText(source).flatMap { volumePageMatch(in: $0)?.reference }
+    }
+
+    /// The citation's searchable text when it cites a civil-registration BIRTH
+    /// index entry; nil for anything else (baptism/christening, or a death or
+    /// marriage reference that reached the birth date).
+    static func birthRegistrationCitationText(_ source: FieldSource) -> String? {
         guard let citation = source.citation else { return nil }
         let text = [citation.collection, citation.title, citation.page, citation.notes]
             .compactMap { $0 }.joined(separator: " ")
         let lower = text.lowercased()
         guard lower.contains("birth") else { return nil }
         guard !lower.contains("baptis"), !lower.contains("christen") else { return nil }
-        return volumePage(in: text)
+        return text
     }
 
     /// "vol. 7b/513" (rendered citations) or "Volume 7b, page 513" (hand-entered
     /// ones) → "7b/513". Nil when the text carries no index reference.
     static func volumePage(in text: String) -> String? {
+        volumePageMatch(in: text)?.reference
+    }
+
+    /// The vol/page reference and WHERE it sits in the text — the range lets
+    /// `citedDateAndDistrict` anchor on the citation's own rendered shape
+    /// rather than scanning prose (review M3).
+    static func volumePageMatch(in text: String) -> (reference: String, range: NSRange)? {
         let ns = text as NSString
         let whole = NSRange(location: 0, length: ns.length)
         let patterns = [
@@ -729,9 +796,83 @@ public nonisolated struct RivalBirthRegistrationsRule: AuditRuleDefinition {
         for pattern in patterns {
             guard let re = try? NSRegularExpression(pattern: pattern, options: [.caseInsensitive]),
                   let m = re.firstMatch(in: text, range: whole), m.numberOfRanges == 3 else { continue }
-            return (ns.substring(with: m.range(at: 1)) + "/" + ns.substring(with: m.range(at: 2))).lowercased()
+            let ref = (ns.substring(with: m.range(at: 1)) + "/" + ns.substring(with: m.range(at: 2))).lowercased()
+            return (ref, m.range)
         }
         return nil
+    }
+
+    /// The date component and district a citation names beside its vol/page
+    /// reference, read from the app's own rendered shapes:
+    ///   "…, <name>, Dec 1867, Belper, vol. 7b/513; accessed …"
+    ///   "…, Belper registration district, March quarter 1834, volume 7b, page 213"
+    /// Of the two comma-separated components immediately before the reference,
+    /// exactly one parses as a quarter/year; the other — all letters — is the
+    /// district. Any other shape yields nils: a discriminator we cannot read
+    /// stays non-discriminating (omission tolerance), never guessed from prose
+    /// — no hardcoded place names, only the renderer's own field order.
+    static func citedDateAndDistrict(
+        in text: String, before matchRange: NSRange
+    ) -> (quarter: Int?, year: Int?, district: String?) {
+        let prefix = (text as NSString).substring(to: matchRange.location)
+        let comps = prefix.split(separator: ",")
+            .map { $0.trimmingCharacters(in: .whitespaces) }
+            .filter { !$0.isEmpty }
+        guard comps.count >= 2 else { return (nil, nil, nil) }
+        let last = comps[comps.count - 1]
+        let prev = comps[comps.count - 2]
+        let lastDate = quarterYear(in: last)
+        let prevDate = quarterYear(in: prev)
+        let date: (quarter: Int?, year: Int?)
+        let place: String
+        switch (lastDate.quarter != nil || lastDate.year != nil,
+                prevDate.quarter != nil || prevDate.year != nil) {
+        case (false, true): date = prevDate; place = last     // "…, Dec 1867, Belper, vol. …"
+        case (true, false): date = lastDate; place = prev     // "…, Belper registration district, March quarter 1834, volume …"
+        default: return (nil, nil, nil)
+        }
+        var district = place.lowercased()
+        if district.hasSuffix(" registration district") {
+            district = String(district.dropLast(" registration district".count))
+                .trimmingCharacters(in: .whitespaces)
+        }
+        guard !district.isEmpty, district.allSatisfy({
+            $0.isLetter || $0 == " " || $0 == "-" || $0 == "'" || $0 == "." || $0 == "&"
+        }) else { return (date.quarter, date.year, nil) }
+        return (date.quarter, date.year, district)
+    }
+
+    /// The GRO quarter (1–4) and year in a short date string — "Dec 1865" →
+    /// (4, 1865), "Q4 1867" → (4, 1867), "March quarter 1834" → (1, 1834),
+    /// "CAL 1866" → (nil, 1866). Word-bounded month tokens, so a district like
+    /// "Marylebone" never reads as March.
+    static func quarterYear(in text: String) -> (quarter: Int?, year: Int?) {
+        let ns = text as NSString
+        let whole = NSRange(location: 0, length: ns.length)
+        let monthsByToken: [String: Int] = [
+            "january": 1, "february": 2, "march": 3, "april": 4, "may": 5, "june": 6,
+            "july": 7, "august": 8, "september": 9, "october": 10, "november": 11, "december": 12,
+            "jan": 1, "feb": 2, "mar": 3, "apr": 4, "jun": 6, "jul": 7,
+            "aug": 8, "sep": 9, "sept": 9, "oct": 10, "nov": 11, "dec": 12,
+        ]
+        var quarter: Int?
+        let monthPattern = #"\b("#
+            + monthsByToken.keys.sorted { $0.count > $1.count }.joined(separator: "|")
+            + #")\b"#
+        if let re = try? NSRegularExpression(pattern: monthPattern, options: [.caseInsensitive]),
+           let m = re.firstMatch(in: text, range: whole),
+           let month = monthsByToken[ns.substring(with: m.range(at: 1)).lowercased()] {
+            quarter = (month + 2) / 3      // GRO quarters end Mar/Jun/Sep/Dec
+        } else if let re = try? NSRegularExpression(pattern: #"\bq([1-4])\b"#, options: [.caseInsensitive]),
+                  let m = re.firstMatch(in: text, range: whole) {
+            quarter = Int(ns.substring(with: m.range(at: 1)))
+        }
+        var year: Int?
+        if let re = try? NSRegularExpression(pattern: #"\b(1[5-9][0-9]{2}|20[0-9]{2})\b"#),
+           let m = re.firstMatch(in: text, range: whole) {
+            year = Int(ns.substring(with: m.range(at: 1)))
+        }
+        return (quarter, year)
     }
 
     public func evaluate(profile: Profile, snapshot: FamilyGraphSnapshot) -> [AuditResult] {
@@ -2075,14 +2216,56 @@ public nonisolated struct CensusRelationshipRule: AuditRuleDefinition {
         let missing = findings.filter { $0.kind == .missing }
         let unlinked = CensusRelationshipReconciler.unlinkedRelatives(for: profile, in: snapshot)
         let inLawLeads = CensusRelationshipReconciler.inLawLeads(for: profile, in: snapshot)
-        if !missing.isEmpty || !unlinked.isEmpty || !inLawLeads.isEmpty {
+        // EV18 (2026-08-26): an unconfirmed name match counts as outstanding
+        // business too. `.nearMatch` emits no `Finding` (it must never nag the
+        // owner to add someone they already have) and the absorption count drops
+        // the row, so a household whose ONLY open row was a near-match had no
+        // trigger left and disappeared from every surface — the app quietly
+        // keeping an identity question to itself. This panel is where both
+        // answers ("Same person" / "Add separately") live.
+        let nearMatches = CensusRelationshipReconciler.nearMatchProposals(for: profile, in: snapshot)
+        if !missing.isEmpty || !unlinked.isEmpty || !inLawLeads.isEmpty || !nearMatches.isEmpty {
             results.append(AuditResult(
                 profileID: profile.id, profileName: profile.displayName,
                 severity: .info, category: .gap, ruleID: id,
                 message: Self.gapMessage(subject: profile, missing: missing,
-                                         unlinked: unlinked, inLaw: inLawLeads)))
+                                         unlinked: unlinked, inLaw: inLawLeads,
+                                         nearMatches: nearMatches)))
         }
         return results
+    }
+
+    /// EV33 follow-up (review C5): true iff the reconciliation panel the Health
+    /// list hosts beneath this rule's `.info` gap row renders at least one
+    /// DETERMINISTIC one-click fix. The quick-win registry
+    /// (`HealthTriage.isOneClickFinding`) must mirror every one-click the list
+    /// renders, and the panel offers three, one per roster status:
+    ///   - `.missing`        → "Add <relation>" (renders only with a relation);
+    ///   - `.unlinkedInTree` → "Link <name>" (its action fires only with a
+    ///                          relation);
+    ///   - `.inLawOfSpouse`  → "Add <spouse>'s mother/father" (relation-free —
+    ///                          the roster's "-in-law" is relative to the head).
+    /// `.nearMatch` is deliberately EXCLUDED: its "Same person" / "Add
+    /// separately" pair is a judgement about an identity nobody has established
+    /// (EV18), never a quick win. One pass over the same roster statuses the
+    /// panel switches on, kept here beside the rule so the registry and the
+    /// row-render logic cannot drift apart again.
+    public static func hasOneClickReconciliation(
+        for profile: Profile, in snapshot: FamilyGraphSnapshot
+    ) -> Bool {
+        for recon in CensusRelationshipReconciler.reconciliations(for: profile, in: snapshot) {
+            for entry in recon.entries {
+                switch entry.status {
+                case .missing, .unlinkedInTree:
+                    if entry.censusRelation != nil { return true }
+                case .inLawOfSpouse:
+                    return true
+                case .subject, .inTree, .contradiction, .nearMatch, .outOfScope:
+                    break
+                }
+            }
+        }
+        return false
     }
 
     /// "The 1861 census records Mary Wheeldon as Samuel's sibling, but the tree
@@ -2103,12 +2286,26 @@ public nonisolated struct CensusRelationshipRule: AuditRuleDefinition {
     static func gapMessage(subject: Profile,
                            missing: [CensusRelationshipReconciler.Finding],
                            unlinked: [CensusRelationshipReconciler.UnlinkedRelative],
-                           inLaw: [CensusRelationshipReconciler.InLawLead]) -> String {
+                           inLaw: [CensusRelationshipReconciler.InLawLead],
+                           nearMatches: [CensusRelationshipReconciler.NearMatchProposal]) -> String {
         var parts: [String] = []
         if !missing.isEmpty { parts.append(missingMessage(subject: subject, missing: missing)) }
         if !unlinked.isEmpty { parts.append(unlinkedMessage(subject: subject, unlinked: unlinked)) }
         if !inLaw.isEmpty { parts.append(inLawMessage(subject: subject, inLaw: inLaw)) }
+        if !nearMatches.isEmpty { parts.append(nearMatchMessage(subject: subject, nearMatches: nearMatches)) }
         return parts.joined(separator: " ")
+    }
+
+    /// "A census names 1 row on William's household whose identity is
+    /// unconfirmed — the forename differs from a relative already linked:
+    /// John H Gladwin (child). Confirm or add separately."
+    static func nearMatchMessage(subject: Profile,
+                                 nearMatches: [CensusRelationshipReconciler.NearMatchProposal]) -> String {
+        let subjectName = subject.firstName ?? subject.displayName
+        let list = nearMatches.map { "\($0.member.name) (\(relationPhrase($0.relation)))" }
+            .joined(separator: ", ")
+        let n = nearMatches.count
+        return "A census names \(n) row\(n == 1 ? "" : "s") on \(subjectName)'s household whose identity is unconfirmed — the forename differs from a relative already linked: \(list). Confirm or add separately."
     }
 
     /// "A census names 1 of Kezia's relatives already in the tree but not linked:

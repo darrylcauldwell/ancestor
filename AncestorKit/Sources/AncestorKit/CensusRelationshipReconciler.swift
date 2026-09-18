@@ -519,6 +519,36 @@ public nonisolated struct CensusRelationshipReconciler {
         return candidates[0].profile
     }
 
+    /// The tree relative a roster row is ALREADY resolved to by a rung STRONGER
+    /// than the near-match one — the name+year match (`.inTree` or, in a
+    /// different role, `.contradiction`), the same-role fallback, or an existing
+    /// singleton edge — or nil when the row is still unspoken for.
+    ///
+    /// Mirrors the branch ORDER in `reconciliations` exactly (`matches` →
+    /// `sameRoleFallbackMatch` → `linkedSingletonRoleMatch`), minus the
+    /// tree-wide `.unlinkedInTree` rung, which needs a snapshot. Leaving that
+    /// one out is safe in both directions: it can only ever leave a row counted
+    /// as an open rival, which is the REFUSING direction, and it can never hide
+    /// a claim on the candidate — a peer that `matches` a tree relative is
+    /// caught by the first branch, so `.unlinkedInTree` never names one.
+    static func resolvedTreeRelativeID(
+        member: HouseholdMember,
+        relation: CensusRelation,
+        treeRelatives: [(profile: Profile, relation: CensusRelation)],
+        censusYear: Int?
+    ) -> String? {
+        if let m = treeRelatives.first(where: {
+            matches(member: member, profile: $0.profile, censusYear: censusYear)
+        }) { return m.profile.id }
+        if let m = treeRelatives.first(where: {
+            $0.relation == relation
+                && sameRoleFallbackMatch(member: member, profile: $0.profile,
+                                         relation: relation, censusYear: censusYear)
+        }) { return m.profile.id }
+        return linkedSingletonRoleMatch(member: member, relation: relation,
+                                        treeRelatives: treeRelatives)?.id
+    }
+
     /// A roster row whose FORENAME fails the similarity floor but whose
     /// STRUCTURE agrees: same census-implied relation, that relation a singleton
     /// among the subject's tree relatives, matching surname, and both birth years
@@ -544,7 +574,9 @@ public nonisolated struct CensusRelationshipReconciler {
     ///  - exactly ONE tree relative in that relation may agree on year and sex.
     ///  - and no OTHER roster row in that relation may equally fit that
     ///    candidate. Four children on the page and one on the tree is ambiguous
-    ///    unless year and sex single one out.
+    ///    unless year and sex single one out. A peer already resolved to its OWN
+    ///    tree profile is not a rival; a peer resolved to THIS candidate refuses
+    ///    outright.
     ///  - both sides must be dated. An undateable row already has
     ///    `sameRoleFallbackMatch`; it does not get a forename bypass as well.
     static func nearMatchCandidate(
@@ -568,13 +600,39 @@ public nonisolated struct CensusRelationshipReconciler {
         guard !namesMatch(member: member, profile: candidate) else { return nil }
         guard surnamesMatch(member: member, profile: candidate) else { return nil }
 
-        // Roster side: no other row in the same role could equally be this person.
+        // The candidate is already CLAIMED by another row on this schedule, by a
+        // stronger rung than this one. Two rows cannot both be one person, and
+        // the stronger claim wins — checked before the rival filter and across
+        // EVERY role, because `sameRoleFallbackMatch` can pair a parent/spouse
+        // whose year is nowhere near this member's. Load-bearing: without it,
+        // Ruth Wheeldon (Wife, b.1824) would near-match onto her own HUSBAND
+        // John (Head, b.1824) the moment his row is excluded as spoken-for —
+        // same surname, same census-implied role (both are Samuel's parents),
+        // same year, and no sex column to separate them.
+        if rosterPeers.contains(where: { peer in
+            peer.member != member
+                && resolvedTreeRelativeID(member: peer.member, relation: peer.relation,
+                                          treeRelatives: treeRelatives,
+                                          censusYear: censusYear) == candidate.id
+        }) { return nil }
+
+        // Roster side: no other UNRESOLVED row in the same role could equally be
+        // this person. A peer that already has its own identity on the tree is
+        // not competing for this one — EV18, 2026-08-26. William Gladwin's 1871
+        // Whittington schedule refused "John H Gladwin" (b.1861, Unstone)
+        // against the tree's "Thomas H Gladwin" (b.1861, Unstone) because his
+        // brother James, b.1864, sat exactly on the ±3 boundary — and James's
+        // own row resolves to the tree's James by name and year. An already
+        // matched sibling was vetoing a question about a different boy.
         let rivals = rosterPeers.filter { peer in
             peer.relation == relation
                 && peer.member != member
                 && !sexContradicts(member: peer.member, profile: candidate)
                 && memberBirthYear(peer.member, censusYear: censusYear)
                     .map { abs($0 - profileYear) <= yearTolerance } ?? false
+                && resolvedTreeRelativeID(member: peer.member, relation: peer.relation,
+                                          treeRelatives: treeRelatives,
+                                          censusYear: censusYear) == nil
         }
         guard rivals.isEmpty else { return nil }
 
@@ -686,6 +744,45 @@ public nonisolated struct CensusRelationshipReconciler {
             self.relation = relation
             self.censusYear = censusYear
         }
+    }
+
+    /// A roster row the engine can only PROPOSE an identity for — the near-match
+    /// rung's output, surfaced so a household whose ONLY outstanding row is an
+    /// unconfirmed name match still reaches a review surface. Silence would be
+    /// the app asserting the identity on the owner's behalf (EV18, 2026-08-26).
+    public struct NearMatchProposal: Sendable, Equatable {
+        public let member: HouseholdMember
+        public let candidateID: String
+        public let relation: CensusRelation
+        public let reason: String
+        public let censusYear: Int?
+        public init(member: HouseholdMember, candidateID: String, relation: CensusRelation,
+                    reason: String, censusYear: Int?) {
+            self.member = member
+            self.candidateID = candidateID
+            self.relation = relation
+            self.reason = reason
+            self.censusYear = censusYear
+        }
+    }
+
+    /// Every unconfirmed name match for `subject`, deduped by candidate +
+    /// relation. Distilled from `reconciliations` so rule and panel agree.
+    public static func nearMatchProposals(for subject: Profile, in snapshot: FamilyGraphSnapshot) -> [NearMatchProposal] {
+        var out: [NearMatchProposal] = []
+        var seen = Set<String>()
+        for recon in reconciliations(for: subject, in: snapshot) {
+            for entry in recon.entries {
+                guard case .nearMatch(let candidateID, let reason) = entry.status,
+                      let relation = entry.censusRelation else { continue }
+                if seen.insert("\(candidateID)|\(relation)").inserted {
+                    out.append(.init(member: entry.member, candidateID: candidateID,
+                                     relation: relation, reason: reason,
+                                     censusYear: recon.censusYear))
+                }
+            }
+        }
+        return out
     }
 
     /// Every unlinked-but-in-tree relative for `subject`, deduped by existing

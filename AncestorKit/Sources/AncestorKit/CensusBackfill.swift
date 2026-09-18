@@ -185,6 +185,20 @@ public nonisolated struct CensusBackfill {
     /// the household record. Absorbing this lands the member's social history and
     /// cites the census on their profile — the same shape the researched subject's
     /// own census record has.
+    ///
+    /// THE MINTED ID IS NOT A HOUSEHOLD IDENTITY. Review F01 (2026-08-26): it is
+    /// `sourceID + member name + census year`, so two unrelated households that
+    /// each list a "John Land" in 1881 produce the SAME id — and, projected onto
+    /// the same profile, the same `SourceRecord.deterministicID`. Nothing
+    /// downstream may treat a match on this id as proof of which household a
+    /// value came from (`ProjectDatabase+LifeEventCitationBackfill` is the
+    /// cautionary case: it must register every id-matching household as a rival
+    /// and refuse the repair when they disagree). Deliberately left alone rather
+    /// than made unique: the id is already baked into every derived life event
+    /// absorbed in every live tree, and re-minting it would orphan those rows
+    /// from their record — breaking `addLifeEventIfAbsent` idempotency (a second
+    /// absorb would duplicate the event) and `removeAppliedRecord`'s ability to
+    /// delete them.
     public static func memberRecord(for member: HouseholdMember, in household: CensusRecord) -> CensusRecord {
         let year = household.censusYear
         let birthYear = member.birthYear ?? member.age.map { year - $0 }

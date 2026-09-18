@@ -333,11 +333,29 @@ extension ProjectDatabase {
     ) -> [HouseholdMember] {
         guard let raw = payload["household"] as? [[String: Any]], !raw.isEmpty else { return [] }
         let members = raw.prefix(30).compactMap { m -> HouseholdMember? in
-            guard let name = m["name"] as? String, !name.isEmpty,
-                  let relationship = m["relationship"] as? String, !relationship.isEmpty
-            else { return nil }
+            // EV20 (2026-08-26): "" is a legitimate NAME on a census schedule —
+            // an unnamed infant. The row is evidence and is stored;
+            // `CensusFamilyLinker.familyLinks` is the guard that stops it
+            // becoming a profile. A row with no name AND no role AND no age is a
+            // table artefact and is still refused.
+            let name = ((m["name"] as? String) ?? "")
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            let relationship = ((m["relationship"] as? String) ?? "")
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            // `is Int` rather than `!= nil`: a JSON null decodes to NSNull, and
+            // the fields below read `as? Int` anyway, so a non-numeric age is
+            // not information this row carries.
+            guard !name.isEmpty || !relationship.isEmpty
+                    || m["age"] is Int || m["birth_year"] is Int else { return nil }
             return HouseholdMember(
                 name: name,
+                // EV28 (2026-08-26): "" is a legitimate relationship — the
+                // 1841 census has no relationship column, and the app's own
+                // FreeCEN parser stores "" for it under the comment "1841 has
+                // no Relationship column — empty, never guessed". Requiring it
+                // here deleted the ENTIRE 1841 roster on accept, so the census
+                // landed as bare prose: no typed census details, no census
+                // evidence record.
                 relationship: relationship,
                 age: m["age"] as? Int,
                 birthYear: m["birth_year"] as? Int,

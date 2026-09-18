@@ -372,10 +372,44 @@ struct EvidenceLeadSyncTests {
     /// shared type, no compiler check — so this test replays the MCP INSERT
     /// verbatim against a REAL migrated schema and reads it back through the
     /// app's real loader.
+    /// The writer's REAL id derivation, replicated byte-for-byte from the MCP
+    /// package (EV33 follow-up, review C2 — the previous version of this test
+    /// substituted `UUID().uuidString` for the id, which is exactly the value
+    /// that decides app-side visibility, so it passed while every real writer
+    /// row failed to decode):
+    ///   * `MCPHandler.idempotencyKey` — djb2 over
+    ///     "profileID|field|value|sourceURL", formatted "fr_%016llx";
+    ///   * `MCPHandler.noteUUIDString(fromLegacyID:)` — the 16 hex digits
+    ///     doubled to 32, uppercased, hyphenated 8-4-4-4-12.
+    private func mcpWriterNoteID(
+        profileID: String, field: String, value: String, sourceURL: String
+    ) -> String {
+        let input = "\(profileID)|\(field)|\(value)|\(sourceURL)"
+        var hash: UInt64 = 5381
+        for byte in input.utf8 {
+            hash = ((hash &<< 5) &+ hash) &+ UInt64(byte)
+        }
+        let hex = String(format: "%016llx", hash)
+        let digits = Array((hex + hex).uppercased())
+        return [digits[0..<8], digits[8..<12], digits[12..<16], digits[16..<20], digits[20..<32]]
+            .map { String($0) }
+            .joined(separator: "-")
+    }
+
     @Test func anMCPRefusalReasonNoteIsReadableInTheApp() throws {
         let db = try makeDB()
         let profileID = subject().id
         let now = Date()
+        // The id the real writer derives for this discard: same content hash,
+        // same UUID mapping (EV33 follow-up, review C2 — no more hand-built
+        // UUID().uuidString diverging from the writer).
+        let reason = "namesake — this is the Belper Sarah."
+        let handle = "freebmd_death_7b_1527_179857986"
+        let noteID = mcpWriterNoteID(
+            profileID: profileID, field: "discard_reason",
+            value: reason, sourceURL: handle)
+        #expect(UUID(uuidString: noteID) != nil,
+                "the writer's id must be a UUID string or noteFromRow drops it")
         // Byte-for-byte the statement in MCPHandler.writeRefusalReasonNote —
         // same column list, same omission of `sensitive` (NOT NULL, DEFAULT 0).
         try db.dbQueue.write { conn in
@@ -385,9 +419,9 @@ struct EvidenceLeadSyncTests {
                  created_at, updated_at)
                 VALUES (?, ?, ?, ?, 'profile', ?, ?, ?)
                 """, arguments: [
-                    UUID().uuidString,
-                    "Discarded scored record freebmd_death_7b_1527_179857986 via MCP "
-                        + "discard_scored_record: namesake — this is the Belper Sarah.",
+                    noteID,
+                    "Discarded scored record \(handle) via MCP "
+                        + "discard_scored_record: \(reason)",
                     "meta",
                     #"{"profile":{"id":"\#(profileID)"}}"#,
                     profileID, now, now,
@@ -399,6 +433,7 @@ struct EvidenceLeadSyncTests {
         #expect(notes.first?.content.contains("Belper Sarah") == true)
         #expect(notes.first?.tag == .meta)
         #expect(notes.first?.attachedTo == .profile(id: profileID))
+        #expect(notes.first?.id == UUID(uuidString: noteID))
     }
 
     /// Pins the `attached_to` contract from the app's side, so the literal the

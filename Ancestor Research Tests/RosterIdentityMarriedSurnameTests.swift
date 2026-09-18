@@ -220,6 +220,11 @@ nonisolated struct RosterIdentityMarriedSurnameTests {
     /// `CensusFamilyLinker` has always known and the gate re-derived by hand,
     /// wrongly, with `relationship.contains("wife") || contains("husband")`.
     /// A husband on his own schedule is never labelled "Husband"; he is "Head".
+    ///
+    /// REPAIRED 2026-08-26: `checkFamilyContext` now routes through
+    /// `CensusFamilyLinker.category` (made public for exactly this) and scores
+    /// the spouse under every surname she is known by. The gate-side tests live
+    /// in `FamilyContextGateSpouseTests`; this stays as the premise.
     @Test func linkedSpouseOnTheHeadRowIsACensusFamilyRelation() {
         let household = [
             member("William GLADWIN", "Head", age: 40),

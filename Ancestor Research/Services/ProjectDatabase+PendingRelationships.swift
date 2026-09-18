@@ -92,7 +92,87 @@ nonisolated extension ProjectDatabase {
             note: [pending.evidenceText, pending.sourceTitle]
                 .compactMap { $0 }.joined(separator: " — ")
         )
-        let (edgeID, _) = try addRelationshipIfAbsent(rel, existenceEvidence: evidence)
+        // EV27 — snapshot the PRE-state: the occupancy check must not see the
+        // edge we are about to write.
+        let pre = try buildSnapshot()
+        let existingEdge = pre.relationships.first {
+            $0.type == .parent
+                && $0.from == pending.fromProfileID
+                && $0.to == pending.toProfileID
+        }
+        let (edgeID, inserted) = try addRelationshipIfAbsent(rel, existenceEvidence: evidence)
+
+        // EV27 (2026-08-26) — a parent proposal that names a role used to
+        // create a SECOND parent edge for the same pair, because the dedup
+        // was role-sensitive. The dedup is now (from, to, type), so the role
+        // has to be reconciled here instead: fill an empty one, and record —
+        // never silently apply — a genuine role CHANGE.
+        if pending.relType == "parent", let proposed = role, proposed != .unspecified {
+            // Review F06 (2026-08-26): `statesProposedRole` is the ONE
+            // question that gates the F4a occupancy check — "when this
+            // approval is finished, does an edge from this parent to this
+            // child state `proposed`?" It used to be asked on the INSERT arm
+            // only, so the check turned on an irrelevant precondition: an
+            // external proposal naming M2 as C1's mother opened the dispute
+            // when M2 had no prior edge, and opened NOTHING when M2 already
+            // had a `role: .unspecified, subtype: .biological` edge — the
+            // shape `ProjectDatabase+PromoteLead` (sibling/parent ghosts) and
+            // `AppState.addCensusFamily` (roster row of unknown sex) both
+            // produce routinely. The fill silently completed a two-mothers
+            // state with no dispute recorded, invisible until the next
+            // project open ran ConflictSweep, and `ExcessParentEdgesRule`
+            // cannot see it either — that rule errors only above TWO parent
+            // edges and warns only on an anonymous stub, so exactly two NAMED
+            // mothers raises nothing at all.
+            // External input must never be able to create a contradiction the
+            // app does not record — so the fill arm now asks what the insert
+            // arm asks, which is also what `ApplyEngine` does on BOTH its
+            // `.matched` (link-existing) and `.noMatch` (create-new) arms.
+            var statesProposedRole = inserted
+            if !inserted, let existingEdge {
+                switch existingEdge.role {
+                case .none, .some(.unspecified):
+                    // Fill-only: the check-before-overwrite rule's "only where
+                    // the current value is empty" arm, the same policy
+                    // `fillRelationshipMarriage` applies below.
+                    _ = try setRelationshipRole(relationshipID: edgeID, role: proposed)
+                    statesProposedRole = true
+                case .some(let current) where current != proposed:
+                    // A role CHANGE on an existing edge is neither a duplicate
+                    // nor something an approval may do silently. Leave the
+                    // edge alone and record the disagreement; the human
+                    // re-roles with the in-row Father/Mother menu. The edge
+                    // keeps `current`, so no NEW occupant of `proposed` is
+                    // created — the F4a check deliberately does not run here.
+                    try recordParentRoleDispute(
+                        subjectID: pending.toProfileID, role: current,
+                        occupantEdge: existingEdge,
+                        occupant: pre.profiles[pending.fromProfileID],
+                        proposedDescription: "same parent re-roled \(current.rawValue) → \(proposed.rawValue)",
+                        pending: pending, reassignment: true)
+                default:
+                    // The edge already states `proposed` — nothing to write,
+                    // but the state it affirms may still be two-mothers, and
+                    // `upsertDispute` is idempotent on (entity, kind, field).
+                    statesProposedRole = true
+                }
+            }
+            if statesProposedRole,
+               let occupied = ConflictDetector.occupiedBiologicalRole(
+                   subjectID: pending.toProfileID, role: proposed,
+                   excludingParentID: pending.fromProfileID, snapshot: pre) {
+                // F4a parity with `ApplyEngine.openParentRoleDisputeIfOccupied`:
+                // a SECOND, DIFFERENT person accepted into an occupied
+                // biological role. Both edges stand (when in doubt, split) —
+                // the two-mothers state just can no longer be invisible.
+                try recordParentRoleDispute(
+                    subjectID: pending.toProfileID, role: proposed,
+                    occupantEdge: occupied.edge, occupant: occupied.occupant,
+                    proposedDescription: pre.profiles[pending.fromProfileID]?.displayName
+                        ?? pending.fromProfileID,
+                    pending: pending, reassignment: false)
+            }
+        }
 
         if pending.relType == "spouse",
            pending.marriageDate != nil || pending.marriageLocation != nil {
@@ -159,6 +239,34 @@ nonisolated extension ProjectDatabase {
             }
             return counts
         }) ?? [:]
+    }
+
+    /// EV27 — open (or join) the parent-role dispute an approval surfaced.
+    /// `reassignment` picks the shape: a re-role of the SAME parent's edge,
+    /// or F4a's two-different-parents-in-one-role. Either way the proposal is
+    /// still marked approved by the caller — the user acted, and leaving it
+    /// pending would re-prompt forever.
+    private func recordParentRoleDispute(
+        subjectID: String, role: ParentRole,
+        occupantEdge: Relationship, occupant: Profile?,
+        proposedDescription: String, pending: PendingRelationship,
+        reassignment: Bool
+    ) throws {
+        guard let occupant else { return }
+        let origin = SourceOrigin(identifier: "relationship-proposal.\(pending.id.prefix(12))")
+        let conflict = reassignment
+            ? ConflictDetector.parentRoleReassignmentConflict(
+                subjectID: subjectID, currentRole: role, occupant: occupant,
+                occupantEdge: occupantEdge, proposedDescription: proposedDescription,
+                proposedOrigin: origin)
+            : ConflictDetector.parentRoleConflict(
+                subjectID: subjectID, role: role, occupant: occupant,
+                occupantEdge: occupantEdge,
+                proposedParentDescription: proposedDescription,
+                proposedParentOrigin: origin, evidenceRecordIDs: [])
+        _ = try upsertDispute(
+            profileID: subjectID, conflict: conflict,
+            adjudication: DisputeResolver.adjudicate(conflict))
     }
 
     private func setPendingRelationshipStatus(id: String, status: String) throws {

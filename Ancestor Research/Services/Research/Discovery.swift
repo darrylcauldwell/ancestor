@@ -157,6 +157,13 @@ nonisolated struct DiscoveryExtractor {
         let subjectNameUpper = profile.displayName.uppercased()
         for member in result.householdMembers {
             let nameUpper = member.name.uppercased()
+            // EV20 (2026-08-26): an unnamed roster row is EVIDENCE (it is stored
+            // and shown on the census roster), but it is not a person anyone can
+            // add: every discovery here ends in "Add … to tree", and a profile
+            // with no name is exactly what `CensusFamilyLinker.familyLinks`
+            // refuses to create. Skipping also keeps the name-keyed discovery id
+            // below unique now that nameless rows reach this loop.
+            if member.name.trimmingCharacters(in: .whitespaces).isEmpty { continue }
             if nameUpper == subjectNameUpper { continue }   // never the subject themselves
             let isInTree = snapshot.profiles.values.contains { p in
                 p.displayName.uppercased() == nameUpper
@@ -305,12 +312,17 @@ nonisolated struct DiscoveryExtractor {
                         let knownChildren = snapshot.childrenOf(profile.id)
                         let knownSiblings = snapshot.siblingsOf(profile.id)
                         let subjectName = profile.displayName.uppercased()
-                        for member in household {
+                        for (rosterIndex, member) in household.enumerated() {
                             let rel = member.relationship.lowercased()
                             guard rel.contains("son") || rel.contains("daughter") else { continue }
                             // Never offer the subject themselves.
                             if member.isTarget == true { continue }
                             if member.name.uppercased() == subjectName { continue }
+                            // EV20 (2026-08-26): a nameless row cannot become a
+                            // person — "Add  as sister" is not an action. The
+                            // row stays visible as roster evidence; it just
+                            // raises no add-a-person discovery.
+                            if member.name.trimmingCharacters(in: .whitespaces).isEmpty { continue }
 
                             let birthYear = member.birthYear
                                 ?? member.age.map { r.censusYear - $0 }
@@ -322,7 +334,12 @@ nonisolated struct DiscoveryExtractor {
                                 if known { continue }
                                 let sib = rel.contains("daughter") ? "sister" : "brother"
                                 discoveries.append(Discovery(
-                                    id: "disc-sib-\(member.name.hashValue)_\(r.censusYear)",
+                                    // EV20 (2026-08-26): keyed on the roster
+                                    // POSITION as well as the name — one
+                                    // schedule can list two rows the name alone
+                                    // cannot tell apart, and a shared id
+                                    // collapses them into one discovery.
+                                    id: "disc-sib-\(member.name.hashValue)_\(rosterIndex)_\(r.censusYear)",
                                     type: .unknownSibling,
                                     description: "\(member.name) (\(sib))",
                                     evidence: "\(r.censusYear) census household",
@@ -340,7 +357,9 @@ nonisolated struct DiscoveryExtractor {
                                 }
                                 if known { continue }
                                 discoveries.append(Discovery(
-                                    id: "disc-child-\(member.name.hashValue)_\(r.censusYear)",
+                                    // EV20 (2026-08-26): roster position in the
+                                    // id, as for the sibling case above.
+                                    id: "disc-child-\(member.name.hashValue)_\(rosterIndex)_\(r.censusYear)",
                                     type: .unknownChild,
                                     description: "\(member.name) (\(member.relationship))",
                                     evidence: "\(r.censusYear) census household",

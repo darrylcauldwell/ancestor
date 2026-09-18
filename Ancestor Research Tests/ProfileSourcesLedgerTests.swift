@@ -63,6 +63,45 @@ struct ProfileSourcesLedgerTests {
         #expect(e.establishes.contains { $0.hasPrefix("birth date") })
     }
 
+    // MARK: - EV26 — census records have exactly one home
+
+    private func censusDetail(_ id: String, year: Int?,
+                              standing: ProfileSourcesLedger.Standing) -> ProfileSourcesLedger.RecordDetail {
+        ProfileSourcesLedger.RecordDetail(
+            id: id, sourceID: "freecen", recordType: .census, verdict: .fact,
+            standing: standing, citation: "FreeCen \(year.map(String.init) ?? "?") \(id)",
+            citationURL: nil, ageDetail: nil, reconcileNote: nil, matchRank: 0,
+            duplicateIDs: [id], registrationKey: nil, censusYear: year)
+    }
+
+    /// EV26 — the filed claim was that a rival for a year that already has an
+    /// applied census falls out of the UI. It must sit WITH the applied record
+    /// under that year's census event, where Apply/Reject act on it.
+    @Test func unreviewedRivalStaysWithItsCoveredCensusYear() {
+        let applied = censusDetail("freecen_1891_a", year: 1891, standing: .applied)
+        let rival = censusDetail("freecen_1891_b", year: 1891, standing: .researched)
+        let part = ProfileSourcesLedger.partitionCensus([applied, rival], eventYears: [1891])
+        #expect(part.byYear[1891]?.map(\.id).sorted() == ["freecen_1891_a", "freecen_1891_b"])
+        #expect(part.unplaced.isEmpty)
+    }
+
+    /// Totality: every census record has exactly one home, so none can be
+    /// hidden by a year being covered — including one whose year never parsed
+    /// (the EV22/EV3 year-0 specimens, which an APPLIED record can also carry).
+    @Test func everyCensusRecordLandsInExactlyOneBucket() {
+        let records = [
+            censusDetail("covered", year: 1891, standing: .applied),
+            censusDetail("rival", year: 1891, standing: .researched),
+            censusDetail("uncovered", year: 1881, standing: .researched),
+            censusDetail("undateable", year: nil, standing: .researched),
+        ]
+        let part = ProfileSourcesLedger.partitionCensus(records, eventYears: [1891])
+        let landed = part.byYear.values.flatMap { $0 }.map(\.id) + part.unplaced.map(\.id)
+        #expect(landed.sorted() == records.map(\.id).sorted())    // total
+        #expect(Set(landed).count == landed.count)                // disjoint
+        #expect(part.unplaced.map(\.id).sorted() == ["uncovered", "undateable"])
+    }
+
     @Test func gedcomOnlyProfileHasNoResearchRecords() throws {
         let db = try makeDB()
         _ = try db.addProfile(Profile(

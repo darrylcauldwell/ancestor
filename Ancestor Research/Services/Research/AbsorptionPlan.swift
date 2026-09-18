@@ -49,14 +49,33 @@ nonisolated extension SourceRecord {
             if let date = ApplyEngine.bmdDate(year: r.birthYear, quarter: r.quarter, exact: r.birthDate) {
                 items.append(.dateField(.birthDate, date))
             }
-            if let loc = nonEmpty(r.birthPlace ?? r.district) {
+            // EV30 (owner dogfood 2026-08-26) — the record's own PLACE only.
+            // A GRO registration district is not a birthplace: Whittington
+            // children register at Chesterfield, and the index never names the
+            // town. Nothing is lost — the district lands structured and uncited
+            // in `Profile.birthRegistrationDistrict` (written independently by
+            // `ApplyEngine.applyFactToSubject`) and it is in the citation text.
+            //
+            // EV4 closed the OVERWRITE half; the blank-fill half is the one its
+            // guard cannot reach, and it is the damaging one.
+            // `shouldOverwriteStringField` returns true on an empty field
+            // BEFORE the coarser-place check runs, and once a `.researchSource`
+            // district is seated no other research source can displace it (tier
+            // equality) — so the real parish is locked out permanently and a
+            // later census birthplace opens a dispute instead of landing.
+            if let loc = nonEmpty(r.birthPlace) {
                 items.append(.stringField(.birthLocation, loc))
             }
         case .death(let r):
             if let date = ApplyEngine.bmdDate(year: r.deathYear, quarter: r.quarter, exact: r.deathDate) {
                 items.append(.dateField(.deathDate, date))
             }
-            if let loc = nonEmpty(r.deathPlace ?? r.district) {
+            // EV30 — as for birth: the death index names the district the death
+            // was REGISTERED in, not where the person died. There is no
+            // `deathRegistrationDistrict` column to route it to, but it still
+            // survives in the citation and in the evidence row's record_json —
+            // it is simply no longer asserted as a place of death.
+            if let loc = nonEmpty(r.deathPlace) {
                 items.append(.stringField(.deathLocation, loc))
             }
         case .marriage(let m):

@@ -54,7 +54,7 @@ public nonisolated struct CensusFamilyLinker {
 
     /// How a roster row relates to the Head, once ambiguous / non-family forms
     /// are filtered out.
-    private enum Category { case head, spouse, child, parent, sibling }
+    public enum Category: Sendable, Equatable { case head, spouse, child, parent, sibling }
 
     /// Proposed family links for the subject, derived from the household roster.
     ///
@@ -156,7 +156,10 @@ public nonisolated struct CensusFamilyLinker {
     /// auto-link). Order matters: modifier forms (possessive, in-law, grand-,
     /// step-, foster, adopted) and non-family roles are filtered BEFORE the base
     /// matches, so "grandson" isn't read as a child nor "son-in-law" as a son.
-    private static func category(of role: String) -> Category? {
+    ///
+    /// Public since EV25 (2026-08-26) — the scorer's family-context gate reads
+    /// it instead of re-deriving roster roles by hand.
+    public static func category(of role: String) -> Category? {
         let r = role.lowercased().trimmingCharacters(in: .whitespaces)
         guard !r.isEmpty else { return nil }
         // Possessive ("wife's sister", "son's wife") — a relation of a relation.

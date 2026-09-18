@@ -43,7 +43,7 @@ struct PendingFactStructuredCensusTests {
                 ["name": "Elizabeth Cauldwell", "relationship": "Wife", "age": 39],
                 ["name": "Martha Barker", "relationship": "Ma-Law", "age": 76, "marital_status": "W"],
                 ["name": "Ernest Cauldwell", "relationship": "Son", "age": 13, "birth_place": "Turnditch"],
-                ["name": "", "relationship": "Son"],   // malformed — dropped, not fatal
+                ["name": "", "relationship": "Son"],   // unnamed infant — kept as evidence (EV20)
             ]
         }
         return String(data: try! JSONSerialization.data(withJSONObject: payload), encoding: .utf8)!
@@ -65,7 +65,7 @@ struct PendingFactStructuredCensusTests {
             Issue.record("expected typed census details, got \(String(describing: event.details))")
             return
         }
-        #expect(details.household.count == 4, "malformed nameless member dropped")
+        #expect(details.household.count == 5, "an unnamed row is evidence, not a malformed row")
         #expect(details.district == "Belper")
         #expect(details.parish == "Turnditch")
         let ernestRow = try #require(details.household.first { $0.name == "Ernest Cauldwell" })
@@ -81,7 +81,7 @@ struct PendingFactStructuredCensusTests {
             Issue.record("expected census record"); return
         }
         #expect(rec.censusYear == 1901)
-        #expect(rec.household?.count == 4)
+        #expect(rec.household?.count == 5)
         #expect(census.userStatus == .savedAsLead)
         // Born applied: accepting the card wrote the life event in the same
         // flow, so the ledger must never offer "Apply" on this record (owner
@@ -124,7 +124,7 @@ struct PendingFactStructuredCensusTests {
         guard case .census(let details)? = events.first?.details else {
             Issue.record("details not grafted onto the existing prose event"); return
         }
-        #expect(details.household.count == 4)
+        #expect(details.household.count == 5)
     }
 
     // MARK: - #27 citation URL correction
@@ -246,14 +246,78 @@ struct PendingFactStructuredCensusTests {
         let payload: [String: Any] = ["household": [
             ["name": "William GOODLAD", "relationship": "Son", "age": 15],
             ["name": "Ellen Goodlad", "relationship": "Head"],
-            ["relationship": "Dau"],                        // nameless — dropped
-            ["name": "Lodger Person", "relationship": ""],  // roleless — dropped
+            // EV20: nameless but roled — KEPT; an unnamed infant is a real row.
+            ["relationship": "Dau"],
+            // EV28: roleless is KEPT — 1841 has no relationship column.
+            ["name": "Lodger Person", "relationship": ""],
         ]]
         let members = ProjectDatabase.pendingFactHousehold(
             payload: payload, subjectName: "William Goodlad")
-        #expect(members.count == 2)
+        #expect(members.count == 4)
+        #expect(members.first { $0.name == "Lodger Person" }?.relationship == "")
         #expect(members.first { $0.name == "William GOODLAD" }?.isTarget == true)
         #expect(members.first { $0.name == "Ellen Goodlad" }?.isTarget == nil)
+    }
+
+    // MARK: - EV28: 1841 has no relationship column
+
+    @Test func rosterWithNoRelationshipColumnSurvivesAccept() throws {
+        // The 1841 census has no relationship column, so every member arrived
+        // with "" — and the whole roster was deleted on accept. The census
+        // landed as prose: no typed details, no census evidence record.
+        let db = try makeDB()
+        let payload: [String: Any] = [
+            "event_date": "1841",
+            "district": "Belper",
+            "household": [
+                ["name": "John Cauldwell", "relationship": "", "age": 40],
+                ["name": "Ann Cauldwell", "relationship": "", "age": 35],
+                ["name": "Ernest Cauldwell", "relationship": "", "age": 4],
+            ],
+        ]
+        let json = String(
+            data: try! JSONSerialization.data(withJSONObject: payload), encoding: .utf8)!
+        try db.applyAcceptedPendingFact(
+            profileID: "ernest", field: "census", value: "1841 census, Turnditch",
+            payloadJSON: json, sourceTitle: "1841 census: Cauldwell household",
+            sourceURL: "https://example.org/1841")
+
+        let event = try #require(try db.loadLifeEvents(profileID: "ernest")
+            .first { $0.type == .census })
+        guard case .census(let details)? = event.details else {
+            Issue.record("1841 roster dropped — no typed census details")
+            return
+        }
+        #expect(details.household.count == 3)
+        #expect(details.household.allSatisfy { $0.relationship.isEmpty })
+        #expect(details.household.first { $0.name == "Ernest Cauldwell" }?.isTarget == true,
+                "isTarget never depended on relationship")
+
+        // …and the first-class census evidence record still lands.
+        let evidence = try db.loadEvidenceForProfile("ernest")
+        let census = try #require(evidence.first { $0.recordType == .census })
+        guard case .census(let rec) = census.record else {
+            Issue.record("expected a census evidence record")
+            return
+        }
+        #expect(rec.household?.count == 3)
+    }
+
+    /// EV20 (2026-08-26) rewrote this test: the nameless row is no longer the
+    /// thing dropped — an unnamed infant is a legitimate census row and is kept
+    /// as evidence. What is still refused is a row that says NOTHING: no name,
+    /// no role, no age. That one is a table artefact, not a person.
+    @Test func onlyARowThatSaysNothingAtAllIsDropped() {
+        let payload: [String: Any] = ["household": [
+            ["name": "John Cauldwell", "relationship": ""],
+            ["relationship": "Dau"],          // nameless but roled — kept (EV20)
+            ["name": "", "relationship": ""], // no name, no role, no age — dropped
+        ]]
+        let members = ProjectDatabase.pendingFactHousehold(
+            payload: payload, subjectName: "John Cauldwell")
+        #expect(members.count == 2)
+        #expect(members.last?.name == "")
+        #expect(members.last?.relationship == "Dau")
     }
 
     // MARK: - #28 married-surname target matching

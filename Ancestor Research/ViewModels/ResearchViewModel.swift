@@ -74,6 +74,36 @@ final class ResearchViewModel {
     var currentResearchTask: Task<Void, Never>?
     var wasCancelled = false
 
+    // MARK: - Post-run review routing
+
+    /// Where a COMPLETED run's review should land. SC-3 sends profile runs
+    /// to the detached record-review window (keyed by snapshot profile).
+    /// Lead-investigation runs can't use that window — `ReviewWindowRoot`
+    /// hydrates a FRESH vm from a snapshot profile, and a lead has neither —
+    /// so they present in-window as a sheet over THIS vm, the only place
+    /// `selectedLead` and `currentResult` coexist, which the
+    /// create-on-accept Apply path (`materialiseLeadSubjectIfNeeded`)
+    /// requires. `.none` while running or when the run produced no result.
+    enum ReviewRoute: Equatable {
+        case profileWindow(profileID: String)
+        case leadSheet
+        case none
+    }
+
+    /// SC-consolidation follow-up (review C7): lead runs previously routed
+    /// NOWHERE — 3356bbb deleted Triage/ResearchView, the only surfaces that
+    /// rendered the main vm's `currentResult`, while the lead "Research"
+    /// button stayed live. The progress sheet's "Review results" silently
+    /// closed (the SC-3 handoff requires `selectedProfile`, nil for lead
+    /// runs) and the run's evidence — memory-only until promotion — was
+    /// discarded. ContentView consumes this route; tests pin it.
+    var completedReviewRoute: ReviewRoute {
+        guard !isResearching, currentResult != nil else { return .none }
+        if let profileID = selectedProfile?.id { return .profileWindow(profileID: profileID) }
+        if selectedLead != nil { return .leadSheet }
+        return .none
+    }
+
     /// Phase timestamps for the dev-build dual-clock display in
     /// `ResearchProgressView`. The iteration loop has its own latency
     /// budget (~5 min); the optional prose-extraction phase that only
@@ -193,8 +223,9 @@ final class ResearchViewModel {
     /// `ResearchSubject.fromLead` so the dispatcher searches for the lead's
     /// putative person, not the profile that generated the lead. Skips
     /// evidence persistence (no profile to attach to yet) but flips the
-    /// lead's status to `.investigated` on completion so the Leads tab
-    /// reflects the work.
+    /// lead's status to `.investigated` on completion so the profile card's
+    /// Leads block reflects the work. The result renders via
+    /// `completedReviewRoute` → ContentView's lead-review sheet (C7).
     func startResearch(
         lead: Lead,
         snapshot: FamilyGraphSnapshot,
@@ -442,9 +473,15 @@ final class ResearchViewModel {
 
         // Phase 1 slice 6b: THE shared persistence path. Evidence rows +
         // hypotheses + child leads + run-record are profile-keyed; lead-
-        // investigation runs skip them (evidence stays in memory on the VM,
-        // visible in Triage, until the user promotes the lead) and only
-        // flip the investigated lead's status.
+        // investigation runs skip them and only flip the investigated lead's
+        // status. Lead evidence stays in memory on this vm — rendered by
+        // ContentView's lead-review sheet (`completedReviewRoute`, review C7;
+        // Triage, the previous render surface, is retired) — and persists
+        // only at promotion (`promoteLeadToProfile`), under the profile the
+        // human accepted. Persisting up-front under the GENERATING profile
+        // would be wrong: the verdicts were gated against the LEAD's anchors,
+        // so the rows would present as apply-able wrong-anchor (or, for
+        // sibling leads, wrong-person) facts on that profile's review surface.
         if let db = appDatabase {
             let outcome = await ResearchRunService.persist(
                 result: result,
@@ -712,7 +749,9 @@ final class ResearchViewModel {
         )
     }
 
-    private func updateSourceStatuses(from result: ResearchResult) {
+    /// Internal (not private) so tests can drive the settle pass without a
+    /// live run — the same reason `applyActivityEvent` is internal.
+    func updateSourceStatuses(from result: ResearchResult) {
         var sourceCounts: [String: Int] = [:]
         for record in result.allScoredRecords {
             sourceCounts[record.record.sourceID, default: 0] += 1
@@ -729,8 +768,16 @@ final class ResearchViewModel {
         var failed: [String: Int] = [:]
         var suppressed: [String: Int] = [:]
         var skipReason: [String: String] = [:]
+        // EV7 (2026-08-26) — a fan-out that rested on an uncited kin fact
+        // answered a question we asked wrong. Its emptiness is a fact about
+        // our assumption, not about the record, and must never settle as a
+        // clean "searched, no results".
+        var premiseCaveat: [String: String] = [:]
         for entry in result.searchOutcomes {
             dispatched[entry.sourceID, default: 0] += 1
+            if let caveat = entry.assumptionCaveat, premiseCaveat[entry.sourceID] == nil {
+                premiseCaveat[entry.sourceID] = caveat
+            }
             if entry.outcome.suppressed { suppressed[entry.sourceID, default: 0] += 1 }
             if case .error = entry.outcome.availability { failed[entry.sourceID, default: 0] += 1 }
             // Deliberate non-searches (outside coverage, no surname,
@@ -773,6 +820,12 @@ final class ResearchViewModel {
                         : "\(failures) of \(queries) queries failed"
                 } else if suppressed[id] == queries {
                     sourceStatuses[i].reason = "skipped — \(skipReason[id] ?? "prior clean negatives")"
+                } else if let caveat = premiseCaveat[id] {
+                    // EV7 — ordered AFTER the failure and scope-skip branches
+                    // on purpose: a broken connector or a deliberate
+                    // non-search is a truer explanation than a caveat about a
+                    // query that was never sent.
+                    sourceStatuses[i].reason = caveat
                 } else {
                     sourceStatuses[i].reason = "searched \(queries) \(queries == 1 ? "query" : "queries") — no results"
                 }
@@ -1480,12 +1533,16 @@ final class ResearchViewModel {
         for cluster in acceptedClusters {
             for scored in cluster.records where scored.verdict == .fact {
                 switch scored.record {
+                // EV30 (2026-08-26) — no `?? r.district` here either: a
+                // registration district is not a place, and a counter that
+                // disagrees with `absorptionPlan` is exactly the drift the
+                // single declarative plan exists to prevent.
                 case .birth(let r):
                     if profile.birthDate == nil, r.birthYear != nil { fieldsUpdated += 1 }
-                    if profile.birthLocation == nil, (r.birthPlace ?? r.district) != nil { fieldsUpdated += 1 }
+                    if profile.birthLocation == nil, r.birthPlace != nil { fieldsUpdated += 1 }
                 case .death(let r):
                     if profile.deathDate == nil, r.deathYear != nil { fieldsUpdated += 1 }
-                    if profile.deathLocation == nil, (r.deathPlace ?? r.district) != nil { fieldsUpdated += 1 }
+                    if profile.deathLocation == nil, r.deathPlace != nil { fieldsUpdated += 1 }
                 case .marriage:
                     fieldsUpdated += 1
                 default:
@@ -1515,8 +1572,8 @@ final class ResearchViewModel {
     /// Promote the lead currently in `selectedLead` into a ghost Profile,
     /// then persist the in-memory `currentResult` evidence under it. Closes
     /// the loop opened by `startResearch(lead:)` — without promotion, lead-
-    /// investigation findings live only in memory and the Triage Apply
-    /// buttons have no profile target. After promotion the ghost becomes
+    /// investigation findings live only in memory and the review sheet's
+    /// Apply buttons have no profile target. After promotion the ghost becomes
     /// `selectedProfile`, so the same cluster cards (no re-fetch) act on
     /// the new node like a regular profile-based research result.
     @discardableResult
@@ -1600,8 +1657,9 @@ final class ResearchViewModel {
             }
         }
 
-        // Hand subject identity over to the new ghost so Triage's apply
-        // paths (which key off `selectedProfile`) now have a real target.
+        // Hand subject identity over to the new ghost so the review
+        // surface's apply paths (which key off `selectedProfile`) now have
+        // a real target.
         selectedProfile = appState.snapshot.profiles[ghostID]
         selectedLead = nil
         return ghostID

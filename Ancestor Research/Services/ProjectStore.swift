@@ -27,6 +27,26 @@ nonisolated struct ProjectStore {
         return dir
     }()
 
+    /// Not every `.sqlite` in `projectsDirectory` is a project. The
+    /// publisher's shared store (`published.sqlite`) and sqlite-data's
+    /// metadatabase sidecar (`.published.metadata-<container>.sqlite`,
+    /// dot-prefixed but still returned by `contentsOfDirectory`) live
+    /// alongside the project files. `ProjectDatabase.init` MIGRATES what it
+    /// opens, so listing used to run the v1…v64 project migrator over both
+    /// — writing `profiles`, `relationships`, … and 64 `grdb_migrations`
+    /// rows into the publisher's files. The next publish then tripped
+    /// sqlite-data's `hasSchemaChanges` assertion in `migrate(metadatabase:)`
+    /// and killed the app (SIGTRAP, debug builds). Listing must never open a
+    /// file it does not own.
+    static func isProjectFile(_ url: URL) -> Bool {
+        let name = url.lastPathComponent
+        guard url.pathExtension == "sqlite" else { return false }
+        // The metadatabase sidecar and any other hidden bookkeeping file.
+        guard !name.hasPrefix(".") else { return false }
+        guard name != PublishedStore.sharedURL.lastPathComponent else { return false }
+        return true
+    }
+
     /// List projects by reading SQLite files. Active-only by default;
     /// callers that need to surface archived projects (the picker) pass
     /// `includingArchived: true` and filter presentationally.
@@ -41,7 +61,7 @@ nonisolated struct ProjectStore {
             logger.error("listProjects directory scan failed: \(error.localizedDescription, privacy: .public)")
             return []
         }
-        let sqliteFiles = files.filter { $0.pathExtension == "sqlite" }
+        let sqliteFiles = files.filter(isProjectFile)
         logger.info("listProjects found \(sqliteFiles.count, privacy: .public) sqlite files in dir")
 
         var loaded: [Project] = []

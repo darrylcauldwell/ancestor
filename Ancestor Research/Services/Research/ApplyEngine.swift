@@ -84,21 +84,28 @@ nonisolated struct ApplyEngine {
         for item in plan {
             switch item {
             case .dateField(let field, let candidate):
-                applyDateField(
+                // EV21 follow-up (review M2): count the write OUTCOME, not the
+                // plan item. Counting at the call site meant a field whose
+                // every persistence attempt threw (locked DB, disk full) still
+                // read as landed, and the row was stamped `applied_at` over
+                // zero writes — the exact state EV21 is named for.
+                if applyDateField(
                     field, existing: existingDate(field, of: profile),
                     existingSources: profile.sources[field] ?? [],
                     candidate: candidate, profileID: profile.id, origin: origin, db: db,
                     citation: citation, failures: &failures
-                )
-                landedSomething = true
+                ) {
+                    landedSomething = true
+                }
             case .stringField(let field, let candidate):
-                applyStringField(
+                if applyStringField(
                     field, existing: existingString(field, of: profile),
                     existingSources: profile.sources[field] ?? [],
                     candidate: candidate, profileID: profile.id, origin: origin, db: db,
                     citation: citation, failures: &failures
-                )
-                landedSomething = true
+                ) {
+                    landedSomething = true
+                }
             case .spouseEdge(let m):
                 // Reports whether an edge was actually resolved AND filled —
                 // the one plan item that can silently have nowhere to go.
@@ -110,7 +117,9 @@ nonisolated struct ApplyEngine {
                 // Executed by the caller via projectToLifeEvents — but it IS a
                 // write onto the profile, so it counts: a burial/census record
                 // whose whole absorption is its timeline event must still read
-                // as applied in the ledger.
+                // as applied in the ledger. (Its outcome happens after this
+                // call returns, so unlike the field cases it cannot be
+                // observed here — review M2.)
                 landedSomething = true
             }
         }
@@ -566,6 +575,13 @@ nonisolated struct ApplyEngine {
     /// an unreportable no-op that could only ever fire on a plan bug, since
     /// `Absorption.dateField` carries a non-optional date. Making the nil case
     /// unrepresentable is better than reporting it.
+    ///
+    /// EV21 follow-up (review M2): returns whether at least one write reached
+    /// the database — same contract as the spouse-edge executor's `filled`,
+    /// and what the caller's `landedSomething` (and so the applied stamp)
+    /// turns on. A policy-blocked apply still lands its alternative fact,
+    /// dispute row and citation, so it still counts — but only when those
+    /// writes actually succeed.
     private static func applyDateField(
         _ field: ProfileField,
         existing: GenealogicalDate?,
@@ -576,11 +592,12 @@ nonisolated struct ApplyEngine {
         db: ProjectDatabase,
         citation: Citation? = nil,
         failures: inout [WriteFailure]
-    ) {
+    ) -> Bool {
+        var landed = false
         if shouldOverwriteDateField(existing: existing, candidate: candidate) {
-            attempt("Apply \(field) date", into: &failures) {
+            if attempt("Apply \(field) date", into: &failures, {
                 _ = try db.editProfile(profileID: profileID, changes: [], dateChanges: [(field, existing, candidate)], source: origin)
-            }
+            }) { landed = true }
         } else {
             // CONFLICT_LAYER_SPEC §4.4 T-A — F1 runs before the
             // alternative-fact write. Compatible-but-not-narrower keeps
@@ -593,17 +610,17 @@ nonisolated struct ApplyEngine {
                 candidate: candidate, candidateOrigin: origin, profileID: profileID
             )
             var alternativeTx: Transaction?
-            attempt("Record alternative \(field) fact", into: &failures) {
+            if attempt("Record alternative \(field) fact", into: &failures, {
                 alternativeTx = try db.recordAlternativeFact(profileID: profileID, field: field, rawValue: candidate.original, source: origin)
-            }
+            }) { landed = true }
             if let conflict {
                 let adjudication = DisputeResolver.adjudicate(conflict)
-                attempt("Record \(field) dispute", into: &failures) {
+                if attempt("Record \(field) dispute", into: &failures, {
                     _ = try db.upsertDispute(
                         profileID: profileID, conflict: conflict,
                         adjudication: adjudication, transactionID: alternativeTx?.id
                     )
-                }
+                }) { landed = true }
                 // CL5 — the programme's first write-behaviour change,
                 // confined to same-span date conflicts (previously silent
                 // first-writer-wins, DS-09). When the R2 quality-dominance
@@ -614,17 +631,18 @@ nonisolated struct ApplyEngine {
                 if case .rule(let ruleID, let accepted)? = adjudication.resolution,
                    accepted.origin.identifier == origin.identifier,
                    accepted.raw == candidate.original {
-                    attempt("Apply \(field) via \(ruleID) quality dominance", into: &failures) {
+                    if attempt("Apply \(field) via \(ruleID) quality dominance", into: &failures, {
                         _ = try db.editProfile(profileID: profileID, changes: [], dateChanges: [(field, existing, candidate)], source: origin)
-                    }
+                    }) { landed = true }
                 }
             }
         }
         if let citation {
-            attempt("Attach \(field) citation", into: &failures) {
+            if attempt("Attach \(field) citation", into: &failures, {
                 try db.attachFieldSourceCitation(profileID: profileID, field: field, origin: origin, citation: citation)
-            }
+            }) { landed = true }
         }
+        return landed
     }
 
     /// EV21 (2026-08-26): `candidate` is non-optional, for the same reason as
@@ -634,6 +652,9 @@ nonisolated struct ApplyEngine {
     /// legitimately produce. The trim stays (a source can pad a value); a
     /// blank surviving it would be a plan defect, so it reports rather than
     /// returning silently.
+    ///
+    /// EV21 follow-up (review M2): returns whether at least one write reached
+    /// the database — see `applyDateField`.
     private static func applyStringField(
         _ field: ProfileField,
         existing: String?,
@@ -644,21 +665,22 @@ nonisolated struct ApplyEngine {
         db: ProjectDatabase,
         citation: Citation? = nil,
         failures: inout [WriteFailure]
-    ) {
+    ) -> Bool {
         let trimmed = candidate.trimmingCharacters(in: .whitespaces)
         guard !trimmed.isEmpty else {
             failures.append(WriteFailure(
                 what: "Apply \(field) value",
                 error: ConflictNotice(message: "The record offered a blank \(field) — nothing was written.")
             ))
-            return
+            return false
         }
+        var landed = false
         if shouldOverwriteStringField(field: field, existing: existing,
                                       existingSources: existingSources,
                                       candidate: trimmed, candidateOrigin: origin) {
-            attempt("Apply \(field) value", into: &failures) {
+            if attempt("Apply \(field) value", into: &failures, {
                 _ = try db.editProfile(profileID: profileID, changes: [(field, existing, trimmed)], dateChanges: [], source: origin)
-            }
+            }) { landed = true }
         } else {
             // CONFLICT_LAYER_SPEC §4.4 T-A — F2 mirror of the date hook:
             // a normalised-mismatch candidate still lands as an alternative
@@ -681,28 +703,38 @@ nonisolated struct ApplyEngine {
                     candidate: trimmed, candidateOrigin: origin, profileID: profileID
                 )
             var alternativeTx: Transaction?
-            attempt("Record alternative \(field) fact", into: &failures) {
+            if attempt("Record alternative \(field) fact", into: &failures, {
                 alternativeTx = try db.recordAlternativeFact(profileID: profileID, field: field, rawValue: trimmed, source: origin)
-            }
+            }) { landed = true }
             if let conflict {
                 let adjudication = DisputeResolver.adjudicate(conflict)
-                attempt("Record \(field) dispute", into: &failures) {
+                if attempt("Record \(field) dispute", into: &failures, {
                     _ = try db.upsertDispute(
                         profileID: profileID, conflict: conflict,
                         adjudication: adjudication, transactionID: alternativeTx?.id
                     )
-                }
+                }) { landed = true }
             }
         }
         if let citation {
-            attempt("Attach \(field) citation", into: &failures) {
+            if attempt("Attach \(field) citation", into: &failures, {
                 try db.attachFieldSourceCitation(profileID: profileID, field: field, origin: origin, citation: citation)
-            }
+            }) { landed = true }
         }
+        return landed
     }
 
-    private static func attempt(_ what: String, into failures: inout [WriteFailure], _ op: () throws -> Void) {
-        do { try op() } catch { failures.append(WriteFailure(what: what, error: error)) }
+    /// EV21 follow-up (review M2): reports whether the write ran clean —
+    /// `true` when `op` completed, `false` when its throw was captured as a
+    /// WriteFailure — so the field executors can count only writes that
+    /// actually landed. Discardable because most call sites (disputes on the
+    /// spouse-edge path, ghost upgrades) don't gate anything on the outcome.
+    @discardableResult
+    private static func attempt(_ what: String, into failures: inout [WriteFailure], _ op: () throws -> Void) -> Bool {
+        do { try op(); return true } catch {
+            failures.append(WriteFailure(what: what, error: error))
+            return false
+        }
     }
 
     // MARK: - Overwrite policies
@@ -1131,7 +1163,11 @@ nonisolated struct ApplyEngine {
             guard let e = parsed.earliest, let l = parsed.latest else { return false }
             return e == l && e == year
         }
-        let raw = chosen?.raw ?? String(year)
+        // EV9 (2026-08-26): an accept-path FieldSource carries
+        // "<value> [<sourceTitle>]" in `raw`. `GenealogicalDate` would still
+        // find the year, but `.original` would carry the bracketed title
+        // straight onto the profile column. Only the value may reach a column.
+        let raw = chosen.map { AppliedFactTarget.parseRaw($0.raw).value } ?? String(year)
         let origin = chosen?.origin ?? .engineEnrichment
         let candidate = GenealogicalDate(parsing: raw)
 
@@ -1176,7 +1212,11 @@ nonisolated struct ApplyEngine {
             guard let e = parsed.earliest, let l = parsed.latest else { return false }
             return e == l && e == year
         }
-        let raw = chosen?.raw ?? String(year)
+        // EV9 (2026-08-26): an accept-path FieldSource carries
+        // "<value> [<sourceTitle>]" in `raw`. `GenealogicalDate` would still
+        // find the year, but `.original` would carry the bracketed title
+        // straight onto the profile column. Only the value may reach a column.
+        let raw = chosen.map { AppliedFactTarget.parseRaw($0.raw).value } ?? String(year)
         let origin = chosen?.origin ?? .engineEnrichment
         let candidate = GenealogicalDate(parsing: raw)
 
@@ -1193,6 +1233,20 @@ nonisolated struct ApplyEngine {
         _ = try? db.resolveFieldDispute(
             profileID: profile.id, field: .deathDate,
             resolution: .accepted(accepted))
+
+        // EV35 (2026-08-26) — same hook as `AppState.resolveDispute`: the
+        // deathDate is now settled, so the records its openness held back are
+        // re-scored. The snapshot is rebuilt first — the one passed in
+        // predates both the `editProfile` above and this resolution, so a
+        // subject built from it would still read the field as contested.
+        // Placed before `contradictRivals` on purpose: that call is `try` and
+        // can throw, which would skip the re-score. It writes
+        // `research_hypotheses`, not `evidence_records`, so the ordering is
+        // otherwise immaterial.
+        if let fresh = try? db.buildSnapshot() {
+            DisputeRescorer.rescoreAfterResolution(
+                profileID: profile.id, field: .deathDate, db: db, snapshot: fresh)
+        }
 
         // Choose-one semantics: every rival in the group is contradicted
         // in the same user action ⟨G5⟩.

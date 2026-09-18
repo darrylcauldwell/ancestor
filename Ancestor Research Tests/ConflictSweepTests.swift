@@ -203,6 +203,114 @@ struct ConflictSweepTests {
         #expect(try db.openDisputes(profileID: "child").contains { $0.kind == .parentRole } == false)
     }
 
+    // MARK: - Review F03: EV27's role-reassignment dispute survives the sweep
+
+    /// Write a pending parent proposal the way the MCP server does — straight
+    /// SQL, since the app deliberately has no submit API of its own.
+    private func insertParentRoleProposal(
+        _ db: ProjectDatabase, id: String, from: String, to: String, role: String
+    ) throws {
+        try db.dbQueue.write { d in
+            try d.execute(sql: """
+                INSERT INTO pending_relationships
+                (id, from_profile_id, to_profile_id, rel_type, role, subtype,
+                 review_status, created_at, source_url, source_title,
+                 evidence_text, reasoning, agent_id)
+                VALUES (?, ?, ?, 'parent', ?, 'biological', 'pending', ?,
+                        'https://example.test/rec', 'Test source',
+                        'evidence', 'reasoning', 'field-researcher')
+                """, arguments: [id, from, to, role, Date()])
+        }
+    }
+
+    /// A bad GEDCOM import records Hannah as Emma's FATHER; an approved
+    /// proposal says mother. `approvePendingRelationship` leaves the edge alone
+    /// (approving never silently overwrites a stated role) and files the
+    /// disagreement as `parentRole|role:<parentID>`.
+    private func seedReRoleDisagreement(_ db: ProjectDatabase) throws {
+        _ = try db.addProfile(
+            profile("emma", firstName: "Emma", lastName: "Gladwin"), source: .gedcom)
+        _ = try db.addProfile(
+            profile("hannah", firstName: "Hannah", lastName: "Hewkin"), source: .gedcom)
+        _ = try db.addRelationship(Relationship(
+            id: UUID(), from: "hannah", to: "emma", type: .parent,
+            role: .father, subtype: .biological,
+            marriageDate: nil, marriageLocation: nil, divorceDate: nil))
+        try insertParentRoleProposal(db, id: "rp-1", from: "hannah", to: "emma", role: "mother")
+        #expect(try db.approvePendingRelationship(id: "rp-1"))
+    }
+
+    private func openReRoleDispute(_ db: ProjectDatabase) throws -> DisputeRow? {
+        try db.openDisputes(profileID: "emma")
+            .first { $0.kind == .parentRole && $0.field == "role:hannah" }
+    }
+
+    /// Review F03 (2026-08-26) — THE defect. The retraction pass closes every
+    /// open structural dispute the sweep cannot re-derive, and the F4a arm only
+    /// ever emits `father`/`mother`, never `role:<parentID>`. So the next sweep
+    /// (any apply, any run, any project reopen) auto-resolved this dispute while
+    /// the edge kept its old role and the proposal sat marked approved: the
+    /// disagreement was destroyed, and nothing anywhere asked the human to
+    /// re-role.
+    @Test func approvedRoleReassignmentSurvivesTheNextSweep() throws {
+        let db = try makeDB()
+        try seedReRoleDisagreement(db)
+        #expect(try openReRoleDispute(db) != nil, "the approval must file the dispute")
+
+        _ = try ConflictSweep.run(db: db, snapshot: try db.buildSnapshot(), force: true)
+
+        #expect(try openReRoleDispute(db) != nil,
+                "the sweep auto-resolved a dispute it never re-derived — an approved role change vanished")
+        // …and the edge is genuinely still wrong, so this is not a vacuous pass.
+        let edge = try db.buildSnapshot().relationships.first {
+            $0.type == .parent && $0.from == "hannah" && $0.to == "emma"
+        }
+        #expect(edge?.role == .father)
+    }
+
+    /// The other direction of the same reconcile: re-rolling the edge with the
+    /// in-row Father/Mother menu — exactly what the dispute's reasoning tells
+    /// the user to do — is the fix, so the next sweep must CLOSE it. This is why
+    /// F03 is repaired by re-deriving the shape rather than exempting `role:`
+    /// keys from retraction: an exemption would leave a permanent red banner
+    /// over a tree that now agrees with itself.
+    @Test func reRollingTheEdgeRetractsTheReassignmentDispute() throws {
+        let db = try makeDB()
+        try seedReRoleDisagreement(db)
+        _ = try ConflictSweep.run(db: db, snapshot: try db.buildSnapshot(), force: true)
+        #expect(try openReRoleDispute(db) != nil)
+
+        let edges = try db.buildSnapshot().relationships
+        let edge = try #require(edges.first {
+            $0.type == .parent && $0.from == "hannah" && $0.to == "emma"
+        })
+        _ = try db.setRelationshipRole(relationshipID: edge.id, role: .mother)
+
+        _ = try ConflictSweep.run(db: db, snapshot: try db.buildSnapshot(), force: true)
+        #expect(try openReRoleDispute(db) == nil,
+                "the disagreement is gone, so the dispute must retract")
+    }
+
+    /// §4.3 upsert identity: the re-derivation must JOIN the open row as a
+    /// no-op, not append a fresh witness on every sweep. Pins the competing-
+    /// source raws against `ProjectDatabase.recordParentRoleDispute`'s.
+    @Test func reDerivedReassignmentDisputeIsIdempotent() throws {
+        let db = try makeDB()
+        try seedReRoleDisagreement(db)
+        let filed = try openReRoleDispute(db)
+        let atApproval = try #require(filed)
+
+        for _ in 0..<3 {
+            _ = try ConflictSweep.run(db: db, snapshot: try db.buildSnapshot(), force: true)
+        }
+
+        let rows = try db.openDisputes(profileID: "emma")
+            .filter { $0.kind == .parentRole && $0.field == "role:hannah" }
+        #expect(rows.count == 1)
+        #expect(rows.first?.competingSources.count == atApproval.competingSources.count,
+                "a re-derived witness was appended — the sweep and the approval disagree about the raws")
+    }
+
     // MARK: - AC3: same-enumeration-year duplicates (tree state)
 
     @Test func twoSameYearCensusEventsOpenTimelineDispute() throws {

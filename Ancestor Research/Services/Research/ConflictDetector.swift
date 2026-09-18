@@ -472,6 +472,59 @@ nonisolated struct ConflictDetector {
         )
     }
 
+    /// EV27 (2026-08-26) — a proposal that RE-ROLES an existing parent edge
+    /// (same parent, same child, father↔mother). Not the two-parents F4a
+    /// shape, so it gets its own field key: dispute identity is
+    /// (entity_id, kind, field), and `role:<parentID>` cannot collide with the
+    /// `father`/`mother` keys F4a uses on the same subject. Like every
+    /// structural key it deliberately does not parse as a `ProfileField`.
+    ///
+    /// The edge is deliberately NOT changed by the approval that raises this:
+    /// approving a proposal never silently overwrites a stated role. The
+    /// human re-roles with the in-row Father/Mother menu.
+    static func parentRoleReassignmentConflict(
+        subjectID: String,
+        currentRole: ParentRole,
+        occupant: Profile,
+        occupantEdge: Relationship,
+        proposedDescription: String,
+        proposedOrigin: SourceOrigin,
+        detectedBy: DisputeProducer = .applyEngine
+    ) -> DetectedConflict {
+        // The tree is a witness too ⟨G11⟩ — the incumbent role enters the
+        // competing list with its own provenance.
+        let competing = [
+            FieldSource(
+                origin: SourceOrigin(identifier: "tree"),
+                raw: "existing \(currentRole.rawValue): \(occupant.displayName)",
+                addedAt: Date()
+            ),
+            FieldSource(
+                origin: proposedOrigin,
+                raw: "approved proposal: \(proposedDescription)",
+                addedAt: Date()
+            ),
+        ]
+        let evidence: [String: [String]] = [
+            "relationshipIDs": [occupantEdge.id.uuidString],
+            "recordIDs": [],
+        ]
+        let evidenceJSON = (try? JSONEncoder().encode(evidence))
+            .flatMap { String(data: $0, encoding: .utf8) }
+        let reasoning = "EV27 parent-role reassignment: an approved proposal re-roles the edge \(occupant.displayName) → \(subjectID) (\(proposedDescription)). The edge was NOT changed — approving a proposal never silently overwrites a stated role."
+        return DetectedConflict(
+            kind: .parentRole,
+            profileID: subjectID,
+            field: "role:\(occupantEdge.from)",
+            reason: .valueMismatch,
+            severity: .conflict,
+            competingSources: competing,
+            evidenceJSON: evidenceJSON,
+            reasoning: reasoning,
+            detectedBy: detectedBy
+        )
+    }
+
     // MARK: - F4b — spouse-identity conflict (DS-12)
 
     /// F4b — an accepted marriage attestation whose record spouse-surname

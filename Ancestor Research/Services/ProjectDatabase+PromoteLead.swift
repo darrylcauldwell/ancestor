@@ -169,12 +169,39 @@ nonisolated extension ProjectDatabase {
     /// sister with no guessing (live case 2026-08-24: James + Samuel
     /// Wheeldon). Same ghost/provenance/lead-resolution shape as
     /// `promoteLeadToProfile(_:enforceBound:attachingTo:)`.
+    ///
+    /// `attachingTo` is the same create-on-accept dedup escape hatch as the
+    /// primary overload — review M11: without it, a repeated Add on a
+    /// grouped sibling lead minted a second identical ghost. When the caller
+    /// has matched an existing profile (the ghost a previous Add created),
+    /// no new node is minted; the parent edges are ensured idempotently via
+    /// `addRelationshipIfAbsent` and the lead resolves `.merged`.
     @discardableResult
     func promoteLeadToProfile(
         _ lead: Lead,
-        asChildOfParents parentIDs: [String]
+        asChildOfParents parentIDs: [String],
+        attachingTo existingProfileID: String? = nil
     ) throws -> String {
         precondition(!parentIDs.isEmpty, "sibling promotion needs at least one known parent")
+        if let existingProfileID {
+            for parentID in parentIDs {
+                let edge = Relationship(
+                    id: UUID(),
+                    from: parentID, to: existingProfileID,
+                    type: .parent, role: .unspecified, subtype: .biological,
+                    marriageDate: nil, marriageLocation: nil, divorceDate: nil
+                )
+                _ = try addRelationshipIfAbsent(
+                    edge,
+                    existenceEvidence: .origin(
+                        SourceOrigin(identifier: "lead.\(lead.source.rawValue)"),
+                        note: lead.evidence
+                    )
+                )
+            }
+            try upsertLead(lead.with(status: .promoted, resolvedAt: Date(), resolution: .merged))
+            return existingProfileID
+        }
         let ghostID = UUID().uuidString
         let ghost = Self.makeGhostProfile(id: ghostID, fromLead: lead)
 

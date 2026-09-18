@@ -143,6 +143,20 @@ struct MainView: View {
     /// deferred by a tick so macOS doesn't drop the second `.sheet` call.
     @State private var showResearchProgress: Bool = false
 
+    /// SC-consolidation follow-up (review C7) — a completed LEAD-investigation
+    /// run's review session. Lead subjects aren't on the tree, so the detached
+    /// record-review window (hydrated from a snapshot profile) can't host
+    /// them; the review renders as a sheet over the main window's
+    /// `researchVM`, whose `selectedLead` + `currentResult` the
+    /// create-on-accept Apply path requires. `.sheet(item:)` per
+    /// feedback_sheet_isPresented_race.
+    @State private var leadReviewSession: LeadReviewSession?
+
+    private struct LeadReviewSession: Identifiable {
+        let id = UUID()
+        let leadName: String
+    }
+
     var body: some View {
         NavigationSplitView {
             SidebarView(selectedTab: $selectedTab)
@@ -315,25 +329,29 @@ struct MainView: View {
         .sheet(isPresented: $showResearchProgress) {
             ResearchProgressSheet(
                 vm: researchVM,
-                onDismiss: {
-                    showResearchProgress = false
-                    // SC-3 — the review opens per-profile in the detached
-                    // record-review window (the Triage tab is being retired).
-                    // No result yet — run still going, or it produced nothing
-                    // — means stay put: the outcome lands on the profile card
-                    // (pending facts, leads) when it arrives.
-                    if let result = researchVM.currentResult,
-                       let profileID = researchVM.selectedProfile?.id {
-                        reviewWindowBroker.stageHandoff(profileID: profileID, result: result)
-                        openWindow(id: "record-review", value: profileID)
-                        researchVM.reset()
-                    }
-                },
+                onDismiss: handleResearchProgressDismiss,
                 onOpenSettings: {
                     showResearchProgress = false
                     selectedTab = .settings
                 }
             )
+        }
+        // C7 — the lead-review sheet. Renders the MAIN vm (not a fresh one):
+        // the sheet's Apply buttons need `selectedLead` for the
+        // create-on-accept promote, and lead evidence lives only on this vm
+        // until then. Resetting on dismiss ends the session so a stale lead
+        // identity can't leak into the next run.
+        .sheet(item: $leadReviewSession, onDismiss: { researchVM.reset() }) { session in
+            LeadReviewSheet(vm: researchVM, leadName: session.leadName)
+        }
+        .onChange(of: researchVM.isResearching) { wasRunning, isRunning in
+            // C7 — a lead run finishing AFTER the progress sheet was closed
+            // early would otherwise complete invisibly (lead evidence is
+            // memory-only until promotion, unlike profile runs whose results
+            // persist to the DB and land on the profile card).
+            if wasRunning, !isRunning, !showResearchProgress, !researchVM.wasCancelled {
+                presentLeadReviewIfRouted()
+            }
         }
         .sheet(isPresented: .init(
             get: { appState.pendingDiff != nil },
@@ -434,13 +452,51 @@ struct MainView: View {
         )
     }
 
+    /// Progress-sheet dismiss routing — extracted from the inline closure so
+    /// the large `body` expression stays under the type-checker's limit.
+    /// SC-3 sends profile runs to the detached record-review window (the
+    /// Triage tab is retired); C7 sends lead runs to the in-window review
+    /// sheet. No result yet — run still going, or it produced nothing —
+    /// means stay put: a profile run's outcome lands on the profile card
+    /// (pending facts, leads) when it arrives, and a still-running lead run
+    /// re-routes via the `isResearching` observer above when it completes.
+    private func handleResearchProgressDismiss() {
+        showResearchProgress = false
+        switch researchVM.completedReviewRoute {
+        case .profileWindow(let profileID):
+            if let result = researchVM.currentResult {
+                reviewWindowBroker.stageHandoff(profileID: profileID, result: result)
+                openWindow(id: "record-review", value: profileID)
+                researchVM.reset()
+            }
+        case .leadSheet:
+            presentLeadReviewIfRouted()
+        case .none:
+            break
+        }
+    }
+
+    /// C7 — present the lead-review sheet when the vm routes there. Deferred
+    /// by a runloop tick for the same reason the config→progress handoff is:
+    /// macOS silently drops a sheet presented while another is mid-dismiss.
+    private func presentLeadReviewIfRouted() {
+        guard researchVM.completedReviewRoute == .leadSheet,
+              leadReviewSession == nil,
+              let lead = researchVM.selectedLead else { return }
+        Task { @MainActor in
+            try? await Task.sleep(for: .milliseconds(250))
+            leadReviewSession = LeadReviewSession(leadName: lead.name)
+        }
+    }
+
     /// Change 3b — kick off research for a LEAD, mirroring the profile trigger.
     /// A lead has no tree profile yet, so there's no config sheet and no
     /// `persistProfileID`; discover-mode defaults drive the run. The result
-    /// lands in `currentResult` exactly like profile research, so ResearchView
-    /// switches to the review UI (which already offers the "Promote to Profile"
-    /// create-on-accept step). Extracted from an inline `.onChange` closure so
-    /// the large `body` expression stays under the type-checker's limit.
+    /// lands in `currentResult` exactly like profile research, and the
+    /// progress sheet's "Review results" opens the lead-review sheet (C7),
+    /// whose Apply buttons run the create-on-accept promote. Extracted from
+    /// an inline `.onChange` closure so the large `body` expression stays
+    /// under the type-checker's limit.
     private func kickOffLeadResearch() {
         guard let lead = appState.researchLeadRequest else { return }
         appState.researchLeadRequest = nil
@@ -579,20 +635,47 @@ struct MainView: View {
     private func openTriage() {
         selectedTab = .workbench
     }
+}
 
-    /// Shared "research this lead" handler — invoked from Task rows in
-    /// `UnifiedTasksView`. Flips the progress sheet on, attaches the
-    /// current database, and kicks off the pipeline.
-    private func researchLead(_ lead: Lead) {
-        Task { @MainActor in
-            showResearchProgress = true
-            researchVM.appDatabase = appState.currentDatabase
-            await researchVM.startResearch(
-                lead: lead,
-                snapshot: appState.snapshot,
-                registry: registry
-            )
+/// SC-consolidation follow-up (review C7) — host for a completed
+/// lead-investigation run's review, replacing the render surface the retired
+/// Triage tab provided. Lead subjects aren't on the tree, so
+/// `ReviewWindowRoot` (a fresh vm hydrated from a snapshot profile) can't
+/// host them; this sheet renders the MAIN window's vm — the only place
+/// `selectedLead` and `currentResult` coexist — which `ClusterReviewView`'s
+/// Apply → `materialiseLeadSubjectIfNeeded` → `promoteLeadToProfile`
+/// create-on-accept path requires. Evidence persists under the
+/// matched-or-created profile at that moment; nothing is written before the
+/// human accepts (leads never apply automatically).
+struct LeadReviewSheet: View {
+    @Environment(\.dismiss) private var dismiss
+    @Bindable var vm: ResearchViewModel
+    let leadName: String
+
+    var body: some View {
+        VStack(spacing: 0) {
+            HStack {
+                Text("Lead findings: \(leadName)")
+                    .font(.title3).fontWeight(.semibold)
+                Spacer()
+                Button("Close") { dismiss() }
+                    .buttonStyle(.glass)
+                    .keyboardShortcut(.cancelAction)
+            }
+            .padding()
+            Divider()
+            if let result = vm.currentResult {
+                // isDetachedWindow hides the "New Research" reset — Close is
+                // the only exit here too; the presenter resets on dismiss.
+                ClusterReviewView(vm: vm, result: result, isDetachedWindow: true)
+            } else {
+                ContentUnavailableView(
+                    "No findings to review",
+                    systemImage: "doc.text.magnifyingglass",
+                    description: Text("This lead's research run produced no reviewable records."))
+            }
         }
+        .frame(minWidth: 760, minHeight: 560)
     }
 }
 

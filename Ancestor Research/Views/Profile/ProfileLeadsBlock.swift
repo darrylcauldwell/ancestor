@@ -129,9 +129,7 @@ struct ProfileLeadsBlock: View {
                     Button("Research") { appState.researchLeadRequest = lead }
                         .buttonStyle(.glass)
                         .controlSize(.mini)
-                        .help(CampaignReviewService.isSiblingLead(lead)
-                              ? CampaignReviewService.siblingExplanation
-                              : "Investigate this candidate before deciding.")
+                        .help(CampaignReviewService.researchExplanation(for: lead))
                 }
                 Button("Dismiss") {
                     for member in group { appState.dismissLead(member) }
@@ -188,13 +186,11 @@ struct ProfileLeadsBlock: View {
 
     // MARK: - Data
 
+    // Review C10 — resolved by the shared helper, which filters out step and
+    // adoptive parent edges: the #37 promotion mints BIOLOGICAL edges, so a
+    // step-mother must never head an "Add as child of X & Y" button.
     private func generatorParents() -> [(id: String, name: String)] {
-        appState.snapshot.parentsOf(profile.id).map { p in
-            let full = [p.firstName, p.lastName].compactMap { $0 }
-                .joined(separator: " ")
-                .trimmingCharacters(in: .whitespaces)
-            return (p.id, full.isEmpty ? p.id : full)
-        }
+        CampaignReviewService.generatorParents(for: profile.id, snapshot: appState.snapshot)
     }
 
     private func reload() {

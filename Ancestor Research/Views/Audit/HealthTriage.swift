@@ -75,23 +75,27 @@ enum HealthTriage {
     /// that list: `AuditFixButton`'s switch (and its guards), and the inline
     /// detail panels the list hosts beneath certain rows.
     ///
-    /// `hasDatabase` mirrors the `appState.currentDatabase` guard the
-    /// FreeBMD-enrich button sits behind.
-    ///
     /// NOT one-click, though they look like it (review 2026-08-25):
     /// `censusUnabsorbed` / `parishFamilyUnabsorbed` have no AuditFixButton
     /// case at all — in the Health host their detail row renders "Review in
     /// profile" (a navigation: adding people is a tree change that must be
     /// confirmed in full context) or "Load household" (a network fetch).
     /// Neither is a deterministic undoable click, so neither earns the ⚡.
+    /// `freebmdLinkMissing` is ejected on the same ground (review M6): its
+    /// only button, "Enrich from FreeBMD", runs live FreeBMD queries that can
+    /// throttle, return nothing, or fail, and its writes have no undo — the
+    /// registry's own definition (fetches from the network = judgement, never
+    /// quick) rules it out, and a ⚡ clearance queue must never fire a volley
+    /// of network calls at a volunteer source. `hasDatabase` (the
+    /// `appState.currentDatabase` guard that button sits behind) stays in the
+    /// signature for the callers' sake and for any future DB-gated LOCAL
+    /// one-click; nothing currently reads it.
     static func isOneClickFinding(
         _ r: AuditResult, snapshot: FamilyGraphSnapshot, hasDatabase: Bool
     ) -> Bool {
         switch r.ruleID {
         case "censusParentUnlock":
             return true
-        case "freebmdLinkMissing":
-            return hasDatabase
         case "excessParentEdges":
             return r.relatedProfileIDs?.isEmpty == false
         case "missingCoParent":
@@ -110,9 +114,15 @@ enum HealthTriage {
             // ALSO hosts the reconciliation panel, which renders a one-click
             // "Add <relation>" per missing relative at any N — so a single
             // missing relative is still a quick win here (review 2026-08-25).
+            // EV33 follow-up (review C5): the panel's "Link <name>"
+            // (unlinked-in-tree) and "Add <spouse>'s mother/father" (in-law)
+            // buttons are one-clicks of the same deterministic class, and the
+            // .info gap row fires for those households with zero .missing
+            // findings — so membership comes from the rule's own shared
+            // predicate, which walks every roster status the panel renders
+            // (near-matches stay judgement, EV18).
             guard r.severity == .info, let p = snapshot.profiles[r.profileID] else { return false }
-            return CensusRelationshipReconciler.findings(for: p, in: snapshot)
-                .contains { $0.kind == .missing }
+            return CensusRelationshipRule.hasOneClickReconciliation(for: p, in: snapshot)
         default:
             return false
         }

@@ -942,8 +942,11 @@ struct HealthView: View {
               let field = ProfileField(rawValue: row.field),
               let profile = appState.snapshot.profiles[row.entityID]
         else { return row.competingSources }
+        // EV11 follow-up (review C4): the producer discriminates which rowless
+        // competitors may survive — see `liveCompetingSources`.
         return DisputeSheetItem.liveCompetingSources(
-            stored: row.competingSources, attested: profile.sources[field] ?? [])
+            stored: row.competingSources, attested: profile.sources[field] ?? [],
+            detectedBy: row.detectedBy)
     }
 
     /// Open the same `ConflictResolutionView` the profile uses for a value dispute.
@@ -1397,9 +1400,15 @@ struct HealthView: View {
         // against censusUnabsorbed: once a household has been APPLIED the
         // absorbed sweep owns it, and both firing would show one household
         // twice under two rules.
-        let absorbedSubjects = Set(censusUnabsorbed.map(\.profileID))
-        let censusLeadAttention = kept(appState.censusLeadAttentionFindings())
-            .filter { !absorbedSubjects.contains($0.profileID) }
+        //
+        // EV2 follow-up (review M5): the dedup keys on (profile, census YEAR),
+        // never on profile alone — the two rules cover different records, so a
+        // profile's applied 1871 household must not silence its 1891 lead
+        // household. `censusHouseholdYears` was set from the applied sweep's
+        // proposals just above, so the year map costs nothing extra here.
+        let censusLeadAttention = Self.dedupedCensusLeadAttention(
+            kept(appState.censusLeadAttentionFindings()),
+            absorbedYears: censusHouseholdYears)
         guard !citationGaps.isEmpty || !parentUnlocks.isEmpty
             || !censusUnabsorbed.isEmpty || !parishUnabsorbed.isEmpty
             || !kinUnreadable.isEmpty || !censusLeadAttention.isEmpty else {
@@ -1433,6 +1442,41 @@ struct HealthView: View {
             out[finding.profileID, default: []].insert(proposal.censusYear)
         }
         return out
+    }
+
+    /// EV2 follow-up (review M5): drop a `censusLeadUnabsorbed` finding only
+    /// when the applied sweep already reported the SAME household — same
+    /// profile AND same census year (`absorbedYears` is `householdYears(for:)`
+    /// over the applied sweep's findings). The profile-keyed version silenced
+    /// every other year's lead household — the applied 1871 census muted the
+    /// 1891 lead naming an unrecorded sibling, re-creating the exact EV2
+    /// silence this rule was written to end. `censusLeadContradiction`
+    /// findings are never dropped: the applied sweep reports missing kin,
+    /// never roster-vs-tree clashes, so there is nothing for a clash finding
+    /// to be a duplicate of.
+    nonisolated static func dedupedCensusLeadAttention(
+        _ findings: [AuditResult], absorbedYears: [String: Set<Int>]
+    ) -> [AuditResult] {
+        findings.filter { finding in
+            guard finding.ruleID == CensusLeadAttentionAudit.unabsorbedRuleID,
+                  let years = absorbedYears[finding.profileID],
+                  let year = censusLeadYear(in: finding.message)
+            else { return true }
+            // A message the year can't be read from keeps its finding —
+            // showing a household twice beats silencing it.
+            return !years.contains(year)
+        }
+    }
+
+    /// The census year a `CensusLeadAttentionAudit` message names. The finding
+    /// carries its year only in prose ("…'s 1891 census lead names…"), so the
+    /// dedup reads it back out — coupled to that producer's fixed message
+    /// format, which both of its rules share.
+    nonisolated static func censusLeadYear(in message: String) -> Int? {
+        guard let range = message.range(
+            of: #"\b\d{4} census lead\b"#, options: .regularExpression)
+        else { return nil }
+        return Int(message[range].prefix(4))
     }
 
     private func promoteToQuestion(_ result: AuditResult) {

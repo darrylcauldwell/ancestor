@@ -1009,6 +1009,11 @@ nonisolated struct RecordScorer {
     /// 35 impossible for birth ~1867" — against an applied birthDate of Dec
     /// 1867 that carried an OPEN dispute. A contested fact excluded a probably-
     /// correct record and the profile lost its death registration.
+    /// The clause `contestedPremise` appends when an OPEN DISPUTE — rather
+    /// than a derived anchor — is what holds a record back. Named so the
+    /// matcher below cannot drift from the producer above (EV35).
+    static let contestedDisputeMarker = "which is itself disputed"
+
     static func contestedPremise(_ field: ProfileField, subject: ResearchSubject) -> String? {
         let stated: String? = switch field {
         case .birthDate: subject.birthDateOriginal
@@ -1017,12 +1022,29 @@ nonisolated struct RecordScorer {
         }
         let value = stated.map { " \($0)" } ?? ""
         if subject.contestedFields.contains(field) {
-            return "conflicts with \(field.rawValue)\(value), which is itself disputed"
+            return "conflicts with \(field.rawValue)\(value), \(contestedDisputeMarker)"
         }
         if field == .birthDate, subject.birthAnchorIsDerived {
             return "conflicts with \(field.rawValue)\(value), which is itself only an estimate (no birth-shape record behind it)"
         }
         return nil
+    }
+
+    /// Was this stored record demoted from `.impossible` to a reviewable lead
+    /// ONLY because `field` was under an open dispute? Read off the PERSISTED
+    /// gates, so a caller with no scorer run in hand can find exactly the rows
+    /// a resolution unblocks (EV35, 2026-08-26). Structural where it can be
+    /// (gate + outcome); prose only for the dependency clause, which
+    /// `GateResult` has no typed slot for — the same constraint
+    /// `isExclusivityGhost` works under. The `field.rawValue` term is what
+    /// keeps a settled birthDate from disturbing a record held back by a
+    /// still-disputed deathDate.
+    static func heldByOpenDispute(_ gates: [GateResult], field: ProfileField) -> Bool {
+        gates.contains {
+            $0.gate == .date && $0.outcome == .fail
+                && $0.reason.contains("conflicts with \(field.rawValue)")
+                && $0.reason.contains(contestedDisputeMarker)
+        }
     }
 
     /// Emit a date-gate exclusion — downgraded to a reviewable `.fail` (a
@@ -1952,7 +1974,16 @@ nonisolated struct RecordScorer {
             for childName in context.childNames {
                 let childInHousehold = household.contains { member in
                     let rel = member.relationship.lowercased()
-                    let isChild = rel.contains("son") || rel.contains("daughter") || rel.contains("child")
+                    // EV25 (2026-08-26): "Daur"/"Dau"/"Daug" are the FreeCen
+                    // norm and contain neither "son" nor "daughter", so the
+                    // hand-rolled test alone missed them. `CensusFamilyLinker`
+                    // is the classifier the rest of the app already reads over
+                    // the same roster, and it already excludes grand-/step-/
+                    // in-law rows — so routing through it cannot admit a
+                    // grandson as a child. The hand-rolled tests stay beside
+                    // it, so this can only ever WIDEN, never narrow.
+                    let isChild = CensusFamilyLinker.category(of: member.relationship) == .child
+                        || rel.contains("son") || rel.contains("daughter") || rel.contains("child")
                     return isChild && ScoringRules.nameSimilarity(member.name.uppercased(), childName.uppercased()) >= 0.7
                 }
                 if childInHousehold {
@@ -1968,9 +1999,95 @@ nonisolated struct RecordScorer {
             // child soft-fails → a reviewable .lead rather than an
             // auto-accepted wrong household.
             if let spouseName = context.spouseName {
+                // EV25 (2026-08-26) — roster roles are recorded relative to the
+                // HEAD. A husband on his own schedule is never labelled
+                // "Husband"; he is "Head", so for a WIFE subject this gate
+                // could not see the spouse she is linked to and reported "no
+                // known family members" over a household holding him.
+                // `CensusFamilyLinker` is the classifier the rest of the app
+                // already reads over the same roster; the hand-rolled tests
+                // stay beside it so this can only ever WIDEN the candidate set,
+                // never narrow it.
+                //
+                // And the names: `spouseName` is the tree's display form, which
+                // by convention carries a wife's MAIDEN surname while every
+                // census indexes her under her MARRIED one (EV23, same defect,
+                // fixed there and not here). Score against the maiden form AND
+                // the given name against each surname she is known by.
+                let spouseGiven = (context.spouseGivenName?.trimmingCharacters(in: .whitespaces))
+                    ?? spouseName.split(separator: " ").dropLast().joined(separator: " ")
+                var spouseForms = [spouseName]
+                if !spouseGiven.isEmpty {
+                    spouseForms.append(contentsOf: context.spouseKnownSurnames.map { "\(spouseGiven) \($0)" })
+                }
+                // Review F04 (2026-08-26) — the `.head` widening EV25 added had
+                // NO discriminator on it, so a household headed by an unrelated
+                // WIDOW carrying the subject's wife's married surname passed the
+                // STRONG band. That is not merely a wrong pass: `isDiscriminated`
+                // is exactly "familyContext passed", so the wrong household then
+                // took the census slot in `applyExclusivity` and DEMOTED the
+                // subject's true schedule. A woman recorded as Head is, by the
+                // roster's own semantics, not any co-resident's wife — the arm
+                // was asserting a relationship the schedule denies.
+                //
+                // Three refusals, each firing only on a POSITIVE contradiction so
+                // EV25's case (subject is the WIFE, the Head row IS her husband,
+                // sex often untranscribed) still passes:
+                //  1. the subject's own row is never scored against their own
+                //     spouse's name — you are not your own spouse;
+                //  2. the census states where the subject sits in this dwelling
+                //     and it is not "married to the Head" (the live shape: the
+                //     subject's row says Lodger);
+                //  3. the Head's transcribed sex AGREES with the subject's — the
+                //     `sexContradicts` rule the reconciler already applies to the
+                //     same rosters, which FreeCen always has the column for.
+                // Narrowing the ROLE set was rejected: it would undo EV25.
+                //
+                // The boundary, stated so nobody mistakes this for airtight: a
+                // roster that states NEITHER the subject's position in the
+                // dwelling NOR a contradicting sex still admits its Head. On the
+                // FreeCen path both columns are populated together (the enriched
+                // record takes `relationship` from the `isTarget` row), so the
+                // gap is the 1841 schedules, which transcribe no relationship
+                // column at all — and no marital-status column either, so there
+                // is nothing further to refuse on. Left permissive deliberately:
+                // 1841 states nothing about anyone's relation to anyone, so a
+                // same-surname Head bearing the linked spouse's exact given name
+                // is the strongest signal that schedule can carry. Every richer
+                // year is discriminated above. If 1841 ever proves to be a real
+                // source of wrong endorsements, the refusal belongs HERE, not in
+                // a narrower role set.
+                let statedSubjectRole = (census.relationship
+                    ?? household.first { $0.isTarget == true }?.relationship ?? "")
+                    .trimmingCharacters(in: .whitespaces)
+                let subjectIsHeadsSpouse = statedSubjectRole.isEmpty
+                    || CensusFamilyLinker.category(of: statedSubjectRole) == .spouse
+                func headCouldBeTheSubjectsSpouse(_ member: HouseholdMember) -> Bool {
+                    guard subjectIsHeadsSpouse else { return false }
+                    guard let stated = member.sex?
+                        .trimmingCharacters(in: .whitespaces).uppercased().first,
+                          let gender = subject.gender else { return true }
+                    switch gender {
+                    case .male:            return stated != "M"
+                    case .female:          return stated != "F"
+                    case .other, .unknown: return true
+                    }
+                }
                 let bestSpouse = household
-                    .filter { let r = $0.relationship.lowercased(); return r.contains("wife") || r.contains("husband") }
-                    .map { ScoringRules.nameSimilarity($0.name.uppercased(), spouseName.uppercased()) }
+                    .filter { member in
+                        guard member.isTarget != true else { return false }
+                        let r = member.relationship.lowercased()
+                        let role = CensusFamilyLinker.category(of: member.relationship)
+                        if role == .spouse || r.contains("wife") || r.contains("husband") {
+                            return true
+                        }
+                        return role == .head && headCouldBeTheSubjectsSpouse(member)
+                    }
+                    .map { member in
+                        spouseForms
+                            .map { ScoringRules.nameSimilarity(member.name.uppercased(), $0.uppercased()) }
+                            .max() ?? 0
+                    }
                     .max() ?? 0
                 if bestSpouse >= 0.9 {
                     return GateResult(gate: .familyContext, outcome: .pass, reason: "spouse \(spouseName) found in household")

@@ -772,6 +772,31 @@ final class AppState {
     /// transient source outage clears on next launch.
     private var evidenceDetailAutoFetchAttempted: Set<String> = []
 
+    /// EV31 (2026-08-26) — daily-budget tracker for the on-demand DETAIL
+    /// fetches. Search-path requests are counted in `SearchDispatcher`
+    /// (`onWireFetch`); the detail GETs this view model makes were never
+    /// counted at all, so a review session could spend a volunteer source's
+    /// day off-book.
+    ///
+    /// Review F02/F05 (2026-08-26) — built FRESH on every call, deliberately
+    /// NOT cached. `SourceBudgetTracker` rehydrates from `source_budget_state`
+    /// exactly once, in `init`. A tracker cached for the life of the project
+    /// (the shape this shipped as, copied from
+    /// `RunRequestWatcher.budgetTracker(for:)`) therefore never learns what a
+    /// research run spent after it was built: it would answer `isPaused` from
+    /// a count frozen hours earlier and fetch against a FreeREG that had
+    /// already parked at its 300/day ceiling. Construction is one read of a
+    /// seven-row table — cheaper than a single wire request by orders of
+    /// magnitude, and it is the only way this path can see the truth at the
+    /// moment it decides. `saveSourceBudgetWindow` is the second half of the
+    /// guarantee: no tracker, however stale, can lower a spent count.
+    /// Internal, not private, so `SourceBudgetTrackerTests` can pin the
+    /// "never cached" property directly — it is the whole fix.
+    func detailFetchBudgetTracker() -> SourceBudgetTracker? {
+        guard let db = currentDatabase, let registry = attachedRegistry else { return nil }
+        return ResearchRunService.makeBudgetTracker(registry: registry, database: db)
+    }
+
     /// The APPLIED (or user-kept) records still missing their evidence
     /// payload — a parish record's register entry, a census's household.
     /// Pure selection, testable without a network: applied-only (reading a
@@ -792,6 +817,69 @@ final class AppState {
             out.append(ev)
         }
         return out
+    }
+
+    /// EV31 (2026-08-26) — the CANDIDATE parish rows whose register entry
+    /// should be pulled the moment the user opens a research bucket to decide
+    /// on them.
+    ///
+    /// A FreeREG baptism names BOTH parents, and that is usually the single
+    /// most discriminating fact for "is this the right person" — but the
+    /// results-table row carries none of it (`FreeREGSource.parseResults`
+    /// builds every row with `fatherName: nil, motherName: nil`), and only the
+    /// top hit of each search is enriched (`enrichWithDetail(cap: 1)`). So at
+    /// the moment of accept/reject the deciding evidence was off screen behind
+    /// a per-record click.
+    ///
+    /// Bound by INTENT, not by layout: opening a collapsed bucket is an
+    /// unambiguous "I am reviewing these now", so a tight cap of the
+    /// best-ranked rows is polite, not a sweep. `rows` arrives already sorted
+    /// best-match-first (`ProfileSourcesLedger.allRecords`), so the cap lands
+    /// on the contested rivals. Applied rows are excluded —
+    /// `autoLoadAppliedEvidenceDetails` owns those.
+    nonisolated static func candidateRowsNeedingParishDetail(
+        _ rows: [ProfileSourcesLedger.RecordDetail],
+        profileID: String, attempted: Set<String>, cap: Int = 3
+    ) -> [String] {
+        var out: [String] = []
+        for row in rows where out.count < cap {
+            guard row.standing == .researched, row.canLoadParishDetail else { continue }
+            let key = EvidenceRecord.compositeID(profileID: profileID, sourceRecordID: row.id)
+            guard !attempted.contains(key) else { continue }
+            out.append(row.id)
+        }
+        return out
+    }
+
+    /// Review F09 (2026-08-26) — select the candidates AND claim them in ONE
+    /// step, so the claim cannot be separated from the decision by a
+    /// suspension point.
+    ///
+    /// `loadParishDetailsForReview` used to select up front and then insert
+    /// into the attempted set one id at a time, INSIDE the loop, after an
+    /// `await`. The bucket toggle spawns an unstructured `Task` per click, so
+    /// a user who collapsed and re-expanded a bucket while the first GET was
+    /// still in flight (the source paces at 1000 ms, so "nothing happened yet"
+    /// is the normal appearance) got a second invocation that read a set still
+    /// holding only the first id — and both invocations then fetched the same
+    /// remaining rows. Four GETs where two were intended, at a volunteer
+    /// source, and `loadParishDetail`'s own `parishNeedsDetail` guard cannot
+    /// deduplicate because the first fetch has not persisted yet.
+    ///
+    /// Claiming the whole set before the first `await` makes the second
+    /// invocation compute an empty list. Behaviour-preserving for a single
+    /// invocation: the set is the session dedup, and a FAILED fetch is already
+    /// intended not to retry this session.
+    nonisolated static func claimParishDetailCandidates(
+        _ rows: [ProfileSourcesLedger.RecordDetail],
+        profileID: String, attempted: inout Set<String>, cap: Int = 3
+    ) -> [String] {
+        let ids = candidateRowsNeedingParishDetail(
+            rows, profileID: profileID, attempted: attempted, cap: cap)
+        for id in ids {
+            attempted.insert(EvidenceRecord.compositeID(profileID: profileID, sourceRecordID: id))
+        }
+        return ids
     }
 
     /// Backfill fetch for applied records that predate auto-fetch-on-apply
@@ -818,6 +906,65 @@ final class AppState {
                 }
             } else if await loadCensusHousehold(sourceRecordID: ev.sourceRecordID,
                                                 profileID: profileID) {
+                changed = true
+            }
+        }
+        return changed
+    }
+
+    /// EV31 (2026-08-26) — pull the register entries for the candidate rows the
+    /// user has just opened for review. Fetch-only and write-free: every row
+    /// here is `.researched`, which implies `!wasApplied`, so
+    /// `loadParishDetail`'s re-apply branch cannot fire. Serial, so the source
+    /// actor's 1000 ms pacing applies; quiet, so an unattended failure never
+    /// toasts over a card the user just opened; session-deduped, so re-opening
+    /// the bucket cannot re-spend a request; and it stops dead when the source
+    /// has spent its day — a volunteer service is not asked twice.
+    @discardableResult
+    func loadParishDetailsForReview(rows: [ProfileSourcesLedger.RecordDetail],
+                                    profileID: String) async -> Bool {
+        // Review F09 (2026-08-26) — claim the whole candidate set here, while
+        // still synchronous on the main actor and BEFORE the first suspension
+        // point, so an overlapping invocation (a second bucket-toggle `Task`)
+        // computes an empty list instead of re-fetching the same rows.
+        let ids = Self.claimParishDetailCandidates(
+            rows, profileID: profileID, attempted: &evidenceDetailAutoFetchAttempted)
+        guard !ids.isEmpty else { return false }
+        // Review F02/F05 (2026-08-26) — freshly built, so it carries whatever a
+        // research run has already spent today. Never cached.
+        let tracker = detailFetchBudgetTracker()
+        var changed = false
+        for (index, id) in ids.enumerated() {
+            guard let row = rows.first(where: { $0.id == id }) else { continue }
+            // Review F02 (2026-08-26) — re-read the persisted counters before
+            // EVERY dispatch, not just once at the top of the loop. A
+            // `RunRequestWatcher` run can be spending FreeREG in the
+            // background while the user reads a card, and this loop pauses
+            // 1000 ms between GETs, so a tracker built at the first iteration
+            // is already stale by the third. Absorbing also means this path's
+            // own request is counted ON TOP of the run's spend instead of
+            // being masked by the non-destructive MAX merge. One read of an
+            // at-most-seven-row table per GET, against a request that costs a
+            // volunteer host a page render.
+            if let tracker, let db = currentDatabase,
+               let persisted = try? db.loadSourceBudgetWindows() {
+                await tracker.absorb(persisted)
+            }
+            // A volunteer source that has spent its day is not asked again.
+            if let tracker, await tracker.isPaused(row.sourceID) {
+                // Release the claims we never spent. A budget pause is not an
+                // attempt, so these rows stay eligible once the window rolls.
+                // Synchronous — no suspension between the break decision and
+                // the release, so no overlapping invocation sees a half-open
+                // set.
+                for unspent in ids[index...] {
+                    evidenceDetailAutoFetchAttempted.remove(
+                        EvidenceRecord.compositeID(profileID: profileID, sourceRecordID: unspent))
+                }
+                break
+            }
+            await tracker?.recordRequest(row.sourceID)
+            if await loadParishDetail(sourceRecordID: id, profileID: profileID, quietly: true) {
                 changed = true
             }
         }
@@ -1406,7 +1553,29 @@ final class AppState {
         guard let db = currentDatabase else { return false }
         do {
             if case .childOfParents(let parentIDs, _) = action {
-                _ = try db.promoteLeadToProfile(lead, asChildOfParents: parentIDs)
+                // Review M11 — the child-of-parents path runs the same
+                // ProposalDedup layer as every other promote path: repeated
+                // Add on a grouped sibling lead used to mint a second
+                // identical ghost (the groupmate re-offered the button after
+                // the first click). A match may only ATTACH when it is
+                // already a child of one of these parents — i.e. it IS the
+                // sibling a previous Add promoted; a namesake elsewhere in
+                // the tree stays separate ("when in doubt, split").
+                let existingID: String?
+                switch ProposalDedup.decide(
+                    query: ProposalDedup.Query(lead: lead),
+                    candidates: Array(snapshot.profiles.values)
+                ) {
+                case .matched(let matchedID):
+                    let alreadyChildOfThesePairs = snapshot.relationships.contains {
+                        $0.type == .parent && $0.to == matchedID && parentIDs.contains($0.from)
+                    }
+                    existingID = alreadyChildOfThesePairs ? matchedID : nil
+                case .noMatch, .multipleMatches:
+                    existingID = nil
+                }
+                _ = try db.promoteLeadToProfile(
+                    lead, asChildOfParents: parentIDs, attachingTo: existingID)
             } else {
                 let existingID: String?
                 switch ProposalDedup.decide(
@@ -1424,6 +1593,12 @@ final class AppState {
                 }
                 _ = try db.promoteLeadToProfile(lead, attachingTo: existingID)
             }
+            // Review M11 — leads grouped by `leadGroupKey` are ONE finding
+            // (the same person surfaced by several records). Settle the
+            // groupmates with the promoted lead, or the row re-renders still
+            // offering Add and a second click mints a duplicate (Dismiss
+            // already treats the group as one).
+            settleLeadGroupmates(of: lead)
             snapshot = try db.buildSnapshot()
             return true
         } catch {
@@ -1432,33 +1607,66 @@ final class AppState {
         }
     }
 
+    /// After promoting `lead`, resolve the still-pending leads that share its
+    /// identity group — the person is in the tree now, so their finding is
+    /// covered. `.duplicate` is the honest resolution (another lead already
+    /// covers this person — the `LeadStore.promote` precedent); status
+    /// `.promoted` rather than `.dismissed` because the person was ADDED, and
+    /// a dismissal would invite the EV33 cascade to bury their (supporting)
+    /// evidence rows.
+    private func settleLeadGroupmates(of lead: Lead) {
+        guard let db = currentDatabase else { return }
+        let key = CampaignReviewService.leadGroupKey(lead)
+        let mates = ((try? db.loadLeads(profileID: lead.profileID)) ?? [])
+            .filter {
+                $0.id != lead.id
+                    && ($0.status == .new || $0.status == .investigated)
+                    && CampaignReviewService.leadGroupKey($0) == key
+            }
+        for mate in mates {
+            do {
+                try db.upsertLead(mate.with(
+                    status: .promoted, resolvedAt: Date(), resolution: .duplicate))
+            } catch {
+                Self.leadLogger.error("Lead groupmate settle failed: \(error.localizedDescription)")
+            }
+        }
+    }
+
     /// Flip a lead to dismissed — a recorded human verdict.
+    ///
+    /// EV33 follow-up (review C3): cascades to the scored record the lead
+    /// mirrors (`user_status = discarded`) in the same transaction, exactly
+    /// as MCP `dismiss_lead` does — one finding is TWO rows, and refusing it
+    /// from the per-profile surface must not leave the record half sitting
+    /// at "Researched — not applied" for the next run (or agent) to
+    /// re-litigate. An APPLIED record is still discarded (the refusal is the
+    /// human verdict) but never silently: the warning surfaces the fact that
+    /// the value and citation remain on the profile.
     func dismissLead(_ lead: Lead) {
-        setLeadStatus(lead, status: .dismissed, resolution: .dismissed)
+        guard let db = currentDatabase else { return }
+        do {
+            let cascade = try db.dismissLeadDiscardingEvidence(lead)
+            if let appliedAt = cascade.appliedAt {
+                errorMessage = "\(lead.name): lead dismissed, but its record was applied to the profile on \(appliedAt.formatted(date: .abbreviated, time: .omitted)) — the value and citation remain. Remove the applied record from Sources & Records if it should go too."
+            }
+        } catch {
+            Self.leadLogger.error("Lead dismiss failed: \(error.localizedDescription)")
+        }
     }
 
     /// Restore a dismissed lead to the active queue.
+    ///
+    /// Review M1 — the symmetric inverse of `dismissLead`: un-discards the
+    /// mirrored evidence record (and clears its legacy rejection row) in the
+    /// same transaction, so a restore never leaves a zombie lead whose
+    /// record stays suppressed from every future run.
     func restoreLead(_ lead: Lead) {
-        setLeadStatus(lead, status: .new, resolution: nil)
-    }
-
-    private func setLeadStatus(_ lead: Lead, status: LeadStatus, resolution: LeadResolution?) {
         guard let db = currentDatabase else { return }
-        let updated = Lead(
-            id: lead.id, profileID: lead.profileID,
-            name: lead.name, surname: lead.surname, givenName: lead.givenName,
-            birthYear: lead.birthYear, deathYear: lead.deathYear,
-            ageAtDeath: lead.ageAtDeath, place: lead.place,
-            relationship: lead.relationship, source: lead.source,
-            status: status, evidence: lead.evidence,
-            createdAt: lead.createdAt, investigatedAt: lead.investigatedAt,
-            resolvedAt: resolution == nil ? nil : Date(),
-            resolution: resolution
-        )
         do {
-            try db.upsertLead(updated)
+            try db.restoreLeadReopeningEvidence(lead)
         } catch {
-            Self.leadLogger.error("Lead status update failed: \(error.localizedDescription)")
+            Self.leadLogger.error("Lead restore failed: \(error.localizedDescription)")
         }
     }
 
@@ -2888,6 +3096,14 @@ final class AppState {
             )
             recordSessionEvent(.transactionRecorded(tx.id))
             snapshot = try db.buildSnapshot()
+            // EV35 (2026-08-26) — the ruling un-blocks whatever its openness
+            // was holding back. Re-stomp those stored records here, against
+            // the snapshot just rebuilt, and BEFORE the audit so Health counts
+            // the settled verdicts rather than the stale ones. Local only: the
+            // records are already persisted, so there is no fetch and no
+            // source load.
+            DisputeRescorer.rescoreAfterResolution(
+                profileID: profileID, field: field, db: db, snapshot: snapshot)
             runPostLoadAudit()
         } catch {
             errorMessage = "Failed to resolve dispute: \(error.localizedDescription)"
@@ -3001,10 +3217,10 @@ final class AppState {
         // surname. (Owner report 2026-08-04: a Wife added from census landed
         // "Twyford" as her maiden name.)
         func build(_ m: HouseholdMember, marriedIn: Bool = false) -> Profile {
-            let tokens = m.name.split(separator: " ").map(String.init)
-            let censusSurname = tokens.count >= 2 ? recase(tokens.last!) : nil
-            let first = tokens.first.map(recase)
-            let middle = tokens.count > 2 ? tokens[1..<(tokens.count - 1)].map(recase).joined(separator: " ") : nil
+            let parts = Self.censusMemberNameParts(m, household: household)
+            let censusSurname = parts.surname
+            let first = parts.first
+            let middle = parts.middle
             let year: Int? = m.birthYear ?? (censusYear.flatMap { cy in m.age.map { cy - $0 } })
             // Census age → year is arithmetic, precise to ±1 (birthday may not
             // have passed on census night) — the `.calculated` (CAL, ±1)
@@ -3217,6 +3433,37 @@ final class AppState {
         if rel.contains("husband") || rel.contains("widower") || rel.contains("father")
             || rel.contains("son") || rel.contains("brother") { return .male }
         return nil
+    }
+
+    /// Split a census roster row's single `name` string into given/middle/
+    /// surname. EV20 (2026-08-26): a ONE-TOKEN roster name is ambiguous — it is
+    /// a bare given name on a FamilySearch persona, but on a FreeCEN schedule it
+    /// is the SURNAME of an unnamed infant (the Surname column is per-row, the
+    /// Forenames cell is blank, and the two are joined before storage). The
+    /// household itself disambiguates: if the lone token is a surname another
+    /// member of the same dwelling carries, it is a surname. Otherwise it stays
+    /// a given name, which is the pre-EV20 behaviour.
+    nonisolated static func censusMemberNameParts(
+        _ m: HouseholdMember, household: [HouseholdMember]
+    ) -> (first: String?, middle: String?, surname: String?) {
+        func recase(_ token: String) -> String {
+            (token == token.uppercased() || token == token.lowercased()) ? token.capitalized : token
+        }
+        let tokens = m.name.split(separator: " ").map(String.init)
+        if tokens.isEmpty { return (nil, nil, nil) }
+        if tokens.count == 1 {
+            let lone = tokens[0].uppercased()
+            let householdSurnames = Set(household.compactMap { peer -> String? in
+                let t = peer.name.split(separator: " ").map(String.init)
+                return t.count >= 2 ? t.last!.uppercased() : nil
+            })
+            return householdSurnames.contains(lone)
+                ? (nil, nil, recase(tokens[0]))
+                : (recase(tokens[0]), nil, nil)
+        }
+        return (recase(tokens[0]),
+                tokens.count > 2 ? tokens[1..<(tokens.count - 1)].map(recase).joined(separator: " ") : nil,
+                recase(tokens.last!))
     }
 
     /// The town-level key of a place string: the leading comma-component,
@@ -3992,25 +4239,67 @@ final class AppState {
     /// rejected it, so it must not be named as the source of anything.
     /// Nil when the year is unknown or nothing cites that schedule — an
     /// unmatched citation is worse than no citation.
+    ///
+    /// EV12 follow-up (review M4): the evidence-record fallback used to
+    /// return the FIRST non-discarded census row for the year — which can be
+    /// a namesake household the scorer already ruled out (an `.impossible`
+    /// rival is common enough that the exclusivity pass exists for it),
+    /// citing every person the panel creates to somebody else's schedule.
+    /// The fallback now only cites a record that PASSED the scorer (verdict
+    /// `fact`), preferring the record whose apply action ran, and otherwise
+    /// requiring its household roster to corroborate the roster being
+    /// absorbed (the census life event's). Nothing qualifies → nil.
     func censusScheduleCitationURL(subjectID: String, censusYear: Int?) -> String? {
         guard let year = censusYear else { return nil }
         func usable(_ url: String?) -> String? {
             guard let url, !url.trimmingCharacters(in: .whitespaces).isEmpty else { return nil }
             return url
         }
-        let fromEvent = (snapshot.lifeEvents[subjectID] ?? [])
+        let events = (snapshot.lifeEvents[subjectID] ?? [])
             .filter { $0.type == .census && $0.date?.bestYear == year }
+        let fromEvent = events
             .flatMap { $0.sources }
             .compactMap { usable($0.citation?.url) }
             .first
         if let fromEvent { return fromEvent }
         guard let db = currentDatabase else { return nil }
-        for ev in (try? db.loadEvidenceForProfile(subjectID)) ?? [] {
-            guard ev.userStatus != .discarded, case .census(let c) = ev.record,
-                  c.censusYear == year, let url = usable(c.common.detailURL) else { continue }
-            return url
+        // The roster the reconciliation panel is absorbing — the census life
+        // event's household. A candidate record corroborates when every
+        // absorbed-roster name appears in ITS household; a rival namesake
+        // schedule lists a different family and fails.
+        let rosterNames: Set<String> = Set(events
+            .compactMap { event -> [HouseholdMember]? in
+                guard case .census(let details)? = event.details else { return nil }
+                return details.household
+            }
+            .flatMap { $0 }
+            .map { Self.normalizedRosterName($0.name) })
+        func corroborates(_ c: CensusRecord) -> Bool {
+            guard !rosterNames.isEmpty, let household = c.household, !household.isEmpty
+            else { return false }
+            return rosterNames.isSubset(of: Set(household.map { Self.normalizedRosterName($0.name) }))
         }
-        return nil
+        var appliedURL: String?
+        var corroboratedURL: String?
+        for ev in (try? db.loadEvidenceForProfile(subjectID)) ?? [] {
+            guard ev.userStatus != .discarded, ev.verdict == .fact,
+                  case .census(let c) = ev.record,
+                  c.censusYear == year, let url = usable(c.common.detailURL) else { continue }
+            if ev.appliedAt != nil {
+                if corroborates(c) { return url }   // the absorbed schedule itself
+                if appliedURL == nil { appliedURL = url }
+            } else if corroboratedURL == nil, corroborates(c) {
+                corroboratedURL = url
+            }
+        }
+        return appliedURL ?? corroboratedURL
+    }
+
+    /// Roster-name identity for `censusScheduleCitationURL`'s corroboration
+    /// check: case- and whitespace-insensitive. Pure — testable without a
+    /// database.
+    nonisolated static func normalizedRosterName(_ name: String) -> String {
+        name.lowercased().split(whereSeparator: \.isWhitespace).joined(separator: " ")
     }
 
     /// Add a SINGLE census relative — the per-row "Add" in the census-reconciliation
@@ -4675,7 +4964,14 @@ final class AppState {
             let landed = reportApplyOutcome(
                 ApplyEngine.applyFactToSubject(scored, profile: fresh, snapshot: snapshot, db: db))
             for event in scored.record.projectToLifeEvents(profileID: profile.id) {
-                try? db.addLifeEventIfAbsent(event)
+                do {
+                    try db.addLifeEventIfAbsent(event)
+                } catch {
+                    // Never silent: the apply has ALREADY been reported as landed
+                    // above, so a discarded failure here means the user sees
+                    // success while life events are missing.
+                    applyLogger.error("addLifeEventIfAbsent failed: \(error.localizedDescription, privacy: .public)")
+                }
             }
             snapshot = try db.buildSnapshot()
             runPostLoadAudit()
@@ -4910,7 +5206,14 @@ final class AppState {
             let landed = reportApplyOutcome(
                 ApplyEngine.applyFactToSubject(scored, profile: fresh, snapshot: snapshot, db: db))
             for event in scored.record.projectToLifeEvents(profileID: profile.id) {
-                try? db.addLifeEventIfAbsent(event)
+                do {
+                    try db.addLifeEventIfAbsent(event)
+                } catch {
+                    // Never silent: the apply has ALREADY been reported as landed
+                    // above, so a discarded failure here means the user sees
+                    // success while life events are missing.
+                    applyLogger.error("addLifeEventIfAbsent failed: \(error.localizedDescription, privacy: .public)")
+                }
             }
             // Stamp the evidence as applied, mirroring `applyEvidenceRecord`, so
             // the census-household proposal (and the tree-wide sweep) recognise

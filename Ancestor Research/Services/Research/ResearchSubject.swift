@@ -554,6 +554,14 @@ nonisolated struct FamilyContext: Sendable {
     /// spouse's `lastName` already matches the father's surname (well-
     /// imported wife under her maiden name).
     let spouseFatherSurname: String?
+    /// EV25 (2026-08-26) — every surname the first spouse is known by,
+    /// upper-cased and sorted: `lastName`, `marriedSurname` and the
+    /// `nameForms` sidecar, via `RosterIdentity.knownSurnames` (the same union
+    /// EV23 gave census enrichment and the reconciler). `spouseSurname` alone
+    /// is the tree's STORAGE form — maiden, by convention — and every census
+    /// indexes a wife under her MARRIED name, so the census arm of the family
+    /// gate could not match its own linked spouse.
+    let spouseKnownSurnames: [String]
     let childNames: [String]
     /// Birth years of the subject's children (earliest-known per child),
     /// unsorted. A marriage precedes the first child, so this tightens the
@@ -586,12 +594,14 @@ nonisolated struct FamilyContext: Sendable {
         motherSurname: String?,
         motherGivenName: String?,
         marriageLocation: String? = nil,
-        childBirthYears: [Int] = []
+        childBirthYears: [Int] = [],
+        spouseKnownSurnames: [String] = []
     ) {
         self.spouseName = spouseName
         self.spouseSurname = spouseSurname
         self.spouseGivenName = spouseGivenName
         self.spouseFatherSurname = spouseFatherSurname
+        self.spouseKnownSurnames = spouseKnownSurnames
         self.childNames = childNames
         self.childBirthYears = childBirthYears
         self.fatherName = fatherName
@@ -1104,7 +1114,11 @@ nonisolated extension ResearchSubject {
             motherSurname: mother?.lastName ?? profile.mothersMaidenName,
             motherGivenName: mother?.firstName,
             marriageLocation: marriageLocation,
-            childBirthYears: children.compactMap { $0.birthDate?.earliest }
+            childBirthYears: children.compactMap { $0.birthDate?.earliest },
+            // EV25 (2026-08-26): `.sorted()` because `knownSurnames` returns a
+            // Set and the deterministic core must not depend on hash order.
+            spouseKnownSurnames: spouses.first
+                .map { RosterIdentity.knownSurnames(of: $0).sorted() } ?? []
         )
 
         // Birth window — hard date wins when present. When absent (common
