@@ -116,7 +116,9 @@ extension RecordScorer {
 }
 
 /// Deterministic record classifier — fact, lead, or impossible.
-/// Faithfully ported from Python's agent/scorer.py.
+/// Originally ported from Python's agent/scorer.py and since diverged
+/// deliberately (the exclusivity pass, cross-profile elevation, the rebuilt
+/// geography gate). Swift is authoritative; parity was retired.
 ///
 /// A record is a FACT only if ALL gates pass. If any gate fails
 /// but the record looks promising, it's a LEAD. If a hard rule

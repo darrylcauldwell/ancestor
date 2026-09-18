@@ -1,7 +1,9 @@
 import Foundation
 
 /// Shared scoring primitives consumed by both AuditEngine and RecordScorer.
-/// Faithfully ported from Python's agent/rules.py.
+/// Originally ported from Python's agent/rules.py and since diverged — the
+/// known-spelling-variant rung below has no Python counterpart. Swift is
+/// authoritative; parity was retired.
 ///
 /// Hard rules: always true, mechanically enforced.
 /// Soft rules: scoring, not rejecting.

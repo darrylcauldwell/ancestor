@@ -21,7 +21,7 @@ final class ResearchViewModel {
     var runProseExtraction: Bool = false
 
     /// Display name of whatever's being researched — profile, lead, or
-    /// neither. Triage surfaces use this rather than reaching into
+    /// neither. The review surface uses this rather than reaching into
     /// `selectedProfile?.displayName` so the lead case renders the lead's
     /// name without needing a synthetic Profile wrapper.
     var subjectDisplayName: String? {
@@ -1110,8 +1110,8 @@ final class ResearchViewModel {
     /// `isDeterministicallySupported`), projected via the pipeline's
     /// helper on demand — given names and ambiguous marriages come
     /// from the post-reconciliation hypothesis state. The legacy
-    /// `result.proposedRelatives` field still exists and is still
-    /// populated; Phase 4 deletes it.
+    /// `result.proposedRelatives` field is gone — hypotheses are the sole
+    /// source of truth, projected on demand.
     func visibleProposedRelatives(snapshot: FamilyGraphSnapshot) -> [ProposedRelative] {
         guard let result = currentResult else { return [] }
         let supportedParentHypotheses = result.hypotheses.filter { h in

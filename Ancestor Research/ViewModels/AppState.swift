@@ -396,10 +396,8 @@ final class AppState {
         }
     }
 
-    /// Whether the Sourcing sidebar item should be visible. Hidden until
-    /// the user has at least one citation entered — until then there's no
-    /// integrity story to surface.
-    /// Places appears once the tree names anywhere at all. There is nothing to
+    /// Whether the Places sidebar item should be visible. Places appears
+    /// once the tree names anywhere at all. There is nothing to
     /// score before that, and no threshold worth waiting for after it — one
     /// unresolvable birthplace is already a decision someone has to make.
     var placesTabVisible: Bool {
@@ -409,6 +407,9 @@ final class AppState {
         }
     }
 
+    /// Whether the Sourcing sidebar item should be visible. Hidden until the
+    /// user has at least one citation entered — until then there is no
+    /// integrity story to surface.
     var sourcingTabVisible: Bool {
         snapshot.profiles.values.contains { profile in
             profile.sources.values.contains { sources in
@@ -2621,8 +2622,9 @@ final class AppState {
         loadingMessage = nil
     }
 
-    /// Refresh from WikiTree — superseded by refreshWikiTreeWithDiff().
-    /// Kept as a direct refresh for cases where diff is not needed.
+    /// Refresh from WikiTree. There is no diff-free path any more — this
+    /// forwards to `refreshWikiTreeWithDiff()`; it exists only so older call
+    /// sites keep compiling.
     func refreshWikiTree() async {
         await refreshWikiTreeWithDiff()
     }

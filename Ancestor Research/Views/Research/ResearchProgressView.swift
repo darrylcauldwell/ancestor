@@ -14,7 +14,9 @@ struct ResearchProgressView: View {
     /// Per-phase latency budgets used by the dev-build dual-clock display.
     /// Iteration loop is bounded ~5 min; the optional prose-extraction
     /// phase runs MLX inference over 5+ multi-thousand-token pages and
-    /// realistically takes 20+ minutes on Qwen 2.5 14B.
+    /// realistically takes 20+ minutes on a 14B model. The budget has not been
+    /// re-measured against the current default (Qwen3.5-4B), so it is
+    /// conservative rather than tuned.
     private static let iterationBudgetSeconds: Int = 300
     private static let proseBudgetSeconds: Int = 1200
 

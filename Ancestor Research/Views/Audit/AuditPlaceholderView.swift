@@ -1,9 +1,10 @@
 import SwiftUI
 
 /// Health view — the tree's data-quality home. Runs the audit rules and
-/// displays errors / warnings / info grouped by severity, with
-/// Issues/Apply-gaps and severity filters, the conflict sweep,
-/// import-duplicate scan, and the open-disputes list. `.research` findings
+/// presents everything through one ranked ladder (`mergedLadder`) — audit
+/// findings, conflict-sweep results, import-duplicate scan and open disputes
+/// are merged into it rather than listed separately, with Issues/Apply-gaps
+/// and severity filters over the top. `.research` findings
 /// (missing-X, completeness — "go research this person") are NOT shown here:
 /// Health is for defects and apply-gaps; research prompts live in the
 /// Workbench suggestions (Health recategorisation #HR2). Wired to the `.health` sidebar tab. (Formerly the tab-less

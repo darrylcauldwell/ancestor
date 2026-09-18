@@ -502,8 +502,8 @@ final class ResearchPipeline {
             // whose existing window is wide — closes the chicken-and-egg
             // loop where no single record gets promoted to `.fact` but the
             // *consensus* across records is itself strong evidence.
-            // Logging-only for now; slice B will surface this as a one-click
-            // profile-update proposal.
+            // Routed to `pending_facts` via `toPendingFact` so the user
+            // reviews it with the supporting evidence visible.
             // Resolve user-discarded record IDs for this profile so the
             // detector can honor them per spec. Empty set when the
             // subject isn't a profile (lead-only runs) or no lookup is

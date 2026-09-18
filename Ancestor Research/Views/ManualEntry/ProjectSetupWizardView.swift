@@ -8,8 +8,8 @@ import SwiftUI
 ///
 /// Steps: 1 — home region / Chapman anchor; 2 — enable local AI (the unified
 /// consent screen for the reasoning model + semantic embedder, replacing the
-/// two previously-silent downloads). Steps 3–4 (home person, sources) grow
-/// later.
+/// two previously-silent downloads); 3 — home person, the you-are-here
+/// anchor; 4 — free sources and etiquette.
 ///
 /// Doctrine: nothing here blocks diving in. Every step is skippable and the
 /// defaults (no anchor → derive per profile; no models → deterministic) leave

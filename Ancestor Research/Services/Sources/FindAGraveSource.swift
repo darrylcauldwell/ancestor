@@ -461,7 +461,12 @@ actor FindAGraveSource: RecordSource, DetailFetchingSource {
         return .unavailable(reason: "memorial page unrecognized (no memorial or not-found markers) — likely block page")
     }
 
-    // MARK: - Cloudflare clearance
+    // MARK: - Cloudflare clearance — NOT WIRED
+    //
+    // `ensureCloudflareClearance` below has no callers anywhere in the repo.
+    // The mechanism described here is built but unused; whether to wire it or
+    // delete it is backlog `#S1-4c`. Read the rest as design intent, not as a
+    // description of what runs today.
     //
     // Find a Grave is fronted by Cloudflare's JS-challenge bot management.
     // URLSession can't solve the challenge alone, so the first time we

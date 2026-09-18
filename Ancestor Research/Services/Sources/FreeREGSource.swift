@@ -100,8 +100,9 @@ actor FreeREGSource: RecordSource, DetailFetchingSource {
 
     /// Envelope-aware search (connector-audit T1-01; instances FT-22 /
     /// FT-23). Parses the results page's own "N results" hit count and
-    /// flags page-1 truncation (rows < N, or a pagination nav present)
-    /// — multi-page fetching is deferred to the efficiency series.
+    /// flags page-1 truncation (rows < N, or a pagination nav present), then
+    /// walks the pagination nav at the existing 1000 ms pacing, bounded by the
+    /// page cap and the record budget.
     func searchWithOutcome(_ query: RecordQuery) async -> SourceSearchEnvelope {
         guard recordTypes.contains(query.recordType) else {
             return SourceSearchEnvelope(.outsideCoverage(reason: "FreeREG provides parish register records only"))

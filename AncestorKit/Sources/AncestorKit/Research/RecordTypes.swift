@@ -583,11 +583,10 @@ public nonisolated struct RecordQuery: Sendable {
     public let gender: Gender?
     public let region: Region?
     public let sourceParams: SourceQueryParams
-    /// Name-match strictness. Defaults to `.strict`. Sources may ignore it
-    /// — see Research axes for which sources honour which tiers.
-    /// Change 4 ships the field with no source-side handling; Change 5
-    /// wires the per-source query rewriting; Change 6 wires the dispatcher's
-    /// empty-then-broaden flow.
+    /// Name-match strictness. Defaults to `.strict`. Sources honour it where
+    /// their wire API allows: CWGC, FreeCen, FreeREG and FreeBMD each branch
+    /// on it (soundex/fuzzy flags), and a source that cannot express a tier
+    /// ignores it rather than approximating.
     public let strictness: SearchStrictness
 
     // MARK: Family-context axes (spec)
@@ -741,26 +740,21 @@ public nonisolated struct MemorialInscriptionParams: Sendable, Equatable {
 }
 
 public nonisolated struct FreeBMDParams: Sendable {
-    /// FT-01 feature gate — county-level `countyid` queries.
+    /// County-level `countyid` queries. When true — the default — the
+    /// dispatcher's `.county`/`.adjacent` scopes emit ONE query per county via
+    /// `countyCode` instead of one per registration district (12 for DBY).
     ///
-    /// When true, the dispatcher's `.county`/`.adjacent` scopes emit ONE
-    /// query per county (via `countyCode`) instead of one query per
-    /// registration district (12 for DBY). The emission path, params
-    /// plumbing, and cache keying are fully wired and tested; the gate
-    /// exists because the exact `countyid` wire value is UNVERIFIED
-    /// against today's live form (the 2026-07 connector audit — the
-    /// ground-truth form payload never arrived). The audit's live-form
-    /// note says the county dropdown's option values are compound
-    /// strings (Chapman code + that county's district IDs, e.g.
-    /// "BDF,66,133,…"); we reconstruct that value statically, but
-    /// whether search.pl accepts a reconstructed ID list — or ignores
-    /// `countyid` entirely, silently widening the query to national —
-    /// needs the one FT-27 live probe session (audit).
+    /// Kept as a switch because the `countyid` wire value is reconstructed
+    /// statically: FreeBMD's county dropdown carries compound option values
+    /// (Chapman code plus that county's district IDs, "BDF,66,133,…") and we
+    /// rebuild them rather than scrape them. Probed live 2026-07-11 — the
+    /// captured value returned 49 rows across 13 Derbyshire-area districts,
+    /// cross-border ones included, which is correct because the geography gate
+    /// scores per-row districts. Turning this off falls back to the
+    /// per-district loop.
     ///
-    /// PROBED LIVE 2026-07-11: captured-table countyid value returned 49 rows across 13 Derbyshire-area districts (incl. cross-border ones — geography gate scores per-row districts, so that is correct behaviour). Gate ON. Default false = the
-    /// safe pre-FT-01 per-district loop. The `.national` single-query
-    /// path (FT-02) is NOT behind this gate — `districtid=""` is
-    /// proven wire behaviour (Python sources/freebmd.py:152-153).
+    /// The `.national` single-query path is NOT behind this gate:
+    /// `districtid=""` is proven wire behaviour.
     public static let countyQueryEnabled = true
 
     public let districtCode: String?

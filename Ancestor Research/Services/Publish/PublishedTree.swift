@@ -55,7 +55,7 @@ nonisolated struct PublishedPerson: Codable, Sendable, Equatable {
     let birthPlace: String?
     let death: PublishedDate?
     let deathPlace: String?
-    let bioText: String               // empty until Change 6
+    let bioText: String               // built by PublishBioBuilder for .full persons
     let citationsJSON: String
     let badgesJSON: String
     let isRedacted: Bool
