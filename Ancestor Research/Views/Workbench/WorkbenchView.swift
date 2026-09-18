@@ -1,8 +1,8 @@
 import SwiftUI
 
-/// Sidebar peer to Tree, Audit, Research, etc. Hosts the W1+W2 sub-views
-/// (Notes, Questions). Future W phases plug in additional tabs:
-/// W3 Focus, W4 Sessions, W5 Hypotheses.
+/// Sidebar peer to Tree, Tasks, Sourcing, Places, Health and Settings. Hosts
+/// every workbench section: Attention, Focus, Hypotheses, Hunches, Questions,
+/// Notes, Sessions and Search.
 struct WorkbenchView: View {
     @Environment(AppState.self) private var appState
     @State private var section: Section = .attention

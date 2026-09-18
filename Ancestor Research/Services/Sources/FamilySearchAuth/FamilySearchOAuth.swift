@@ -30,10 +30,10 @@ import os
 
 // MARK: - Environments
 
-/// Spec — environment is plugin config, not compile-time. Beta hosts
-/// confirmed live 2026-07-14 (identbeta serves the OAuth error/login page;
-/// apibeta routes /platform/records/personas to the search service).
-/// Integration is omitted until its ident host is verified.
+/// Environment is plugin config, not compile-time. Beta hosts confirmed live
+/// 2026-07-14: identbeta serves the OAuth error/login page, apibeta routes
+/// /platform/records/personas to the search service. PRODUCTION integration
+/// stays omitted until the production ident host is verified the same way.
 nonisolated enum FamilySearchEnvironment: String, CaseIterable, Sendable {
     case beta
     case production

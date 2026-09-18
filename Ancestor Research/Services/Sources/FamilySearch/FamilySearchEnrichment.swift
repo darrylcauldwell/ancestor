@@ -14,7 +14,7 @@ import os
 /// tree; when they don't, the enrichment is simply empty (records search still
 /// covers them).
 ///
-/// ** (deterministic sandwich for a remote ML matcher):** a FamilySearch
+/// **Firewall (deterministic sandwich for a remote ML matcher):** a FamilySearch
 /// match confidence is a **lead-ordering signal only** — it never sets a trust
 /// tier, enters a gate, or counts toward convergence. It orders the hint list;
 /// our rules decide.

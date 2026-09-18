@@ -2,13 +2,15 @@ import SwiftUI
 
 // MARK: - Unified Task Model
 //
-// By design: a single sortable, filterable list that aggregates
-// everything the user might want to act on next. Four input streams:
-//   1. Audit issues (errors / warnings / info)
-//   2. Gap items (profiles with missing fields)
-//   3. Open questions (workbench questions)
-//   4. Tentative facts — FieldSource with confidence == .tentative, plus
+// A single sortable, filterable list of the research worklist. Two input
+// streams:
+//   1. Open questions (workbench questions)
+//   2. Tentative facts — FieldSource with confidence == .tentative, plus
 //      LifeEvent with confidence == .tentative
+//
+// Audit issues and completeness gaps are NOT here — they moved to the Health
+// tab, the data-quality home. `auditSummary` stays in the aggregator signature
+// for call-site stability but is not consumed.
 //
 // Leads are deliberately NOT a task stream (owner decision 2026-07-17):
 // they are research findings, reviewed on the person's profile card and
@@ -210,14 +212,14 @@ nonisolated enum UnifiedTaskAggregator {
         // tentative facts only. `auditSummary` stays in the signature for
         // call-site stability but is no longer consumed here.
 
-        // 3. Open questions — only `.open` status. inProgress / blocked /
+        // 1. Open questions — only `.open` status. inProgress / blocked /
         // resolved are filtered out (resolved is the obvious one; the others
         // are intentionally hidden so the list stays actionable).
         for q in questions where q.status == .open {
             tasks.append(.openQuestion(q))
         }
 
-        // 4. Tentative facts.
+        // 2. Tentative facts.
         // 4a. Tentative FieldSources on profiles. Multiple tentative sources
         // for the same field produce multiple tasks (the user wants to see
         // each one).
@@ -305,9 +307,9 @@ nonisolated enum UnifiedTaskGrouping {
 
 // MARK: - View
 
-/// Unified Tasks screen — the design Replaces the standalone Audit
-/// tab. Audit issues, gaps, questions, and tentative facts share one list
-/// with category filters.
+/// Unified Tasks screen — the research worklist. Open questions and tentative
+/// facts share one list with category filters; audit issues and gaps live on
+/// the Health tab.
 struct UnifiedTasksView: View {
     @Environment(AppState.self) private var appState
     @State private var auditVM = AuditViewModel()

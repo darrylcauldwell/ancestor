@@ -6,8 +6,9 @@ import SwiftUI
 ///
 /// Owns a FRESH `ResearchViewModel` (never the main window's — sharing one vm
 /// lets `reset()`/`runPipeline` in either window clobber the other, and the
-/// shared vm's non-nil `currentResult` would hijack the main window's Triage
-/// tab). Safe because every accept/discard persists to the project database at
+/// shared vm's non-nil `currentResult` would hijack the main window's own
+/// review surface). Safe because every accept/discard persists to the project
+/// database at
 /// click time; only unsaved session toggles are window-local.
 ///
 /// PROJECT-IDENTITY GUARD (adversarial-review critical): the window binds to

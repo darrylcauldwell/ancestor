@@ -25,9 +25,8 @@ nonisolated enum FamilySearchMatchCollection: Sendable, Equatable {
 /// Hosts come from `FamilySearchEnvironment` (shared with the OAuth stack); the
 /// platform base is `https://<apiHost>/platform`. Paths are grounded in the
 /// official API reference and the FamilySearch Bruno example collection — cited
-/// per method. Network execution belongs to `FamilySearchClient` (a later
-/// slice); these builders are pure so the wire contract is unit-testable
-/// without a token. See `AncestorApp/FamilySearch client`.
+/// per method. Network execution belongs to `FamilySearchClient`; these
+/// builders are pure so the wire contract is unit-testable without a token.
 nonisolated enum FamilySearchEndpoints {
 
     private static func base(_ environment: FamilySearchEnvironment) -> URLComponents {

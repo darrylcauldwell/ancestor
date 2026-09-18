@@ -213,7 +213,7 @@ final class UserHypothesisViewModel {
     }
 
     /// The refuted (`.contradicted`) hunches — surfaced at the top of the
-    /// Triage list. Derived from the already-sorted `hunches`.
+    /// Workbench Hunches section. Derived from the already-sorted `hunches`.
     var refutedHunches: [Hunch] { hunches.filter { $0.verdict == .contradicted } }
 
     /// The exhausted hunches — archived under the collapsible
