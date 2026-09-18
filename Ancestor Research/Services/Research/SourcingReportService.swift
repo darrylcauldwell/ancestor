@@ -15,8 +15,8 @@ import Foundation
 ///                   distinguishes "we looked and found nothing"
 ///                   (negative_searches rows for the field's record kinds)
 ///                   from "never searched"
-/// Empty fields are NOT reported — a gap is the Research tab's job, not a
-/// sourcing defect.
+/// Empty fields are NOT reported — a missing value is a research gap
+/// (Workbench Attention routes those), not a sourcing defect.
 nonisolated enum FactSourcingVerdict: Equatable, Sendable {
     case contradicted(openDisputes: Int)
     case corroborated(level: ConvergenceLevel, independentWitnesses: Int)

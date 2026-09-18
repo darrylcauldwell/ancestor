@@ -11,9 +11,11 @@ nonisolated enum SubjectIdentityResolution: Sendable, Equatable {
     /// the right anchor for the subject.
     case ambiguous(candidateIDs: [String], reason: String)
 
-    /// No candidate birth records at all, or no geographic signal to filter on.
-    /// Treat as "identity not resolved" — downstream inference (parents,
-    /// marriages, etc.) shouldn't be auto-promoted because we have no anchor.
+    /// No candidate birth records at all. (A missing or too-weak geographic
+    /// hypothesis is `.ambiguous`, not this — there the candidates exist and
+    /// only the tiebreak is absent.) Treat as "identity not resolved" —
+    /// downstream inference (parents, marriages) shouldn't be auto-promoted
+    /// because we have no anchor.
     case unresolved(reason: String)
 
     /// Convenience — `true` only for `.resolved`.

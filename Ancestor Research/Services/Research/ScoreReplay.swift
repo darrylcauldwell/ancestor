@@ -138,7 +138,7 @@ nonisolated enum ScoreReplay {
 
         /// This row was scored against a subject the replay does not rebuild.
         ///
-        /// `ResearchPipeline`'s child-gap probe (:817-823) mutates a COPY of
+        /// `ResearchPipeline`'s child-gap probe mutates a COPY of
         /// the subject — `givenName = nil`, `birthYearFrom/To = nil`, surname
         /// swapped to the family surname — and dispatches it for `[.death]`
         /// only, to sweep for infant deaths in a birth gap. `ScoreReplay`

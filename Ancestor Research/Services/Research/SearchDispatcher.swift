@@ -64,9 +64,9 @@ struct SearchDispatcher {
     /// `.localCorpus` scope handling ignore scope (CWGC, FindAGrave,
     /// Probate) — see `ScopeHandling`.
     ///
-    /// `mode` is the wedge for the strictness ladder (Research axes /
-    /// Change 6). This Change passes `.strict` to every source unconditionally;
-    /// Change 6 wires the per-mode empty-then-broaden flow.
+    /// `mode` selects the strictness ladder: each source is retried down
+    /// `strictnessLadder(for:)` until one rung returns records. See
+    /// `effectiveLadder(_:source:mode:)` for the per-source override.
     func dispatch(
         subject: ResearchSubject,
         recordTypes: Set<RecordType>,

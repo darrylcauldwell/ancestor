@@ -129,8 +129,9 @@ nonisolated struct AuditEngine {
     ///   1911–1939   → census + 1939 register
     ///   1939–1990   → electoral rolls
     ///   1990+       → living memory; ask family
-    /// Returns nil when the profile has no birth year — there's no useful
-    /// hint we can give without one.
+    /// Always returns a message: with no birth year the profile gets the
+    /// prompt to add one, since that single field unlocks every branch below.
+    /// (The `String?` return is vestigial — no path yields nil.)
     static func guidanceMessage(for profile: Profile) -> String? {
         guard let year = profile.birthDate?.bestYear else {
             return "Add a birth date — even an approximate year unlocks targeted research suggestions."

@@ -101,19 +101,14 @@ nonisolated struct ScoringRules {
     /// default parameter and the (one) call site that hasn't migrated to
     /// `tolerance(for:)`. New code should prefer the per-type function so
     /// the tolerance reflects the inherent fuzziness of each record kind:
-    /// civil registrations are tight (±1 for the Q4-birth/Q1-registration
-    /// boundary slip), census is loose (±5 because age misreporting in
-    /// 19th-century enumeration is endemic), baptism is loose (children
-    /// baptised years after birth, adult baptism), pedigree is exact.
+    /// death and marriage are tight (±1 — a precise anchor), birth is ±2
+    /// (DS-23: a registration-quarter slip can compound with a census-derived
+    /// approximate year), census and baptism are loose (±5 — endemic age
+    /// misreporting; baptism years after birth), pedigree is exact.
     static let censusAgeTolerance = 2
     static let birthYearTolerance = 2
     static let deathAgeTolerance = 1
 
-    /// Tolerance (in years) for the scorer's date gate when comparing a
-    /// record's year against the subject's known year window. Tiered by
-    /// record type — not by subject precision, because subject precision
-    /// is already encoded in `birthYearFrom`/`birthYearTo` (a "ABT 1880"
-    /// subject already has from=1875, to=1885).
     /// Extra date-gate slack when the SUBJECT's birth year is itself derived
     /// (a census age, an `abt` estimate) rather than taken from a birth-shape
     /// record. The per-type tolerances below describe how much the RECORD's
@@ -122,6 +117,11 @@ nonisolated struct ScoringRules {
     /// `.parish`'s ±3. See `ResearchSubject.birthAnchorIsDerived`.
     static let derivedAnchorSlack = 5
 
+    /// Tolerance (in years) for the scorer's date gate when comparing a
+    /// record's year against the subject's known year window. Tiered by
+    /// record type — not by subject precision, because subject precision
+    /// is already encoded in `birthYearFrom`/`birthYearTo` (a "ABT 1880"
+    /// subject already has from=1875, to=1885).
     static func tolerance(for recordType: RecordType) -> Int {
         switch recordType {
         // Birth is ±2 (DS-23): a birth record can slip a registration quarter

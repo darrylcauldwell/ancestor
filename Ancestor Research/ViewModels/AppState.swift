@@ -117,11 +117,11 @@ final class AppState {
     /// Uses whatever mode/scope is currently set on the Research view model.
     var researchProfileID: String?
 
-    /// Richer profile-contextual research trigger. When set, the Research view
-    /// applies the supplied mode + scope to its view model THEN starts research
-    /// on the named profile — letting research be kicked off from a profile-
-    /// detail sheet with mode/scope picked in context rather than over on the
-    /// Research tab.
+    /// Richer profile-contextual research trigger. `ContentView` observes this,
+    /// applies the supplied mode + scope, starts research on the named profile
+    /// and clears the field — so a run can be kicked off from a profile-detail
+    /// sheet with mode/scope chosen in context, rather than from global state
+    /// on a separate surface.
     var researchRequest: ResearchRequest?
 
     /// Set to a profile to display the research configuration sheet (mode/scope
