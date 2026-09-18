@@ -10,16 +10,15 @@ work lives in this folder.
 
 **Where status lives (2026-09-18):** nowhere by hand. Open items are rows in `BACKLOG.md` with
 stable IDs; status is derived with `git log --oneline --grep='#<ID>' --all`, or by invoking the
-`backlog` skill. Status used to be duplicated across this file, `ROADMAP.md`, each spec's change
+`backlog` skill. Status used to be duplicated across this file, the former `ROADMAP.md`, each spec's change
 list and `MEMORY.md` — four hand-maintained copies that drifted 6–8 weeks apart. Design rationale
-still belongs in the owning spec; sequencing and gates still belong in `ROADMAP.md`.
+still belongs in the owning spec; sequencing and gates belong in `BACKLOG.md`.
 
 ## Start here
 
 | Doc | Role |
 |---|---|
-| `BACKLOG.md` | Open items with stable IDs + acceptance tests; status derived from git |
-| `ROADMAP.md` | Routing: phase state, implementation order (Stage 1/2/3), gates |
+| `BACKLOG.md` | **The single list** — every delivery unit, with gates, acceptance tests and sequencing narrative. Status derived from git |
 | `adr/` | Architecture decision records — binding (001–006 Accepted; 007 rejected-as-proposed) |
 
 ## Governing / reference (ongoing)
@@ -33,7 +32,7 @@ still belongs in the owning spec; sequencing and gates still belong in `ROADMAP.
 
 ## Active / in-flight
 
-Sequencing and gates for these live in `ROADMAP.md`; per-item state comes from git.
+Sequencing and gates for these live in `BACKLOG.md`; per-item state comes from git.
 
 | Doc | Role |
 |---|---|

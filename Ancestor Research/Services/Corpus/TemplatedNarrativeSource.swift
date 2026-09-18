@@ -1,6 +1,17 @@
 import Foundation
 
-/// TEMPLATED_NARRATIVE_SOURCE_SPEC Stage 1 — a config-driven Chapman-templated
+/// WHY this class of site is worth the effort, given it is prose HTML with no
+/// API: memorial-inscription transcriptions, parish histories, Online Parish
+/// Clerk projects and GENUKI hold **discriminating** evidence a namesake-heavy
+/// BMD index cannot — death dates, ages (implying birth years) and family
+/// groupings, exactly the fields that separate a subject from their namesakes.
+/// Both obvious routes fail: a bespoke connector per site is too much code for
+/// the yield, and a whole-site crawl is forbidden by most of these sites' terms
+/// ("may not copy… as a whole") and hammers a volunteer server. Hence one
+/// on-demand page, built from a template. Outstanding: `#TNS1` live-run
+/// verification, `#TNS2` the user-add UI.
+///
+/// Stage 1 — a config-driven Chapman-templated
 /// narrative source. A source is a URL TEMPLATE plus a parser; adding a site is a
 /// config entry, not a bespoke connector. The template is filled per-subject from
 /// the Chapman code the pipeline already derives (with the project Home-county

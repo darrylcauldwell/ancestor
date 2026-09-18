@@ -287,7 +287,9 @@ actor FindAGraveSource: RecordSource, DetailFetchingSource {
         // d.1959 — was excluded from every search despite an exact death-year
         // match, while his birth-dated wife's memorial 216193100 was found). The
         // deathyear axis + name/location narrow the search; the scorer's date
-        // gate rejects wrong-year hits downstream. See FINDAGRAVE_DEATH_SEARCH_SPEC.md.
+        // gate rejects wrong-year hits downstream. (The spec this came from was
+        // retired 2026-09-18; this comment is the record. Recover it with
+        // `git log --all --full-history -- AncestorApp/FINDAGRAVE_DEATH_SEARCH_SPEC.md`.)
         // Guarded on record type (not removed) so a future birth-shape FAG type
         // still gets a birth-year narrowing.
         if query.recordType != .burial,

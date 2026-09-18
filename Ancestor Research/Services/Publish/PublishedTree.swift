@@ -266,6 +266,12 @@ nonisolated extension PublishedTree {
             switch attachment.mediaType {
             case .photo: kind = "portrait"
             case .document: kind = "document"
+            // Transcriptions are NEVER published. Not a layout choice: the free
+            // genealogy sites these come from (memorial inscriptions, OPC,
+            // GENUKI) permit personal research but forbid use in published
+            // family histories, and publishing is exactly that use. Facts
+            // extracted from a transcription may travel; the transcribed text
+            // may not, and the published citation shape has no text field.
             case .transcription: continue   // citation material, not gallery
             }
             media.append(PublishedMedia(

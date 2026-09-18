@@ -84,7 +84,7 @@ bare Chapman (`DBY`), RD = `DBY:Belper-RD`, place = `DBY:Turnditch`, parish =
   birthplaces resolve at county granularity while records that carry a
   `district` field (BMD/census) resolve at RD granularity via `resolveDistrict`.
   No gate change — Stage 3 composes this resolver.
-- **Stage 3 — rebuild the geography gate (decision-core, test-first). DEFERRED — next focused session.**
+- **Stage 3 — rebuild the geography gate (decision-core, test-first). SHIPPED 2026-07-31** as Fix B / #DC3 (see this file's status header): subject-derived accepted-county set via `RecordScorer.acceptedChapmanCodes(for:)`, hierarchy + validity walk with substring fallback, and absence-of-knowledge never vetoing a family-confirmed record.
   Its enabling primitive (`PlaceResolver`) is shipped and tested, so this stage
   is self-contained and ready to pick up. Characterization corpus first. Replace only the county-substring block with a
   hierarchy-containment + temporal-validity walk when both sides resolve; fall

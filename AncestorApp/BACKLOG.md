@@ -1,12 +1,31 @@
 # Backlog
 
-Open work, one row per item. **No status, no dates, no commit refs** — run
-`git log --oneline --grep='#<ID>' --all` for status, or invoke the `backlog` skill, which
-renders the whole file with derived status. A row with commits against it is done: verify
-its acceptance test, then delete the row.
+**The single list.** Every delivery unit lives here — `ROADMAP.md` was merged in on
+2026-09-18 and retired, because dependency and ordering spanning two files meant a `gate:`
+could point across a boundary with nothing to catch a rename (`#CPU2` → `#RC8` was doing
+exactly that), and nothing prevented an ID colliding between them.
+
+Three things are **stored once and never duplicated**:
+
+| | stored | derived by |
+|---|---|---|
+| **status** | nowhere | `git log --oneline --grep='#<ID>' --all` |
+| **dependencies** | forward only, as `gate: #ID` on the blocked item | `grep -rn '#<ID>' AncestorApp/` |
+| **what to start now** | nowhere | rows with no `gate:` |
+
+So: no status, no dates, no commit refs, and never an "unblocks" note — the reverse direction
+is a grep. A row with commits against it is done: verify its acceptance test, then delete it.
 
 IDs are `#<TAG><n>`, unique repo-wide. Bare `#Change<n>` is deprecated — it collides across
-specs, so its status cannot be derived.
+specs (33 commits), so its status cannot be derived.
+
+**Ordering is a rule, not a field.** Priority derives from the declared rule ("core research
+capability before polish", owner 2026-07-10), then whether an item is gated, then section
+order. No stored priority number, and no sprints — a solo trunk-based developer gets no
+coordination benefit from a cadence boundary, and it would be one more thing to keep true.
+
+An item needs an acceptance test once it is ungated. Gated items may carry an outcome only;
+clearing the `gate:` is now the whole of "graduation" — no file move, no ID change.
 
 ## TT — test target under Swift language mode 6
 
@@ -83,13 +102,19 @@ Core-correctness fixes from live-tree dogfooding; full repro cases in memory
 |---|---|---|
 | `#S1-1` | SOURCE_WEIGHTING live verification — the one hard owner-driven app session. Set project Home county, enter Elsie Twyford's known facts, re-run anchored + married-name burial hunt, one anchored run and one Kenneth-class ladder run | Dispatch-log query counts compared before/after and recorded in `SOURCE_WEIGHTING_SPEC.md`; staged weighting demonstrably changes dispatch order |
 | `#S1-3` | §14.B.2–6 MCP auto-approval Phase 2 — the transaction/undo keystone, a cross-package build (app + standalone MCP raw-SQL). Auto-approval stays OFF until the undo lands | An MCP-committed fact can be undone transactionally from the app; `#RC1` (corroboration Change 5) is unblocked by the keystone covering relationship entities |
-| `#S1-6a` | Location Stage 3 — decision-core geography-gate rebuild, substring → hierarchy + validity walk. The `PlaceResolver` primitive is ready | The gate resolves through a place hierarchy rather than substring matching; `#DF3`'s district cases pass through the rebuilt gate rather than a special case |
+| `#DC6` | Mid-run adaptive anchoring sees post-exclusivity verdicts. `RecordScorer.applyExclusivity` runs at batch assembly, so during a run the adaptive anchoring step still reads pre-pass `.fact` verdicts and can steer subsequent searches off a namesake that the pass will demote. Deferred deliberately in `DECISION_CORE_PAIR_SPEC` (#DC1–DC5 as-built) because a full mid-run reflow was judged too invasive — the persisted result and everything downstream already see post-pass verdicts, so this affects search steering within a run, not stored data | A run whose early batch contains a namesake later demoted by the exclusivity pass does not issue follow-up searches anchored on that namesake; the dispatch log shows anchoring keyed to post-pass verdicts |
+| `#CPU3` | Census parent-unlock is live-verified end-to-end on the real tree — an owner-driven app session, never done. Changes 1–3 are built and unit-tested but the whole path has only ever run offline. The worked case is George Keyworth b.1838 Farnsfield (Notts), whose 1851 Halam census the ranker picks over Carrington and Middlesex namesakes | On a parentless profile with a rankable childhood census, Health's "Apply childhood census" applies the ranker's winner and "Add census relatives" proposes Head + Wife as parents, which land after review. If George's own 1851 Halam lead has no stored household the run is blocked by `#CPU1` — pick another parentless profile rather than treating that as a failure of this item |
+| `#CPU2` | `ChildhoodCensusRanker` ranks village adjacency, not just county match. Today a census in a neighbouring village scores no better than one anywhere else in the county — Halam↔Farnsfield is the worked case from George Keyworth (1838). Explicitly a non-goal for v1 in the retired `CENSUS_PARENT_UNLOCK_SPEC` because no village→district data existed. **gate: `#RC8`** (village-level gazetteer expansion) | With village data present, a same-village or adjacent-village childhood census outranks a same-county one at equal age fit; George Keyworth's Halam census still wins, and no out-of-county namesake is promoted |
+| `#TNS1` | `MemorialInscriptionRecordSource` is live-verified end to end. Stage 2 shipped source + dispatcher wiring tested against fixtures only; the spec records a real run as owed. Same class as `#CPU1` — see the no-blind-scraper rule: fixtures prove the parser handles the shape you imagined, not the shape the site serves | One paced GET against the live volunteer site returns HTML the parser turns into burial records with birth years, and the pacing is polite — ONE call, not a loop |
+| `#TNS2` | Adding a templated site is a user action, not a code change: a UI to paste a URL template, choose a parser (`.memorialInscription` / `.prose`), and record the verified terms — plus bundled configs for GENUKI (`genuki.org.uk/big/eng/{chapman}/{parish}`) and county OPC projects. Stage 3 of the retired `TEMPLATED_NARRATIVE_SOURCE_SPEC`; GENUKI is currently tier-classified in `SourceTierRegistry` but has no templated config | A new site can be added from the UI and produces records without a code change, and each bundled config carries a `termsSummary` checked against that site's published terms first (`feedback_verify_source_terms_first`) |
+| `#CPU1` | Census parent-unlock closes its live tail: when the winning childhood-census lead has no stored household (it fell outside the per-run enrichment cap), applying it lands the birth/citation but surfaces no parents. One gentle on-demand `fetchDetail` at click time would close it. Deferred until live-verified against a real FreeCEN 200, per the no-blind-scraper rule — and FreeCEN is a volunteer source, so cap at one call | Clicking "Apply childhood census" on a lead with no stored household fetches the roster once and proposes Head + Wife as parents, verified against a live FreeCEN 200 rather than a fixture |
 | `#S1-4a` | FT-19 FreeREG parish place-scoping — live connector work again now FreeREG is restored to free-trio parity | FreeREG queries scope to parish where the subject's parish is known, instead of widening silently |
 
 ## EH — error handling
 
 | ID | Outcome | Acceptance test |
 |---|---|---|
+| `#NS1` | The searched-surface readers apply the same dispute check the negative-search cache does. Guard (e) stops a poisoned negative from *suppressing* a query, but `SourcingReportService` and `CampaignReviewService` still narrate those rows as "searched, found nothing" — so the user is told a search was done that rested on a disputed premise. Worked case: William Gladwin's six FreeBMD marriage negatives were all taken in Nottinghamshire because a disputed birthplace picked the county unopposed, while the marriage sat in Chesterfield RD (7b/741) | A negative whose region derives from a field under open dispute is not reported as searched ground on either surface; the Gladwin profile shows those six as unsearched rather than clean-empty |
 | `#EH1` | The 22 discarded-result `try?` calls on **database writes** either handle the error or log it, per the standing rule "never silently swallow errors — at minimum, log them". The compiler catches only the non-Void subset (it flagged 2 of 90 `try?` statements on 2026-09-18), so this cannot be delegated to the build. Highest-risk first, because they sit on the Evidence Firewall review surface where a silent failure means the user believes a decision was recorded when it was not: `PendingFactsReviewView.swift` `updatePendingFactStatus` (×2), `addAcceptedFactProvenance`, `saveRejection`; then `AppState` `clearEvidenceApplied`, `updateEvidenceUserStatus`, `replaceAuditFindings`; then `ResearchViewModel.upsertLead`. The 19 `try? FileManager` cleanup calls are out of scope — discarding those is legitimate | No `try?` on a `db.`/`currentDatabase?.` write discards its result without a logged or handled failure path; `grep -rnE '^\s*try\? (db\|currentDatabase\??)\.'` over app + AncestorKit returns nothing outside tests |
 
 ## MS — measurements owed
@@ -99,11 +124,11 @@ Core-correctness fixes from live-tree dogfooding; full repro cases in memory
 | `#MS1` | Settle whether app work runs on the main thread during a research run. Before 2026-09-18, `RecordSource.search` and `HTTPClient.get` were inferred `@MainActor` (the properties were all explicitly `nonisolated`, the async methods were not), so calls may have hopped to main. Also covers the open `runrequestwatcher` SQLite-writes-on-main item | `sample <pid>` during a run that triggers the marriage fan-out (`async let groomSide`/`brideSide`) shows the main thread idle or in AttributeGraph, not in URLSession completion, HTML parsing or GRDB frames |
 | `#MS2` | The glass changes are verified in the running app, not just compiled | A Triage screen showing a cluster with a "Possible duplicate" or "Conflicts with tree" badge renders the badge group correctly, and the two collapsed bins ("Scorer rejected", "Discarded") show their count pill distinct from the card behind it |
 
-## WT — stale workflow worktrees
+## WTS — stale workflow worktrees
 
 | ID | Outcome | Acceptance test |
 |---|---|---|
-| `#WT1` | The four `.claude/worktrees/wf_53b1eec3-032-*` worktrees (1.4GB) are salvaged or removed, deliberately. All four are 0 commits ahead of main but carry **uncommitted** edits (2/2/6/2 files) — `MCPServer.swift` + a new `GetScoredRecordsTests.swift`, `FamilySearchSource.swift`, `QueryCache.swift`/`SearchDispatcher.swift`, `RecordTypes.swift`. They are based on `3251abc`, so diffing them against today's main measures main's divergence rather than unique work; the real comparison is each worktree's own `git diff` against `3251abc`, then asking whether that change already exists on main | Every dirty file is confirmed redundant or its change is committed to main, then `git worktree remove` for each and the 1.4GB is gone |
+| `#WTS1` | The four `.claude/worktrees/wf_53b1eec3-032-*` worktrees (1.4GB) are salvaged or removed, deliberately. All four are 0 commits ahead of main but carry **uncommitted** edits (2/2/6/2 files) — `MCPServer.swift` + a new `GetScoredRecordsTests.swift`, `FamilySearchSource.swift`, `QueryCache.swift`/`SearchDispatcher.swift`, `RecordTypes.swift`. They are based on `3251abc`, so diffing them against today's main measures main's divergence rather than unique work; the real comparison is each worktree's own `git diff` against `3251abc`, then asking whether that change already exists on main | Every dirty file is confirmed redundant or its change is committed to main, then `git worktree remove` for each and the 1.4GB is gone |
 
 ## CFG — build configuration
 
@@ -112,3 +137,125 @@ Core-correctness fixes from live-tree dogfooding; full repro cases in memory
 | `#CFG1` | A decision on `SWIFT_DEFAULT_ACTOR_ISOLATION`, measured rather than inherited. It came from Xcode's app template, and the service layer overrides it heavily — 212 `nonisolated` occurrences across 228 files in `Services/`, with `ProjectDatabase`, `RecordScorer` and `ProjectStore` all opting straight back out | Either the setting is kept with the reasoning recorded, or it is removed and the now-redundant annotations are deleted; the app and tests build either way |
 | `#CFG3` | Every type that is `@unchecked Sendable` **and** lock-guarded says `nonisolated`. Under MainActor-by-default such a type is silently main-actor isolated while its own declaration claims it is safe from any domain — the contradiction only surfaces when something finally calls it off the main actor. Six known: `FreeBMDQueryShapeTests`, `CWGCQueryShapeTests`, `PerSourceStrictnessTests`, `FreeREGDispatchSelectionTests`, `Ancestor Research/Services/Research/HTTPClient.swift` (`RecordingFormHTTPClient`), `Ancestor Research/Services/Publish/PublishEngine.swift` | `grep -rl '@unchecked Sendable'` cross-referenced with `NSLock`/`Mutex` returns no type lacking `nonisolated`; app and tests both build |
 | `#CFG2` | `SWIFT_UPCOMING_FEATURE_EXISTENTIAL_ANY` enabled, in its own commit | The project builds with the flag on, with `any` added where the compiler requires it and no behaviour change |
+
+---
+
+# Sequenced and gated
+
+Merged from `ROADMAP.md` on 2026-09-18. These items live behind a gate or a stage ordering; the narrative under each heading is the sequencing logic and is not derivable from any field. An item here needs an acceptance test only once its gate opens — clearing the `gate:` is the whole of "graduation" now, with no file move and no ID change.
+
+# Roadmap — routing document
+
+**Forward-looking only** — shipped work is removed; git history is the archive, and a shipped item whose spec is gone is normal. This file routes what is *still to do*, in what order, and behind which gate. Per-spec change lists stay authoritative on design (see `AncestorApp/README.md` for the document index).
+
+**This file owns sequence and gates. `BACKLOG.md` owns actionable items.** An item lives here while a gate holds it shut; when the gate opens it graduates to `BACKLOG.md` with an acceptance test, keeping its ID. Neither file records status — derive it with `git log --oneline --grep='#<ID>' --all`, or invoke the `backlog` skill. Do not write "shipped" or an "updated" date into this file; both must be maintained by hand and both went stale before (README and this file drifted 6–8 weeks).
+
+Commit refs that appear below mark *prior art* — which half of a partly-done item already landed — for work that predates the ID scheme. New work references its ID instead.
+
+Phases 1–4 (pipeline consolidation, AncestorKit extraction, CloudKit publisher, viewer apps) are shipped. The **release ceremony is deferred until every phase is complete** (user decision 2026-07-10).
+
+**Declared priority (user, 2026-07-10): core research capability before polish.**
+
+Dogfood hardening (`#DF1`–`#DF9`) and the ungated Stage 1 items (`#S1-1`, `#S1-3`, `#S1-4a`, `#S1-6a`) graduated to `BACKLOG.md` on 2026-09-18, keeping their IDs. What remains in Stage 1 is genuinely gated or compound.
+
+## Stage 1 — residual (open)
+
+FT-19 (parish place-scoping) and Location Stage 3 were ungated and are listed above as
+`#S1-4a` and — Stage 3 having shipped as `#DC3` — removed entirely. What is left here is
+genuinely gated or compound.
+
+| ID | Outcome | Acceptance test |
+|---|---|---|
+| `#S1-2` | **§7.5 `DeficitQueryResult` 3-state** *(compound — split on pickup: the 9-file refactor is ungated, the T8a pairing is not)* — a careful 9-file contract refactor whose only consumer, T8a, is NEEDS-DARRYL; pair the two. — `RESEARCH_PIPELINE_SPEC.md` | — *(write one when its gate opens)* |
+| `#S1-4b` | **FT-21 witness-probes** — `CONNECTOR_AUDIT_2026-07.md` · **gate:** a `SourceRecord` record-role model | — *(write one when its gate opens)* |
+| `#S1-4c` | **T1-C1 dead Cloudflare subsystem** — delete-vs-wire. `CONNECTOR_AUDIT_2026-07.md` · **gate:** owner decision (NEEDS-DARRYL) | — *(write one when its gate opens)* |
+| `#S1-5` | **RESEARCH_PIPELINE Part II tail** *(compound — a bundle of 8+ items with different gates; split into one ID each on pickup. NB T9 also appears as `#RC4`)* — eval-harness Swift/MCP backend (§5.8.8), §5.9 incrementality refactor, §5.10 button collapse, §5.11 hypothesis investigation, T8a/T9/T31/T23, §5.12 five UX passes. — `RESEARCH_PIPELINE_SPEC.md` | — *(write one when its gate opens)* |
+| `#S1-6b` | **Location Stage 4** — village→registration-district `parentID`. `LOCATION_MODEL_SPEC.md` · **gate:** a village→district data source | — *(write one when its gate opens)* |
+
+## Stage 2 — sequenced (gate: core declared solid)
+
+Cross-stage rule: DOSSIER (2c) ≥ PROSE_CORPUS Phase B — build the shared `GroundedProseVerifier` once.
+
+## 2a. FamilySearch — Family Tree read/write integration only
+
+**Scope pivot 2026-08-07 (see memory `project_familysearch_beta_program`).** FamilySearch Developer Support confirmed (2026-08-05) that historical-records collection access is **permanently unavailable** to third-party applications through the API — a legal constraint, not a certifiable tier. FamilySearch is therefore a **Family Tree read/write** integration, **not a records source**. The records source + record-hint ingestion were removed from the app on 2026-08-07 (OAuth + tree write leg retained). **All records-enrichment work is struck** (formerly: ARK/persona detail lookup, record-by-ARK, collection metadata caching, collection-level trust tiering, attribution tiering, change-history volatility scoring, negative-search completeness weighting, place-authority enrichment via FS, new records `RecordType` cases, and the FS records/hint follow-ups). Record hinting is likewise dropped — FS surfaces matches only via browser redirect and recommends against building it.
+
+| ID | Outcome | Acceptance test |
+|---|---|---|
+| `#FS1` | **Certification path** (FamilySearch's stated sequence, in progress): reply confirming our tree read/write direction → FamilySearch sends Beta test instructions → run them (re-verify write **and** read live) → new electronic Solutions Provider Agreement (**read the commercial-use terms against monetisation BEFORE signing**) → production key → Solutions Gallery listing. Gallery listing is the main strategic payoff (targeted discovery channel). | — *(write one when its gate opens)* |
+| `#FS2` | **Live re-verify the write leg post-decouple** — against a small throwaway test project (not Tree-2); also exercise the tree **read** (person search), which hasn't had a substantive live test. Rides the Beta test instructions. — `FAMILYSEARCH_TREES_WRITE_SPEC.md` | — *(write one when its gate opens)* |
+| `#FS3` | **WF-A change-history sync** — reconcile local ↔ FS user tree via change history + conflict-resolution UI. — `FAMILYSEARCH_TREES_WRITE_SPEC.md` §8 | — *(write one when its gate opens)* |
+| `#FS4` | **WF-B tree import** — read an FS user tree into the local DB. Prereqs (research): FS ternary `ChildAndParentsRelationship` wire shape, a normalised `source_descriptions` table, a gedcomx-date parser port. — `FAMILYSEARCH_TREES_WRITE_SPEC.md` §8 · `GEDCOMX_CONCEPT_MAPPING.md` | — *(write one when its gate opens)* |
+
+## 2b. Source access compliance (gates FreeCEN scoping + red-source connectors)
+
+| ID | Outcome | Acceptance test |
+|---|---|---|
+| `#TOS1` | **ADR-008 decision** — owner accepts a compliance posture for the 3 red charity sources + CWGC (gates the rest of 2b + FreeCEN scoping). — `SOURCE_ACCESS_COMPLIANCE_2026-07.md` / `ADR-008` | — *(write one when its gate opens)* |
+| `#TOS2` | **Free UK Genealogy permission email** (one email covering FreeBMD/FreeCEN/FreeREG). — owner | — *(write one when its gate opens)* |
+| `#TOS3` | **CWGC licensing email** — after the Free UK Genealogy email. — owner | — *(write one when its gate opens)* |
+| `#TOS4` | **Manual terms checks** — FindAGrave terms, Probate gov.uk footer, Wirksworth conditions + John Palmer contact. — `SOURCE_ACCESS_COMPLIANCE_2026-07.md` | — *(write one when its gate opens)* |
+| `#TOS5` | **Connector gating** — off-by-default for unsanctioned red sources + the ADR-008 outreach/toggle leg. — `ADR-008` | — *(write one when its gate opens)* |
+| `#TOS6` | **FreeCEN place scoping (Change 6 / FT-13)** — extend `FreeCenParams` with `place_ids[]`, resolve from subject parish/district, honour `.parish`/`.district` natively (stop silent widening to `.county`). — `SOURCE_WEIGHTING_SPEC.md` · gate: ADR-008 + freecen2 published-API docs | — *(write one when its gate opens)* |
+
+## 2c. Research capability & narrative
+
+| ID | Outcome | Acceptance test |
+|---|---|---|
+| `#RC1` | **Cross-profile corroboration — Change 5 (§14 machine-commit carve-out)** — design complete, deferred. — `CROSS_PROFILE_CORROBORATION_SPEC.md` · gate: §14.B undo keystone extended to relationship entities, or corroboration volume that makes the two-click human path a real cost | — *(write one when its gate opens)* |
+| `#RC2` | **Free-text hunches → targeted probes (§5.15 extension)** — free-text hunch field; local MLX extracts structured directives (death window vs named child's birth, place/occupation discriminators, event kind) into `user_hypothesis_seeds`; deterministic structured-form fallback. Unblocks the parked Harry Marshall acceptance case. — `RESEARCH_PIPELINE_SPEC.md` §5.15 | — *(write one when its gate opens)* |
+| `#RC3` | **Coal-mining accident databases as a source** (Harry Marshall driver) — terms review (fetch+quote cmhrc.co.uk policy/robots; ask operator if silent) → cheap prose-corpus value probe → structured connector ONLY if yield + terms permit. — gate: terms-review + free-text hunches landing | — *(write one when its gate opens)* |
+| `#RC4` | **DOSSIER — T9 investigation dossier + bounded adversarial challenge** (#T9-Change1..6: deterministic dossier + surfaces → challenge detector → emission/steering → MLX Pass B adversarial selection → MLX Pass A smoothing + `GroundedProseVerifier` + cache → lifecycle + eval harness). Build BEFORE/ALONGSIDE PROSE_CORPUS Phase B — Change1/5 build the shared verifier Phase B reuses. — `DOSSIER_SPEC.md` · gate: none (pure additive read to start) | — *(write one when its gate opens)* |
+| `#RC5` | **Bio synthesis — PROSE_CORPUS Phase B** (B-1 decouple bio from field-source pipeline; B-2 base-layer templates reusing `PublishBioBuilder`/`NarrativeAssembler`; B-3 corpus context retrieval; B-4 MLX synthesis; B-5 verification via the shared verifier; B-6 inline-citation rendering; B-7 regeneration + staleness). — `PROSE_CORPUS_SPEC.md` · gate: DOSSIER lands first/alongside | — *(write one when its gate opens)* |
+| `#RC6` | **PROSE_CORPUS Phase C** — cluster fingerprint engine (place×time×occupation); harness candidate-URL discovery; in-app candidate-URL review surface. — `PROSE_CORPUS_SPEC.md` · gate: after Phase B has enough bios | — *(write one when its gate opens)* |
+| `#RC7` | **PROSE_CORPUS open-question tuning (§43–47)** — pivot-score weighting, page-split threshold, stop-word list, applicability window, verification depth. — gate: real built corpus data | — *(write one when its gate opens)* |
+| `#RC8` | **Village-level gazetteer expansion** — broad village coverage (GENUKI ~12k) + village→registration-district `parentID` (needs a village→district source; location Stage 4). — `LOCATION_MODEL_SPEC.md` | — *(write one when its gate opens)* |
+
+## 2d. Kinship (Stage-2 first item by ADR-007, but respec-gated, lowest-urgency)
+
+| ID | Outcome | Acceptance test |
+|---|---|---|
+| `#KIN1` | **KINSHIP Swift-first respec** — rewrite #Change3–5 as a Swift plan (mandated gate before any build); FIRST — blocks the rest. — `KINSHIP_SPEC.md` · gate: "core declared solid" (ADR-007) | — *(write one when its gate opens)* |
+| `#KIN2` | **`find_spouses` primitive (Swift)** — all-spouses w/ per-spouse evidence. — gate: respec | — *(write one when its gate opens)* |
+| `#KIN3` | **`find_siblings` / `find_children` (Swift)** — gender-asymmetric. — gate: respec | — *(write one when its gate opens)* |
+| `#KIN4` | **`discover_kin` fan-out walker + `KinshipGraph`** — depth caps, per-edge evidence, `presumed_living`. — gate: find_spouses + find_siblings/find_children | — *(write one when its gate opens)* |
+| `#KIN5` | **`verify_relationship` + `KinshipVerdict`** — chain-tracing verification. — gate: find_siblings/find_children | — *(write one when its gate opens)* |
+| `#KIN6` | **Living-person guard extension** — into all primitives; hallucination fixture. — gate: alongside discover_kin | — *(write one when its gate opens)* |
+| `#KIN7` | **Kinship harness** `--mode discovery\|verification` + recall/precision metrics. — gate: discover_kin + verify_relationship | — *(write one when its gate opens)* |
+
+## 2e. Media & publisher
+
+| ID | Outcome | Acceptance test |
+|---|---|---|
+| `#MED1` | **source_media Option A/B decision** (extend `attachments` vs new firewall-parallel `source_media` table; both lean B). — `SOURCE_MEDIA_SPEC.md` | — *(write one when its gate opens)* |
+| `#MED2` | **`source_media` migration + `SourceMediaCandidate` model + `ProjectDatabase+SourceMedia.swift`.** — gate: A/B decision | — *(write one when its gate opens)* |
+| `#MED3` | **Find a Grave headstone/gallery extractor** (URL-only) + **Inspector UI** (disclosure + per-row on-demand Download); highest-yield first cut. — gate: source_media migration | — *(write one when its gate opens)* |
+| `#MED4` | **Storage lifecycle** — `fetchStatus` urlOnly→cached + auto-cache heuristics + "cache all" toggle. — gate: source_media migration | — *(write one when its gate opens)* |
+| `#MED5` | **CWGC image extractor** (headstone photo + certificate PDF URL). — gate: FAG extractor | — *(write one when its gate opens)* |
+| `#MED6` | **FamilySearch image extractor** (decode `links[]` on `GxSourceDescription`, image-waypoint URL + region). — gate: FAG + CWGC extractors + FS session | — *(write one when its gate opens)* |
+| `#MED7` | **Publisher `convergenceByProfile` feed** — Sourcing verdicts feed the publisher's per-profile convergence badge. — `SOURCE_WEIGHTING_SPEC.md` · independent | — *(write one when its gate opens)* |
+
+## 2f. Assistant surface (MCP consumer)
+
+| ID | Outcome | Acceptance test |
+|---|---|---|
+| `#ASST1` | **In-app "Connect to Claude" button** — the MCP server + `.mcpb` Desktop Extension artifact are built (`Scripts/build_mcpb.sh` → `dist/AncestorResearch.mcpb`, reader posture baked in). Remaining: live install-verify in Claude Desktop, then embed the server binary in the app bundle (Xcode Copy Files phase, code-sign-on-copy — do with the project open) so the button stages the same zip at runtime. Claude is the assistant tier for now (owner, 2026-07-31). | — *(write one when its gate opens)* |
+| `#FM1` | **MLX behind `LanguageModelExecutor`** — `LocalInferenceService` conforms to the SDK 27 protocol so MLX drives a real `LanguageModelSession`: `@Generable` guided decoding, tool calling, streaming, transcripts — all on-device. This is the plumbing `#ASST2` would consume. **`PrivateCloudComputeLanguageModel` is forbidden** (outbound calls breach the no-third-party-API invariant). — gate: `#ASST2` intent-plan design, or adopt early if guided decoding replaces hand-parsing sooner | — *(write one when its gate opens)* |
+| `#FM2` | **`SystemLanguageModel` fallback tier** — Apple's on-device model so a first run needs no multi-GB MLX download; relevant to App Store first-launch size. — gate: `#FM1` | — *(write one when its gate opens)* |
+| `#ASST2` | **MLX built-in assistant (bounded)** — the in-app local model drives the SAME reader-posture tool surface in-process: fixed question intents (who-is / evidence-behind / how-related / what's-new / leads-summary) → deterministic tool plans → model narrates returned JSON only (the anti-strategist design). Strategic driver: **iOS — MLX runs on iPhone where desktop MCP clients can't** (iPhone-first market), so this becomes the only assistant tier on mobile; deep investigation stays Claude-over-MCP on Mac. Gate: `.mcpb` packaging + intent-plan design; prereq fix rides along: MLX thinking-off chat-template regression. | — *(write one when its gate opens)* |
+
+## Future (no near-term gate / no owning spec yet)
+
+| ID | Outcome | Acceptance test |
+|---|---|---|
+| `#FUT1` | **WikiTree assisted write-back — BUILT, live-verify BLOCKED on account unblock** (`WIKITREE_MERGEEDIT_SPEC.md`, #WT0–#WT4; sanctioned Special:MergeEdit path, human commits on WikiTree's review page). Remaining WT5: Error-2562 unblock (emailed info@wikitree.com) → manual edit proof → Apps Google Group courtesy post → first live MergeEdit → settle spec §7 encoding unknowns. | — *(write one when its gate opens)* |
+| `#FUT2` | **Collaborative-tree contribute-then-enrich / `TreeProvider` abstraction** (WikiTree primary, FS secondary) — FUTURE; ADR-006 reversal, gated on a 2nd real tree integration. Both write legs now exist (FS User Trees live-verified; WikiTree MergeEdit built) — the abstraction question becomes real once WikiTree live-verifies. | — *(write one when its gate opens)* |
+| `#FUT3` | **BYO-API-key frontier-model tier** (Claude/Gemini/OpenAI behind the DOSSIER provider seam) — decision-gated; needs privacy-consent UX + living-people redaction on outbound prompts. | — *(write one when its gate opens)* |
+| `#FUT4` | **Audit bulk-apply for one-click deterministic fixes** — a "Set/apply all in this category" affordance, gated to deterministic + non-destructive + reversible fixes. Two safe first candidates: **married surname from spouse** (writes only the `married_surname` column; caveat: profiles with a mis-parsed maiden `lastName` still owe a maiden-name follow-up) and **given name contains middle** (clean single-first-name rows only — exclude parentheticals/nicknames → route through `nameJunkResolution`, and compound given names like "Mary Ann"). Keep judgement categories (duplicates, phantom spouse) strictly one-per-row. | — *(write one when its gate opens)* |
+| `#FUT5` | **Audit: unmatched-location (gazetteer) coverage** — a Health finding for profiles whose birth/death locations have not resolved to a place-authority entry (complements `suspectLocation`, which flags *implausible* places; this flags *unresolved* ones). Gated behind location Stage 3 so it reuses the wired resolver and isn't pure noise. Open sub-questions: low-sev Gap not Issue; whether a one-click "resolve location" fix is offered (needs a disambiguation UI); a Health-screen coverage stat. (MCP `get_profile` doesn't yet expose `birthLocationCode`/`deathLocationCode`.) | — *(write one when its gate opens)* |
+| `#FUT6` | **Audit "Not a duplicate" per-pair dismissal** — the Duplicate-detection tab offers only Compare→Merge; a confirmed-distinct namesake pair re-fires on every recompute forever (`audit_rule_overrides` scopes no finer than `.profile(id:)`). Sketch: a pair-keyed `rejected_duplicates` table + a suppression check in `DuplicateDetectionRule.evaluate` + a "Not a duplicate" button on the audit row and in Compare. Motivating unclearable cases: George Keyworth ×3 (b.1838/1877/1904), the two Ellen Wards, the two George Wards (b.1851 vs son of William b.1870), Gladys/Glays Cauldwell. | — *(write one when its gate opens)* |
+
+## Stage 3 — release (gate: every phase complete — user, 2026-07-10)
+
+First production publish → ASC viewer app records → viewer TestFlight lanes (already written) → family invites → soak items (revocation, unpublish propagation, redaction-as-participant audits).
+

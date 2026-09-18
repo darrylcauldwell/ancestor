@@ -61,6 +61,19 @@ cd FieldResearcherMCP && swift build
 
 **Available tools (34; `ANCESTOR_MCP_PROFILE=reader` filters to the read+trigger consumer subset — refusal by absence):** reads — `get_profile` (now includes a read-only `disputes` array from the conflict layer), `search_profiles`, `find_path`, `get_scored_records`, `get_run_status`, `get_research_result`, `inspect_approval_decision`, `list_projects`; FamilySearch tree read/write status (v52/v53 tables; FamilySearch is a Family Tree read/write integration, NOT a records source — records + record-hint tools `get_fs_hints`/`request_fs_hints` were removed 2026-08-07, see project_familysearch_beta_program) — `get_fs_upload_status`, `get_fs_person_links`, `get_fs_request_status`; consumer-surface reads (#MC1–#MC5) — `get_project_info`, `get_pending_facts` (tree-wide), `get_open_disputes` (tree-wide), `get_recent_changes` (since-timestamp feed), `get_workbench_notes` (incl. FTS), `get_open_questions`, `get_name_equivalences`, `get_wikitree_contributions`, `get_audit_findings` (v55 snapshot w/ computed_at); firewall-gated writes — `submit_evidence`, `submit_narrative_finding`, `submit_lead`, `submit_relationship_proposal`, `add_workbench_note`, `flag_audit_override`, `kick_off_research`, `submit_hypothesis`; FamilySearch request staging (the MCP server never talks to FamilySearch — this INSERTs an `fs_action_requests` row the app's watcher executes with the app's own auth; request-driven uploads stop at uploaded-but-HIDDEN, finalize is an in-app wizard consent) — `request_fs_upload`; project admin — `switch_project`, `delete_project`; double-gated writes (refuse unless `ANCESTOR_MCP_AUTO_APPROVE=1` AND the deterministic §14.3 gate passes; the §14.3 gate additionally refuses when the target field has an open dispute, and the commit path runs the §14.B.1 hallucination re-check) — `approve_pending_fact`, `promote_lead`, `dismiss_lead`
 
+**Consumer-surface invariants (migrated from `MCP_CONSUMER_SURFACE_SPEC.md` when that spec was
+retired 2026-09-18 — these outlive the document that explained them):**
+
+- The reader profile ships **nothing that writes tree data** (no `submit_*`, no
+  approve/promote/dismiss, no `delete_project`, no `flag_audit_override`, no
+  `add_workbench_note`); triggers write staging rows only.
+- Sensitive life events carry their flag, and **attachment file contents are never served**.
+  The project database is unencrypted and holds living people's data, so this is a security
+  property, not a convenience.
+- Payload changes stay additive for `dev` callers, with one deliberate exception: `get_profile`
+  defaults leads to `new,investigating`. That default exists *because* the unbounded firehose
+  was the defect — do not "fix" it back to returning everything.
+
 ## Architecture
 
 ```
@@ -99,4 +112,4 @@ real): `BackupServiceTests`, `MultiWindowAppStateTests/staticServicesAreThreadSa
 - `AncestorApp/RESEARCH_PIPELINE_SPEC.md` — governing architectural spec. Part I = as-built (incl. §14 MCP-driven auto-approval); Part II = V2 hypothesis-framework pivot (T7/T8/T11/T12 shipped; T9/T23/T31 + §5.8 eval harness not built).
 - `AncestorApp/PROSE_CORPUS_SPEC.md` — unified prose-corpus + bio-synthesis spec (queued).
 - `AncestorApp/FAMILYSEARCH_SOURCE_SPEC.md` — FamilySearch source-plugin coverage.
-- `AncestorApp/ROADMAP.md` — routing document: phase state, live queues, parked list (May session logs retained as appendix). Full doc index at `AncestorApp/README.md`.
+- `AncestorApp/BACKLOG.md` — **the single list**: every delivery unit with its gate, acceptance test and sequencing narrative (ROADMAP.md was merged in and retired 2026-09-18). Full doc index at `AncestorApp/README.md`.
