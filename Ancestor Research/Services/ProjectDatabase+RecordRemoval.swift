@@ -2,56 +2,25 @@ import Foundation
 import GRDB
 import AncestorKit
 
-/// Profile sources ledger Changes 1+3+4 — remove an applied evidence
-/// record from a profile, reversing its absorption directionally and
-/// remembering the rejection so future research runs don't re-add it.
+/// Profile sources ledger, Changes 1+3+4 — remove an applied evidence record
+/// from a profile: reverse its absorption directionally, and remember the
+/// rejection so future research runs don't re-add it.
 ///
-/// Why plan-guided, not transaction-guided: one apply fans a record into MANY
-/// unlinked `.manualEdit` transactions (one editProfile per overwritten field,
-/// one recordAlternativeFact per refused field, a journal-less marriage fill,
-/// citation attaches with no transaction at all, life events with a nil
-/// transaction id) — so a record's transactions are unrecoverable after the
-/// fact. What IS recoverable: the record's `absorptionPlan` re-enumerates every
-/// (field, value) it could have written, and the apply path keys its
-/// `field_sources` writes on exactly (profile, field, origin, raw). Removal
-/// re-derives the same targets and inverts each against CURRENT state:
+/// **Plan-guided, not transaction-guided** — the load-bearing choice. One apply
+/// fans a record into many unlinked `.manualEdit` transactions (an editProfile
+/// per overwritten field, a recordAlternativeFact per refused one, a
+/// journal-less marriage fill, citations with no transaction at all), so a
+/// record's transactions are unrecoverable afterwards. Its `absorptionPlan` is
+/// not: it re-enumerates every (field, value) the apply could have written, and
+/// the apply keyed its `field_sources` writes on exactly (profile, field,
+/// origin, raw). Removal re-derives those targets and inverts each against
+/// CURRENT state. Each step's rules live at the function that performs it —
+/// `revertColumnIfLive`, `revertMarriageFill`, `deleteOpenDisputes`.
 ///
-/// - **Row removal.** Delete the matching field_sources row(s) — unless another
-///   kept record from the same source corroborates the same value (the
-///   `recordAlternativeFact` dedup means such rows are genuinely shared).
-/// - **Directional column revert.** Only when the profile column still equals
-///   the record's value (if a later write displaced it, the column is not
-///   ours to touch): restore the `field_changes.old_value` of the write that
-///   set it; else fall back to the highest-tier surviving field_sources row;
-///   else clear. Order-safe by construction — the equality guard means the
-///   restored old_value is the true pre-record state.
-/// - **Life events.** Ids are deterministic in (profileID, sourceRecordID)
-///   with at most the bare/#occupation/#residence discriminators — recompute
-///   and delete. (Events moved to another profile by a merge keep their
-///   loser-derived ids and are not reachable here; neither is the record's
-///   ledger entry post-merge, so the surfaces agree.)
-/// - **Marriage fill.** The fill only ever wrote a strictly-narrower date or
-///   filled an EMPTY location, and journalled nothing — clear each on exact
-///   match with what this record would have written. (A wider pre-fill date is
-///   the one documented loss.)
-/// - **Disputes.** Open fieldValue disputes on touched fields are deleted; the
-///   caller's force sweep re-derives any still justified by surviving rows.
-///   Open spouseIdentity disputes are deleted for marriage records — the sweep
-///   no longer resurrects them because discarded evidence is excluded from
-///   conflict detection.
-/// - **Rejection memory.** The same pair every discard path writes
-///   (`user_status = 'discarded'` + `record_rejections`) — which also drops
-///   the ledger entry (its filter is `savedAsLead`) and vetoes re-application.
-///   EV33 (2026-08-26): plus the lead that record produced, dismissed in the
-///   same transaction. A refusal has two representations and clearing one
-///   without the other is what left Emma Gladwin five `new` leads for records
-///   she had already rejected.
-///
-/// The whole removal runs in ONE database transaction, journalled under a
-/// single Transaction row (`.manualEdit`/`.replay`) with field_changes rows per
-/// column change. Nothing is destroyed irrecoverably: the evidence record
-/// itself survives with its full payload, so the full inverse of a removal is
-/// re-applying the record from research (after resetting its rejection).
+/// Runs in ONE transaction, journalled under a single Transaction row. Nothing
+/// is destroyed irrecoverably: the evidence record keeps its full payload, so
+/// re-applying it after clearing the rejection is the exact inverse.
+
 nonisolated struct RecordRemovalReport: Sendable, Equatable {
     /// Fields whose column value was reverted (the record's value was live).
     var revertedFields: [ProfileField] = []
@@ -286,7 +255,10 @@ extension ProjectDatabase {
             }
 
             // Rejection memory — the same pair discardRecord writes, inline so
-            // the whole removal is one atomic transaction.
+            // the whole removal is one atomic transaction. Includes dismissing
+            // the lead this record produced (#EV33): a refusal has two
+            // representations, and clearing only one left Emma Gladwin five
+            // `new` leads for records she had already rejected.
             try db.execute(sql: "UPDATE evidence_records SET user_status = 'discarded' WHERE id = ?",
                            arguments: [evidence.id])
             try db.execute(sql: "INSERT OR IGNORE INTO record_rejections (profile_id, record_id, rejected_at) VALUES (?, ?, ?)",

@@ -1175,31 +1175,24 @@ nonisolated final class ProjectDatabase: Sendable {
             }
         }
 
-        // v37 — E4: edge-existence provenance (Model evolution Change 4).
+        // v37 — E4 edge-existence provenance (model evolution, Change 4).
         //
-        // Additive capability marker. The `field_sources` table already stores
-        // provenance keyed `(entity_id, entity_kind, field)` and `field` is
-        // TEXT, so an `existence` pseudo-field on `entity_kind = 'relationship'`
-        // needs **no column change** — existence rows are ordinary
-        // field_sources rows. This migration therefore alters nothing and
-        // backfills nothing.
-        //
-        // It is registered deliberately for two reasons:
+        // Adds no columns: `field_sources` is keyed (entity_id, entity_kind,
+        // field) with TEXT `field`, so an `existence` pseudo-field on
+        // `entity_kind = 'relationship'` is an ordinary row. Registered anyway
+        // for two reasons:
         //   1. It is the schema-version fence for E4 — a project opened after
-        //      this migration ran has the existence-provenance capability; one
-        //      that predates it does not, and the version string records that.
-        //   2. Decision log #4 — **forward-only**. This migration must NOT
-        //      synthesise existence rows for the relationships that already
-        //      exist: backfilling provenance never captured would fabricate
-        //      evidence (violates check-before-overwrite / never-fabricate).
-        //      So the body is intentionally empty of writes. Legacy edges stay
-        //      bare; only edges materialised *after* E4 carry an existence row.
+        //      this ran has the capability; one predating it does not.
+        //   2. **Forward-only.** It must NOT synthesise existence rows for
+        //      edges that already exist: backfilling provenance nobody captured
+        //      would fabricate evidence. Legacy edges stay bare; only edges
+        //      materialised after E4 carry an existence row.
         //
-        // Index the relationship existence lookup so `existenceSources(for:)`
-        // and the idempotency pre-check don't table-scan on large trees. The
-        // existing `idx_field_sources_entity` covers `(entity_id, field)` but
-        // not `entity_kind`; a partial index on relationship rows keeps the
-        // new read path cheap without touching the profile read path.
+        // The index keeps `existenceSources(for:)` and the idempotency
+        // pre-check off a table scan: `idx_field_sources_entity` covers
+        // (entity_id, field) but not entity_kind, so a partial index on
+        // relationship rows serves the new read path without touching the
+        // profile one.
         migrator.registerMigration("v37_edge_existence_provenance") { db in
             try db.create(
                 index: "idx_field_sources_relationship_existence",

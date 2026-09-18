@@ -1,39 +1,33 @@
 import Foundation
 import AncestorKit
 
-/// Subject place model Slice 1.5 — the corpus replay diff.
+/// Subject place model, Slice 1.5 — the corpus replay diff. Re-scores every
+/// record stored in a project and fingerprints what the decision core decided.
+/// Capture one before a change and one after; every altered verdict, gate
+/// outcome and gate reason shows up. Nothing that changes search width ships
+/// without this.
 ///
-/// Re-scores every record already stored in a project and emits a stable
-/// fingerprint of what the decision core decided. Capture one before a change
-/// and one after; every altered verdict, gate outcome and gate reason shows up
-/// in the diff. Nothing that changes search width ships without this.
+/// **A diff, not an assertion.** The tempting invariant — "more places may
+/// widen what is SEARCHED but never what the scorer ACCEPTS" — is false.
+/// `applyExclusivity` demotes a stored `.fact` the moment a second
+/// undiscriminated `.fact` joins its slot, and searching one more county is
+/// exactly how one arrives; `ContradictoryFactsAudit` then surfaces that
+/// demotion days later, in a Health audit, on a record the user had applied.
+/// A widening can take facts AWAY, and only a corpus diff catches it.
 ///
-/// **Why a diff and not an assertion.** The obvious invariant — "more places may
-/// widen what is SEARCHED but never what the scorer ACCEPTS" — is unachievable,
-/// because no such firewall exists. `RecordScorer.applyExclusivity` demotes a
-/// stored `.fact` as soon as a second undiscriminated `.fact` appears in the same
-/// slot, and searching one more county for a death is exactly how one arrives.
-/// `ContradictoryFactsAudit` re-runs that pass tree-wide over stored evidence, so
-/// the demotion surfaces days later, in a Health audit, on a record the user
-/// already applied, with nothing tying it back. A widening can therefore take
-/// facts AWAY. That is the failure nobody watches for, and only a replay diff
-/// over the real corpus catches it.
+/// **Both stages run**, because a demotion is not a property of any single
+/// record and per-record `classify` cannot see it. Reproduced exactly as
+/// `ContradictoryFactsAudit.demotions` does: same slots, ghost rivals and
+/// user-discard exemption.
 ///
-/// **So the replay runs BOTH stages.** Per-record `classify` alone would miss the
-/// demotion entirely — it is not a property of any single record. The pass is
-/// reproduced exactly as `ContradictoryFactsAudit.demotions` reproduces it:
-/// same slots, same ghost rivals, same user-discard exemption.
+/// **A replay row is not the stored verdict** — it is what today's code decides
+/// about this record, so it may legitimately differ (the profile was edited
+/// since; the record was scored under a different `searchType`). That drift is
+/// `ContradictoryFactsAudit`'s job. The harness compares like with like: two
+/// replays under different code, over one corpus.
 ///
-/// **A replay row is not the stored verdict, and is not meant to be.** It is
-/// "what today's code decides about this record", so a row can legitimately
-/// differ from what the store holds — the profile has been edited since, or the
-/// record was originally scored under a different `searchType` than its own
-/// record type. That is drift between the store and the rules, which is
-/// `ContradictoryFactsAudit`'s job to surface, not this one's. The harness
-/// compares LIKE WITH LIKE: two replays under different code, over one corpus.
-///
-/// Pure and read-only — it loads, re-scores in memory, and returns. It never
-/// writes, so replaying is always safe, including against the live project.
+/// Pure and read-only, so replaying the live project is safe.
+
 nonisolated enum ScoreReplay {
 
     /// One record's decision, reduced to what a diff should be sensitive to.

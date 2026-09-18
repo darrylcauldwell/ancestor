@@ -1404,31 +1404,26 @@ struct SearchDispatcher {
                 let to = yearRange.to ?? 1911
                 return year >= from && year <= to && FreeCenSource.validYears.contains(year)
             }
-            // Per Research axes — FreeCen is chapman-coded, not
-            // district-coded, so .parish/.district widen to .county.
-            // (FT-13: parish/place scoping via `freecen2_place_ids[]` is a
-            // deferred capability — `FreeCenParams` has no parish field;
-            // the previous comment here pointed at a seam that was never
-            // built.)
+            // FreeCen is chapman-coded, not district-coded, so `.parish` and
+            // `.district` widen to `.county`. (Parish scoping needs
+            // `freecen2_place_ids[]`; `FreeCenParams` has no parish field —
+            // backlog `#TOS6`.)
             //
-            // FT-11 — geographic axis by scope:
-            // - `.county` (and narrower): RESIDENCE county
-            //   (`chapman_codes[]`) — the historical behaviour.
-            // - `.adjacent`/`.national`: BIRTH county
-            //   (`birth_chapman_codes[]`) as the primary axis — ONE query
-            //   with no residence filter reaches subjects wherever they
-            //   lived at census time (migrants included), on exactly the
-            //   field the scorer trusts most, instead of ~7 (adjacent) or
+            // FT-11 — the geographic axis depends on scope:
+            // - `.county` and narrower: RESIDENCE county (`chapman_codes[]`).
+            // - `.adjacent`/`.national`: BIRTH county (`birth_chapman_codes[]`).
+            //   ONE query on the field the scorer trusts most reaches migrants
+            //   wherever they lived at census time, instead of ~7 (adjacent) or
             //   ~90 (national) residence-county queries per census year.
-            //   With no derivable home chapman code (empty = no anchor):
-            //   at `.national` the fallback residence sweep is real (~90
-            //   GB codes); at `.adjacent` (and narrower scopes) the
-            //   "fallback" degenerates to a single empty-code query that
-            //   FreeCenSource's guard rejects as `.outsideCoverage` — the
-            //   contract-correct outcome (an anchor-less subject cannot
-            //   honour a bounded scope; widening would exceed the user's
-            //   bound). Change 2 short-circuits it in this branch: zero
-            //   axes, and walkLadder records the visible scope-skip.
+            //
+            // With no derivable home chapman code the subject has no anchor:
+            // `.national` still sweeps ~90 GB residence codes, but `.adjacent`
+            // and narrower would degenerate to a single empty-code query that
+            // FreeCenSource rejects as `.outsideCoverage`. That is
+            // contract-correct — an anchor-less subject cannot honour a bounded
+            // scope, and widening would exceed the user's bound — so this
+            // branch short-circuits to zero axes and walkLadder records a
+            // visible scope-skip.
             let home = subject.homeChapmanCode
             // Exactly one axis per query. residenceCodes carries a BATCH
             // (FT-25/FT-28) — a single code stays a one-element array, so

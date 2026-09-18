@@ -1,77 +1,49 @@
 import Foundation
 
-/// Cross-run persistent negative-search reader (connector-audit
-/// the 2026-07 connector audit T1-04 /). The honesty envelope
-/// (a6e9c6d) made `negative_searches` a genuine WRITER — one durable
-/// row per clean-zero WIRE query, keyed by `QueryCache.cacheKey`. This
-/// is the READER: before the dispatcher re-fires a query on a later
-/// run, it asks this cache whether that exact query was proved cleanly
-/// empty on a prior run and is still fresh. If so the live request is
-/// SKIPPED and the query is treated as a known-empty result — the
-/// 30–50% traffic reduction the audit cites for re-researched subjects.
+/// Cross-run persistent negative-search READER. Before the dispatcher re-fires
+/// a query, it asks whether that exact query was proved cleanly empty on a
+/// prior run and is still fresh; if so the live request is SKIPPED and treated
+/// as a known-empty result — a 30–50% traffic reduction on re-researched
+/// subjects.
 ///
-/// Distinct from `QueryCache`, which is per-run and dedupes identical
-/// wire requests WITHIN one `research()` call. `NegativeSearchCache`
-/// spans runs and only ever suppresses proven-empty queries — it never
-/// serves cached records, only a synthetic clean-empty outcome.
+/// Distinct from `QueryCache`, which dedupes identical wire requests WITHIN one
+/// `research()` call. This spans runs, and only ever suppresses proven-empty
+/// queries — it never serves cached records.
 ///
-/// Correctness guards (stated here, enforced by the type + covered by
+/// Correctness guards (enforced by the type, covered by
 /// `NegativeSearchCacheTests`):
-///   (a) Only clean prior negatives suppress. The writer
-///       (`NegativeSearchAggregator.genuineNegativeKeys` →
-///       `ProjectDatabase.saveNegativeSearch`) records a row ONLY for a
-///       query whose entire (source, recordType) pair answered
-///       `.ok` / untruncated / zero with no record in hand. Errors,
-///       throttles, blocks, and truncated pages are never written, so
-///       they can never be read back as a suppression. A suppressed
-///       replay is itself excluded from re-persistence (its outcome is
-///       `isCleanNegative == false`), so suppressions never double-count.
-///   (b) A freshness window bounds every suppression. A stored negative
-///       older than the window is ignored, so a stale negative
-///       eventually re-verifies against the live source. Default is
-///       conservative (`.days(90)` — matches the audit's "~90 days for
-///       growing corpora" guidance); callers pass a tighter window (e.g.
-///       same-session) when they want to re-verify sooner.
-///   (c) A force-refresh escape hatch. `.disabled` ignores the store
-///       entirely — every query goes to the wire. Wired to `.verify`
-///       mode and a config flag so the user can always demand a fresh
-///       pass.
-///   (d) The match key is `QueryCache.cacheKey` verbatim on both the
-///       write and the read side — the SAME normalization code path —
-///       so a param-shape drift between writer and reader is impossible
-///       by construction (there is only one shape).
-///   (e) A stored negative may only silence a question we asked
-///       CORRECTLY. Two premise classes disqualify a row, and neither is
-///       enforced here — both are enforced at the one seam where the
-///       premise is knowable, `SearchDispatcher`'s `premise` in
-///       `walkLadder`, which suppresses nothing and banks nothing while it
-///       is non-nil:
-///         * EV7 — the query rested on an uncited kin fact (a spouse
-///           surname, a mother's maiden name). See
-///           `SearchDispatcher.unverifiedPremise`.
-///         * EV19 (2026-08-26) — the query's REGION was derived from a
-///           profile field still under open dispute. See
-///           `SearchDispatcher.contestedRegionPremise`.
+///   (a) **Only clean negatives suppress.** The writer records a row only for a
+///       query whose whole (source, recordType) pair answered `.ok`,
+///       untruncated, zero, with no record in hand. Errors, throttles, blocks
+///       and truncated pages are never written, so they can never read back as
+///       a suppression. A suppressed replay is excluded from re-persistence, so
+///       suppressions never double-count.
+///   (b) **A freshness window bounds every suppression** (default `.days(90)`);
+///       a stale negative re-verifies against the live source. Callers pass a
+///       tighter window when they want to re-verify sooner.
+///   (c) **Force-refresh escape hatch** — `.disabled` ignores the store
+///       entirely. Wired to `.verify` mode and a config flag.
+///   (d) **One key shape.** Match is `QueryCache.cacheKey` verbatim on both
+///       write and read, so writer/reader drift is impossible by construction.
+///   (e) **A negative may only silence a question we asked correctly.** Two
+///       premise classes disqualify a row — EV7, a query resting on an uncited
+///       kin fact, and EV19, a query whose REGION came from a field under open
+///       dispute. Neither is enforced here: both live at `SearchDispatcher`'s
+///       `premise` in `walkLadder`, the one seam where the premise is knowable,
+///       which suppresses nothing and banks nothing while it is non-nil.
 ///
-///       Note the asymmetry that makes (e) necessary at all. A region that
-///       CHANGES needs no special handling: `districtCode`, `countyCode`,
-///       `chapmanCode` and `fagLocation` are all components of
-///       `QueryCache.cacheKey`, so a new region mints a new key and the
-///       query re-fires — the key IS the version stamp. A region that is
-///       DISPUTED does not change; the same losing value keeps winning
-///       region selection, its keys keep matching, and only an explicit
-///       premise unsticks them. William Gladwin's six FreeBMD marriage
-///       negatives were all taken in Nottinghamshire because a disputed
-///       birthplace picked the county unopposed, while the marriage sat in
-///       Chesterfield RD (7b/741); widening the region without (e) would
-///       have left every already-poisoned profile poisoned for the rest of
-///       the 90-day window.
+///       The asymmetry that makes (e) necessary: a region that CHANGES needs no
+///       handling, because `districtCode`/`countyCode`/`chapmanCode`/
+///       `fagLocation` are all components of the cache key — a new region mints
+///       a new key and the query re-fires, so the key is its own version stamp.
+///       A DISPUTED region does not change: the same losing value keeps winning
+///       region selection and its keys keep matching, so only an explicit
+///       premise unsticks them.
 ///
-///       What (e) deliberately does NOT do is delete the rows already on
-///       disk. They stop suppressing and stop multiplying, but the
-///       searched-surface readers (`SourcingReportService`,
-///       `CampaignReviewService`) still narrate them as "searched, found
-///       nothing" — those surfaces owe the same dispute check.
+///       (e) deliberately does not delete rows already on disk — they stop
+///       suppressing, but the searched-surface readers still narrate them as
+///       "searched, found nothing". That gap is backlog `#NS1`.
+
 nonisolated struct NegativeSearchCache: Sendable {
 
     /// How long a stored clean negative may suppress a re-fire before it
