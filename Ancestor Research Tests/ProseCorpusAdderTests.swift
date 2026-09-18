@@ -232,8 +232,8 @@ struct ProseCorpusAdderTests {
             seed: html(title: "Index", body: "seed", links: ["other.htm"]),
             other: html(title: "Other", body: "page two", links: []),
         ]
-        var nowClock = Date(timeIntervalSince1970: 1_750_000_000)
-        let clock: @Sendable () -> Date = { nowClock }
+        let nowClock = MovableTestClock(Date(timeIntervalSince1970: 1_750_000_000))
+        let clock: @Sendable () -> Date = { nowClock.now }
         let (adder, tmp) = makeAdder(fixtures: fixtures, clock: clock)
         defer { cleanup(tmp) }
 
@@ -245,7 +245,7 @@ struct ProseCorpusAdderTests {
         )
 
         // Advance the clock so sync uses a later timestamp than addedAt.
-        nowClock = Date(timeIntervalSince1970: 1_750_001_000)
+        nowClock.set(Date(timeIntervalSince1970: 1_750_001_000))
 
         // We need to disable robots/sitemap for the test since we
         // haven't staged fixtures for them and they'd 404 — wait, the
@@ -256,8 +256,8 @@ struct ProseCorpusAdderTests {
         #expect(report.stop == .complete)
 
         let stored = try added.storage.readManifest()
-        #expect(stored?.firstBuiltAt == nowClock)
-        #expect(stored?.lastSyncedAt == nowClock)
+        #expect(stored?.firstBuiltAt == nowClock.now)
+        #expect(stored?.lastSyncedAt == nowClock.now)
         #expect(stored?.pageCount == 2)
         #expect((stored?.totalBytes ?? 0) > 0)
     }
@@ -281,24 +281,24 @@ struct ProseCorpusAdderTests {
         let fixtures: [URL: Data] = [
             seed: html(title: "Index", body: "x", links: []),
         ]
-        var nowClock = Date(timeIntervalSince1970: 1_750_000_000)
-        let clock: @Sendable () -> Date = { nowClock }
+        let nowClock = MovableTestClock(Date(timeIntervalSince1970: 1_750_000_000))
+        let clock: @Sendable () -> Date = { nowClock.now }
         let (adder, tmp) = makeAdder(fixtures: fixtures, clock: clock)
         defer { cleanup(tmp) }
 
         let added = try adder.commitAdd(seedURL: seed, displayTitle: "Example")
-        nowClock = Date(timeIntervalSince1970: 1_750_001_000)
+        nowClock.set(Date(timeIntervalSince1970: 1_750_001_000))
         _ = try await adder.sync(sourceID: added.entry.sourceID)
         let firstBuilt = (try added.storage.readManifest())?.firstBuiltAt
-        #expect(firstBuilt == nowClock)
+        #expect(firstBuilt == nowClock.now)
 
         // Sync again — firstBuiltAt should not move, but lastSyncedAt
         // should.
-        nowClock = Date(timeIntervalSince1970: 1_750_002_000)
+        nowClock.set(Date(timeIntervalSince1970: 1_750_002_000))
         _ = try await adder.sync(sourceID: added.entry.sourceID)
         let second = try added.storage.readManifest()
         #expect(second?.firstBuiltAt == firstBuilt)
-        #expect(second?.lastSyncedAt == nowClock)
+        #expect(second?.lastSyncedAt == nowClock.now)
     }
 
     // MARK: - remove
@@ -320,4 +320,15 @@ struct ProseCorpusAdderTests {
         #expect(doc.corpora.isEmpty)
         #expect(!FileManager.default.fileExists(atPath: added.storage.corpusDirectory.path))
     }
+}
+
+/// The adder's `clock` is a `@Sendable` closure, which cannot capture a mutable
+/// local `var`. Lock-guarded and `nonisolated` so it is genuinely safe off the
+/// main actor rather than borrowing MainActor-by-default's serialisation.
+private final nonisolated class MovableTestClock: @unchecked Sendable {
+    private let lock = NSLock()
+    private var value: Date
+    init(_ value: Date) { self.value = value }
+    var now: Date { lock.withLock { value } }
+    func set(_ new: Date) { lock.withLock { value = new } }
 }

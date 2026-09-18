@@ -160,15 +160,38 @@ struct PublishEngineE2ETests {
         // the generation sequence (monotonic through unpublish).
         // DIAGNOSTIC — exact CK coordinates the sync engine recorded.
         let store = try PublishedStore.open(at: storeURL)
-        let metaRows = try await store.db.read { database in
-            try Row.fetchAll(database, sql: """
+        // Project inside the read block: GRDB's `Row` is deliberately NOT Sendable
+        // (it is tied to the connection's lifetime), so escaping one from the
+        // closure is a real lifetime bug, not a diagnostic to silence.
+        // A named struct, not an inline 4-element labelled tuple: the tuple form
+        // built inside `.map` inside a generic async throws closure pushed the
+        // type checker into a >20-minute solve (SDK 27 regressed type-check
+        // performance on deeply-branching content). Explicit types everywhere
+        // here are load-bearing for build time, not style.
+        struct MetaRow: Sendable {
+            let name: String
+            let zone: String
+            let owner: String
+            let acked: Bool
+        }
+        let metaRows: [MetaRow] = try await store.db.read { database -> [MetaRow] in
+            let rows = try Row.fetchAll(database, sql: """
                 SELECT recordName, zoneName, ownerName,
                        lastKnownServerRecord IS NOT NULL AS acked
                 FROM sqlitedata_icloud_metadata
                 """)
+            var out: [MetaRow] = []
+            for row in rows {
+                let name: String = row["recordName"] ?? "?"
+                let zone: String = row["zoneName"] ?? "?"
+                let owner: String = row["ownerName"] ?? "?"
+                let acked: Bool = row["acked"] ?? false
+                out.append(MetaRow(name: name, zone: zone, owner: owner, acked: acked))
+            }
+            return out
         }
         for row in metaRows {
-            print("E2E META: name=\(row["recordName"] as String? ?? "?") zone=\(row["zoneName"] as String? ?? "?") owner=\(row["ownerName"] as String? ?? "?") acked=\(row["acked"] as Bool? ?? false)")
+            print("E2E META: name=\(row.name) zone=\(row.zone) owner=\(row.owner) acked=\(row.acked)")
         }
         let zones = try await CKContainer(identifier: PublishEngine.containerID)
             .privateCloudDatabase.allRecordZones()

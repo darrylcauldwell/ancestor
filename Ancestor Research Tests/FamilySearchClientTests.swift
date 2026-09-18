@@ -264,7 +264,9 @@ private final class FakeFSTokenSource: FamilySearchTokenSource, @unchecked Senda
     }
 }
 
-private final class SleepRecorder: @unchecked Sendable {
+// Already lock-synchronised, so genuinely safe off the main actor; `nonisolated`
+// lets the now-nonisolated client call `record` without hopping.
+private final nonisolated class SleepRecorder: @unchecked Sendable {
     private let lock = NSLock()
     private var _values: [TimeInterval] = []
     func record(_ seconds: TimeInterval) { lock.withLock { _values.append(seconds) } }
@@ -273,7 +275,10 @@ private final class SleepRecorder: @unchecked Sendable {
 
 /// Mock `URLProtocol` serving a FIFO queue of canned responses and recording
 /// the requests it saw. Process-global state → the suite is `.serialized`.
-final class FSMockURLProtocol: URLProtocol, @unchecked Sendable {
+// `nonisolated` so the overrides match URLProtocol's nonisolated declarations.
+// Without it, MainActor-by-default isolates the subclass and every override
+// mismatches its base (#ConformanceIsolation family, hard error on Swift 6.4).
+final nonisolated class FSMockURLProtocol: URLProtocol, @unchecked Sendable {
     private struct Stub { let status: Int; let headers: [String: String]; let body: Data }
 
     nonisolated(unsafe) private static var queue: [Stub] = []

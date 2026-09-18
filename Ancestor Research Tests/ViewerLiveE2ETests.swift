@@ -18,7 +18,9 @@ import AncestorViewerKit
 // construction. Requires this Mac's iCloud account (the tree owner).
 struct ViewerLiveE2ETests {
 
-    private static var enabled: Bool {
+    // `nonisolated`: `.enabled(if:)` evaluates this inside a Sendable closure,
+    // and it only reads an environment variable.
+    private nonisolated static var enabled: Bool {
         ProcessInfo.processInfo.environment["RUN_VIEWER_E2E"] == "1"
     }
 

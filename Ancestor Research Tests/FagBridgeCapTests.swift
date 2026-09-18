@@ -27,7 +27,7 @@ struct FagBridgeCapTests {
 
         _ = await pipeline.enrichFagBridgeForTesting(records, existingIDs: [])
 
-        let calls = fag.fetchCount
+        let calls = await fag.fetchCount
         #expect(calls == cap,
                 "bridge should fire exactly \(cap) detail fetches for \(cap + 2) qualifying records; got \(calls)")
     }
@@ -70,10 +70,10 @@ struct FagBridgeCapTests {
             existingIDs: ["findagrave_3000"]
         )
 
-        let calls = fag.fetchCount
+        let calls = await fag.fetchCount
         #expect(calls == cap,
                 "existingIDs skip must not consume budget; expected \(cap) fetches for the fresh memorials, got \(calls)")
-        let fetched = fag.fetchedIDs
+        let fetched = await fag.fetchedIDs
         #expect(!fetched.contains("findagrave_3000"),
                 "already-enriched memorial must never be fetched")
     }
@@ -97,7 +97,7 @@ struct FagBridgeCapTests {
 
         _ = await pipeline.enrichFagBridgeForTesting(records, existingIDs: [])
 
-        let calls = fag.fetchCount
+        let calls = await fag.fetchCount
         #expect(calls == cap,
                 "only nil-deathYear FS burials count toward the cap; got \(calls)")
     }
@@ -157,10 +157,11 @@ struct FagBridgeCapTests {
 /// Modelled as a `@MainActor` class rather than an `actor`: the project
 /// builds with `SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor`, so
 /// `DetailFetchingSource` is a MainActor-isolated protocol; the pipeline
-/// under test is itself `@MainActor`, so a MainActor mock is the natural
-/// fit and the call counters are read from the same isolation domain.
-@MainActor
-final class CountingFAGDetailSource: DetailFetchingSource {
+/// An `actor`, not a `@MainActor` class: `DetailFetchingSource` is `nonisolated`
+/// (see the note on `RecordSource`) and the pipeline fetches details concurrently,
+/// so the counters need real isolation rather than borrowing the main actor's.
+/// Reads are therefore `await`ed.
+actor CountingFAGDetailSource: DetailFetchingSource {
     nonisolated let sourceID = "findagrave"
     nonisolated let scopeHandling: ScopeHandling = .anchorPinned(reason: "test double")
     nonisolated let displayName = "Find a Grave (test)"
