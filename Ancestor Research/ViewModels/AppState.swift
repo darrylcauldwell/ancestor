@@ -137,9 +137,9 @@ final class AppState {
     /// Research pipeline.
     var researchConfigFocus: ResearchFocus?
 
-    /// Triage UX data quality Change 3b — request to research a LEAD
-    /// (a candidate not yet on the tree). Sibling of `researchRequest`: set by
-    /// the Triage "Research" action on a lead, observed centrally by
+    /// Request to research a LEAD (a candidate not yet on the tree).
+    /// Sibling of `researchRequest`: set by the "Research" button on a row
+    /// of `ProfileLeadsBlock`, observed centrally by
     /// ContentView which drives `ResearchViewModel.startResearch(lead:)` and
     /// surfaces the same progress → review flow as profile research. No config
     /// sheet — lead research uses discover-mode defaults.
@@ -164,7 +164,8 @@ final class AppState {
 
     /// Cross-view request: switch the sidebar to this tab. Set by deep
     /// surfaces that can't reach ContentView's local selection state —
-    /// today the profile panel's pending-facts badge (tap → Triage).
+    /// today the cluster-review and profile-detail "show on tree" actions
+    /// (→ `.tree`) and the no-project empty state (→ `.settings`).
     /// ContentView observes via `.onChange` and clears the request.
     /// Sibling pattern to `requestOpenProfileDetail`.
     var requestSidebarTab: SidebarTab?

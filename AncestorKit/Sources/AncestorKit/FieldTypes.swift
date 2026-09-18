@@ -159,10 +159,9 @@ public nonisolated enum DisputeReason: String, Codable, Sendable {
 /// How a dispute was closed. `.rule` is Conflict layer — a
 /// deterministic ladder rung fired and chose a value; the rule ID is
 /// recorded so GPS criterion 4 can cite it ("resolved by R2a"). Additive
-/// case: old JSON (accepted/manual/deferred) decodes unchanged. No rung
-/// fires in CL1 (R0 ships CL4, R2 ships CL5), so nothing writes `.rule`
-/// yet — the case exists so the persistence contract is stable from the
-/// first migration.
+/// case: old JSON (accepted/manual/deferred) decodes unchanged. Written
+/// by the `DisputeResolver` ladder — R0, R2a, R2b and R2c each record
+/// their own rung id.
 public nonisolated enum DisputeResolution: Codable, Hashable, Sendable {
     case accepted(FieldSource)
     case manual(String)

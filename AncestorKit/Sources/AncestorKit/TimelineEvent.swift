@@ -6,9 +6,9 @@ import Foundation
 /// profile's workbench items — never persisted. The `id` is fresh on each
 /// build pass and exists only to satisfy `Identifiable` for SwiftUI lists.
 ///
-/// Full structured life events (occupations, residences, censuses) are
-/// deferred to M12; for M9 the timeline assembles birth, death, marriage,
-/// notes, hypotheses, and open questions.
+/// The timeline assembles birth, death, marriage and divorce, workbench
+/// notes, hypotheses and open questions, plus structured life events
+/// (occupation, residence, census, baptism) under the `.lifeEvent` kind.
 public nonisolated struct TimelineEvent: Identifiable, Sendable, Hashable {
     public let id: UUID                  // Stable per build call only
     public let date: GenealogicalDate?   // nil → "undated", sorts to bottom

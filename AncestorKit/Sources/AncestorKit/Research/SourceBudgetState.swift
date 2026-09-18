@@ -4,7 +4,7 @@ import Foundation
 
 /// A source's known daily request budget and the moment its counter resets.
 ///
-/// Volunteer-run sources (FreeBMD, FreeCen, FreeREG, Wirksworth) treat a
+/// Volunteer-run sources (FreeBMD, FreeCen, FreeREG) treat a
 /// sustained run as a DoS and enforce a daily ceiling. Today, when that
 /// ceiling is hit, the source returns HTTP 429 and the circuit breaker
 /// ladders 60s/300s/900s waits — burning ~21 minutes of wall-clock with zero

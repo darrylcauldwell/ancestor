@@ -10,9 +10,11 @@ import Foundation
 /// only the unambiguous nuclear-family rows, and resolves each one's
 /// relationship **relative to the subject** (whose own household role is read
 /// from the `isTarget` row). Non-family co-residents are excluded outright;
-/// ambiguous kin (in-law, grand-, step-, foster, adopted, possessive
-/// "wife's …") are left for a human, never auto-classified — consistent with
-/// "when in doubt, split".
+/// ambiguous kin (grand-, step-, foster, adopted, possessive "wife's …") are
+/// left for a human, never auto-classified — consistent with "when in doubt,
+/// split". Parent-in-law-of-Head rows are the one carved-out exception, and
+/// only through the separate opt-in `inLawLinks`; `familyLinks` still
+/// excludes them.
 ///
 /// Output is a set of PROPOSALS. Nothing is written here: the caller presents
 /// them for human confirmation, exactly like the existing household-discovery

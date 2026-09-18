@@ -49,7 +49,7 @@ extension AppState {
     }
 
     /// Dismiss the review without changes (the stubs stay; they remain
-    /// flagged in the Audit tab by OrphanStubRule / PhantomSpouseRule).
+    /// flagged in the Health tab by OrphanStubRule / PhantomSpouseRule).
     func dismissImportCleanse() { importCleanseReview = nil }
 
     /// On-demand duplicate scan for an ALREADY-imported tree (the import

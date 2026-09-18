@@ -13,7 +13,8 @@ nonisolated struct ExpansionBoundExceeded: Error, Sendable {
 
 /// Promote a Lead to a ghost Profile. Closes the "lead investigation"
 /// loop opened by `startResearch(lead:)` — once the user has reviewed the
-/// findings in Triage and decides the lead is real, this turns the lead
+/// findings on the profile's leads block and decides the lead is real,
+/// this turns the lead
 /// into an actual Profile node so the existing apply paths (cluster Apply,
 /// proposed-relative Apply, marriage-to-spouse-edge) have a target.
 ///
@@ -21,7 +22,7 @@ nonisolated struct ExpansionBoundExceeded: Error, Sendable {
 /// `acceptProposedRelative` — both build their ghost Profile via shared
 /// patterns and commit one `addFamily` transaction so audit/undo work
 /// uniformly. The lead row stays in the DB with status `.promoted` so
-/// re-promoting is a no-op visible in the Leads tab.
+/// re-promoting is a no-op, still visible in the profile's leads block.
 nonisolated extension ProjectDatabase {
 
     /// Evaluate the Discovery expansion bound for a lead without mutating

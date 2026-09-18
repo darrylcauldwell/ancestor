@@ -5021,9 +5021,9 @@ nonisolated extension ProjectDatabase {
 nonisolated extension ProjectDatabase {
 
     /// Cheap count of pending facts awaiting human review for a profile.
-    /// Used by the profile detail header to surface a badge so the user
-    /// can see at a glance that a profile has firewall-queued proposals
-    /// without having to navigate to Triage. Returns 0 on any DB error.
+    /// Badges the profile detail header (`SharedProfileLayout`) so queued
+    /// firewall proposals are visible on the card itself — the card IS the
+    /// review surface. Returns 0 on any DB error.
     func pendingFactCount(profileID: String) -> Int {
         (try? dbQueue.read { db in
             try Int.fetchOne(
@@ -5037,11 +5037,11 @@ nonisolated extension ProjectDatabase {
         }) ?? 0
     }
 
-    /// Pending-review counts for EVERY profile in one query — the Triage
-    /// profile selector needs all of them to badge rows and sort
-    /// needs-review profiles to the top (an overnight campaign can queue
-    /// findings across dozens of profiles; per-row COUNT queries would be
-    /// 200+ reads per render). Profiles with zero pending facts are absent
+    /// Pending-review counts for EVERY profile in one query — Workbench
+    /// Attention needs all of them to badge rows and sort needs-review
+    /// profiles to the top (an overnight campaign can queue findings across
+    /// dozens of profiles; per-row COUNT queries would be 200+ reads per
+    /// render). Profiles with zero pending facts are absent
     /// from the dictionary. Returns empty on any DB error.
     func pendingFactCountsByProfile() -> [String: Int] {
         (try? dbQueue.read { db in
@@ -5249,12 +5249,13 @@ nonisolated extension ProjectDatabase {
         }
     }
 
-    /// #25 — per-lead evidence metadata for the Triage lead rows: the scored
+    /// #25 — per-lead evidence metadata for the profile's lead rows: the scored
     /// record behind a lead (verdict, citation URL, source, record type),
     /// joined on the `'lead_' + source_record_id` id convention (the same
     /// join the v48 backfill and the MCP surface use). Household
     /// (`lead_hh_…`) and parent-inferred leads have no evidence row and are
-    /// simply absent from the map. One query, called once per Triage load.
+    /// simply absent from the map. One query, called once per load of
+    /// `ProfileLeadsBlock`.
     struct LeadEvidenceMeta: Sendable {
         let verdict: String?
         let citationURL: String?
@@ -5594,7 +5595,7 @@ nonisolated extension ProjectDatabase {
         }
     }
 
-    /// Count of open disputes across the whole project (Audit tab badge).
+    /// Count of open disputes across the whole project (Health tab badge).
     func openDisputeCount() throws -> Int {
         try allOpenDisputes().count
     }

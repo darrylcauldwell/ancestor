@@ -2052,10 +2052,10 @@ public nonisolated struct UnlinkedSpouseForFemaleSubjectRule: AuditRuleDefinitio
 /// safe path.
 public nonisolated struct MarriedSurnameFromSpouseRule: AuditRuleDefinition {
     public let id = "marriedSurnameFromSpouse"
-    // `.issue`, not `.gap`: the Tasks view routes `.gap`-category audit findings
-    // out (they're meant to be redundant with the completeness Gaps view — this
-    // one isn't, so `.gap` would hide it entirely). It's a data-quality issue
-    // with a concrete consequence (missed death-side records), which fits.
+    // `.issue`, not `.gap`: `.gap` means "redundant with the completeness
+    // Gaps view", and this isn't — it's a data-quality issue with a concrete
+    // consequence (missed death-side records). The category drives how Health
+    // groups and counts the finding.
     public let category: AuditCategory = .issue
     public let displayName = "Married Surname Missing"
     public let description = "A woman with a linked spouse but no married surname recorded — her death, probate, and burial records won't be found under her married name."
@@ -2180,9 +2180,9 @@ public nonisolated struct ExcessParentEdgesRule: AuditRuleDefinition {
 /// tree, but in a different role (e.g. two people the census lists as siblings
 /// are linked in the tree as parent and child). Detection is delegated to the
 /// pure `CensusRelationshipReconciler`; that engine also detects census
-/// relatives entirely MISSING from the tree, which a later stage will surface
-/// alongside a one-click "add from census" so they are actionable rather than
-/// noise. Heuristic (name + age matching, scoped to the subject's own
+/// relatives entirely MISSING from the tree, which this rule surfaces as a
+/// `.gap` row carrying the reconciliation panel, so each is actionable with a
+/// one-click add or link rather than noise. Heuristic (name + age matching, scoped to the subject's own
 /// relatives) → a reviewable warning, never an auto-fix.
 public nonisolated struct CensusRelationshipRule: AuditRuleDefinition {
     public let id = "censusRelationship"
@@ -2734,7 +2734,7 @@ public nonisolated struct RecordAfterDeathRule: AuditRuleDefinition {
 /// profile). Complements `DuplicateDetectionRule`: that rule needs
 /// birth-year overlap to reach 0.7 and misses surname-only stubs entirely
 /// (the Ancestry "Carter" case). Thin wrapper over `OrphanStubDetector`
-/// so the Audit tab and the import-time cleanse can never disagree.
+/// so the Health tab and the import-time cleanse can never disagree.
 public nonisolated struct OrphanStubRule: AuditRuleDefinition {
     public let id = "orphanStub"
     public let displayName = "Orphan Duplicate Records"
@@ -2766,8 +2766,8 @@ public nonisolated struct OrphanStubRule: AuditRuleDefinition {
 /// person). The one spouse-edge disqualifies these from `OrphanStubRule`'s
 /// zero-edge cleanse, yet they are the same duplicate debris — extra
 /// husbands/wives left by a GEDCOM merge. Thin wrapper over
-/// `PhantomSpouseDetector` so the Audit tab, the on-demand scan, and the guided
-/// cleanse card can never disagree.
+/// `PhantomSpouseDetector` so the Health tab, the on-demand scan, and the
+/// guided cleanse card can never disagree.
 public nonisolated struct PhantomSpouseRule: AuditRuleDefinition {
     public let id = "phantomSpouse"
     public let displayName = "Phantom Spouse Duplicates"
@@ -2821,9 +2821,9 @@ public nonisolated struct PhantomSpouseRule: AuditRuleDefinition {
 /// `CensusAgeEnrichment`'s two-way-unique matching so an ambiguous "two Johns"
 /// household is skipped, not guessed.
 public nonisolated struct CensusAgeBirthYearRule: AuditRuleDefinition {
-    // `.issue`, not `.gap`: the Tasks view routes `.gap` findings out (they
-    // duplicate the completeness Gaps view). This one carries a concrete,
-    // one-click action, so it belongs in Tasks.
+    // `.issue`, not `.gap`: `.gap` means "duplicates the completeness Gaps
+    // view". This one carries a concrete one-click fix, so it is grouped and
+    // counted with the other Health issues instead.
     public let id = "censusAgeBirthYear"
     public let category: AuditCategory = .issue
     public let displayName = "Birth Year From Census"

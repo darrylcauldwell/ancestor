@@ -663,10 +663,11 @@ public nonisolated struct CensusRelationshipReconciler {
 
     /// Name-only agreement: first given-name token + any surname the profile is
     /// known by (`RosterIdentity`), case-insensitive. The weaker half of
-    /// `matches` — used ALONE only to recognise a member the census can't date
-    /// (no age, no stated year) against a relative already in the SAME
-    /// household role, never to assert a cross-role contradiction (that still
-    /// requires year corroboration).
+    /// `matches`. Two callers use it alone, both role-scoped:
+    /// `matchesRoleScoped`, only once either side is undatable, and
+    /// `linkedSingletonRoleMatch`, where exactly one linked relative holds the
+    /// row's role. It is never enough on its own to assert a cross-role
+    /// contradiction — that still requires year corroboration.
     static func namesMatch(member: HouseholdMember, profile: Profile) -> Bool {
         // Surname first, through the shared primitive (EV23, 2026-08-26). The
         // guard is unchanged in strength — a bare given-name roster row and a

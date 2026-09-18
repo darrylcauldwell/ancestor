@@ -22,9 +22,11 @@ public nonisolated struct RecordCommon: Codable, Sendable {
 
     // MARK: Secondary-metadata columns (FAMILYSEARCH_READ_LEG_PLAN #Change7,
     // FamilySearch source). Data-model commits landing NOW so
-    // second-cut endpoint work needs no schema migration; each stays nil
-    // until the endpoint that fills it is wired. Optional + synthesized
-    // Codable = old JSON without these keys decodes to nil (additive-safe).
+    // second-cut endpoint work needed no schema migration. The
+    // FamilySearch connector now fills `placeARK` and
+    // `collectionCompleteness`; `volatilityScore` is still always nil.
+    // Optional + synthesized Codable = old JSON without these keys
+    // decodes to nil (additive-safe).
 
     /// Bare place-authority ARK path segment for the record's event place
     /// (never the full URL). Populated when a normalized
@@ -857,8 +859,8 @@ public nonisolated struct FreeCenParams: Sendable {
     /// `.adjacent`/`.national` census sweeps, keeping residence codes
     /// for `.county`. nil/empty = no birth-county filter.
     ///
-    /// Wire-affecting: MUST join `QueryCache.cacheKey`'s freeCen arm
-    /// (FT-24 contract) — tracked as a coordinator follow-up.
+    /// Wire-affecting: joins `QueryCache.cacheKey`'s freeCen arm (FT-24
+    /// contract), so two subjects differing only here cache separately.
     public let birthChapmanCode: String?
 
     /// Public memberwise init — synthesized inits are internal
@@ -1282,8 +1284,9 @@ extension SourceQueryResult {
     /// *default* mapping — connectors that can detect truncation, hit
     /// counts, or block pages return a richer `SearchOutcome` through
     /// `searchWithOutcome` instead. Note `.outsideCoverage` maps to
-    /// `.error`: nothing was searched, so the emptiness must not read
-    /// as a genuine negative.
+    /// `.skipped`, not `.error` — nothing was searched, but nothing
+    /// failed either; see the arm below for why that distinction
+    /// matters.
     public var outcome: SearchOutcome {
         switch self {
         case .results(let r):
