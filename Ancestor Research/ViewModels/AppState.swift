@@ -760,15 +760,6 @@ final class AppState {
         }
     }
 
-    /// Fetch a specific parish record's register-entry page on demand — one
-    /// GET via the source's `fetchDetail` — and fold the typed payload onto the
-    /// evidence record, so the family-absorption offer (which reads the entry's
-    /// parents/spouses) can form and a CANDIDATE entry's kin is readable before
-    /// deciding. The parish twin of `loadCensusHousehold`: FreeREG results-table
-    /// rows name no kin at all — Mary Stevenson's applied 1823 Youlgreave
-    /// baptism (owner dogfood 2026-08-23) could never offer "add John
-    /// STEPHENSON + Lydia" because the parents live only on the entry page.
-    /// Returns true when new detail was fetched and stored.
     /// Evidence ids already auto-fetched this session — a dead detail URL
     /// must not refetch on every card open. Session-scoped by design: a
     /// transient source outage clears on next launch.
@@ -973,6 +964,15 @@ final class AppState {
         return changed
     }
 
+    /// Fetch a specific parish record's register-entry page on demand — one
+    /// GET via the source's `fetchDetail` — and fold the typed payload onto the
+    /// evidence record, so the family-absorption offer (which reads the entry's
+    /// parents/spouses) can form and a CANDIDATE entry's kin is readable before
+    /// deciding. The parish twin of `loadCensusHousehold`: FreeREG results-table
+    /// rows name no kin at all — Mary Stevenson's applied 1823 Youlgreave
+    /// baptism (owner dogfood 2026-08-23) could never offer "add John
+    /// STEPHENSON + Lydia" because the parents live only on the entry page.
+    /// Returns true when new detail was fetched and stored.
     @discardableResult
     func loadParishDetail(sourceRecordID: String, profileID: String, quietly: Bool = false) async -> Bool {
         guard let db = currentDatabase, let registry = attachedRegistry,
@@ -2621,13 +2621,6 @@ final class AppState {
 
         isLoading = false
         loadingMessage = nil
-    }
-
-    /// Refresh from WikiTree. There is no diff-free path any more — this
-    /// forwards to `refreshWikiTreeWithDiff()`; it exists only so older call
-    /// sites keep compiling.
-    func refreshWikiTree() async {
-        await refreshWikiTreeWithDiff()
     }
 
     // MARK: - Refresh with Diff

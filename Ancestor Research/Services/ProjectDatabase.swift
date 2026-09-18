@@ -892,10 +892,9 @@ nonisolated final class ProjectDatabase: Sendable {
         }
 
         // V29 — per-run structured result envelope for the eval-harness
-        // backend (MCP eval backend #Change1). The Swift app
-        // doesn't read this column; the upcoming `get_research_result`
-        // MCP tool (#Change4) will. Empty string is a valid "no
-        // envelope persisted yet" sentinel.
+        // backend (MCP eval backend #Change1). The Swift app doesn't read
+        // this column; the `get_research_result` MCP tool does. Empty
+        // string is a valid "no envelope persisted yet" sentinel.
         migrator.registerMigration("v29_research_run_result_json") { db in
             try db.alter(table: "research_runs") { t in
                 t.add(column: "result_json", .text).notNull().defaults(to: "")
@@ -1926,10 +1925,11 @@ nonisolated final class ProjectDatabase: Sendable {
 
     // MARK: - Snapshot Building
 
-    /// Load a single profile by id. Returns nil when no row exists or
-    /// the row is soft-deleted. Used by callers that need one profile
-    /// without the full snapshot cost — currently the placeholder
-    /// write-back path (Engine foundation #Change2).
+    /// Load a single profile by id. Returns nil when no row exists or the
+    /// row is soft-deleted. For callers that need one profile without the
+    /// full snapshot cost, and for re-reading a profile straight after a
+    /// write so the next step sees committed state rather than a stale
+    /// snapshot copy.
     func loadProfile(id: String) throws -> Profile? {
         try dbQueue.read { db in
             guard let row = try Row.fetchOne(

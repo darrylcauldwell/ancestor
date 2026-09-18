@@ -520,8 +520,11 @@ extension WikiTreeClient {
         )
     }
 
-    /// Build relationships from WikiTree API relative data.
-    /// Exact port of Python twin.py lines 120-153.
+    /// Build relationships from WikiTree API relative data: parent and
+    /// spouse edges only. Sibling relationships are never stored as edges —
+    /// they are derived from shared parents by
+    /// `FamilyGraphSnapshot.siblingsOf()` (see the getSiblings note below,
+    /// which exists to add the sibling profiles as NODES).
     static func buildRelationships(
         from profiles: inout [Profile],
         relativeData: [[String: Any]]

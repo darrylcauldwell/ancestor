@@ -102,7 +102,10 @@ nonisolated enum AutoSuggestService {
     }
 
     /// Inline warning text for a name field, or nil when no warning applies.
-    /// Used by AddPersonView/EditPersonView to surface "this is unusually long".
+    /// NOT WIRED to any view: AddPersonView and ProfileDetailView compare
+    /// against `nameHardLimitLength` themselves to disable Save, so the
+    /// soft-limit "did you paste extra text?" warning never reaches the
+    /// user. Covered by tests only. See `#CMT7`.
     static func nameWarning(_ raw: String) -> String? {
         let count = raw.trimmingCharacters(in: .whitespacesAndNewlines).count
         if count > nameHardLimitLength {

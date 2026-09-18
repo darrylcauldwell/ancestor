@@ -210,8 +210,8 @@ final class UserHypothesisViewModel {
     /// Workbench Hunches section. Derived from the already-sorted `hunches`.
     var refutedHunches: [Hunch] { hunches.filter { $0.verdict == .contradicted } }
 
-    /// The exhausted hunches — archived under the collapsible
-    /// section; revivable, never deleted.
+    /// The exhausted hunches — listed in their own section, kept rather
+    /// than deleted. Nothing in the app revives one.
     var exhaustedHunches: [Hunch] { hunches.filter(\.isExhausted) }
 
     /// Active hunches still worth watching — neither refuted nor

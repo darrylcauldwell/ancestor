@@ -55,8 +55,8 @@ final class ResearchViewModel {
     /// Empty when no prose corpora are registered or when the subject
     /// has no surname. Surfaced inline beside the structured results;
     /// the activity log already shows the search itself via the
-    /// `ProseCorpusSource` events. P6 adds MLX extraction over this
-    /// list for `.discover`/`.all` modes.
+    /// `ProseCorpusSource` events. `runPipeline` then runs MLX extraction
+    /// over this list — see the guard there for which modes qualify.
     var proseCandidates: [ProseCandidate] = []
     /// Rolling buffer of the most recent activity events for the live feed.
     /// Capped at 30 entries so the UI scrolls cleanly without unbounded growth.
@@ -439,8 +439,9 @@ final class ResearchViewModel {
         // and `.all` to 8.
         proseCandidates = await fetchProseCandidates(subject: subject, registry: registry, mode: selectedMode)
 
-        // Prose-corpus MLX extraction (P6, spec) — only fires in
-        // `.discover` / `.all` modes. Reads each candidate's body
+        // Prose-corpus MLX extraction — fires in `.discover`, `.all` and
+        // `.adaptive` modes, and only when the caller opted in via
+        // `runProseExtraction`. Reads each candidate's body
         // from disk, runs the local reasoning model, routes
         // extracted facts through `pending_facts` and narratives
         // through `narrative_findings`. Profile-keyed; lead-only
