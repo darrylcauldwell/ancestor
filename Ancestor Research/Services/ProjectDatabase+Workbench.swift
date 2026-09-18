@@ -1,9 +1,9 @@
 import Foundation
 import GRDB
 
-/// Workbench (M8) persistence: notes and questions. Hypotheses, focus sets,
-/// sessions, and goals get added in W3+ but their tables already exist
-/// from migration v7.
+/// Workbench persistence: notes and questions. Hypotheses, focus sets,
+/// sessions and goals live in `ProjectDatabase+Focus.swift`; their tables were
+/// created together in migration v7.
 nonisolated extension ProjectDatabase {
 
     // MARK: - Notes (W1)

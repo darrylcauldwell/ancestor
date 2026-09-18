@@ -25,9 +25,11 @@ nonisolated struct WorkbenchExportSummary: Sendable {
     }
 }
 
-/// Exports a FamilyGraphSnapshot to GEDCOM 5.5.1 format.
+/// Exports a FamilyGraphSnapshot to GEDCOM, in whichever `GEDCOMFormat` the
+/// caller asks for — 5.5.1 or 7.0; the two differ enough that the exporter
+/// branches throughout, not just in the header.
 /// This is lossy interop — app-specific data (disputes, source provenance
-/// beyond first source, transaction history) is dropped. See the design
+/// beyond first source, transaction history) is dropped.
 ///
 /// Citations (by design) ARE preserved on a best-effort basis: every
 /// distinct `Citation` carried by any `FieldSource` becomes a top-level

@@ -49,7 +49,9 @@ nonisolated final class ProjectDatabase: Sendable {
         try Self.makeMigrator().migrate(dbQueue)
     }
 
-    /// The full migration chain, v1…v36. Static (no instance state) so tests
+    /// The full migration chain — this function is the schema's source of
+    /// truth, and the registered list below is the only accurate count.
+    /// Static (no instance state) so tests
     /// can drive the migrator directly — e.g. migrate a scratch DB
     /// `upTo:` a given version, seed legacy-shaped rows, then complete the
     /// chain to exercise a data migration in isolation.

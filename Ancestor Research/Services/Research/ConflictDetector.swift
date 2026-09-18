@@ -36,9 +36,10 @@ nonisolated struct DetectedConflict: Sendable {
 /// fully unit-testable detection rules over profile state + one incoming
 /// candidate attestation.
 ///
-/// CL1 ships F1 (date fields), F2 (location/string fields), F4a (parent
-/// role), and F4b (spouse identity). F5 needs WitnessIdentity (CL4);
-/// F3/T-D ship with the standing sweep (CL2).
+/// The rules, each with its own MARK below: F1 date fields, F2
+/// location/string fields, F3 timeline (death vs later-alive evidence), F4a
+/// parent role, F4b spouse identity, F5 same-witness transcription
+/// disagreement, and T-D same-enumeration-year impossibility.
 ///
 /// 100% deterministic — no MLX anywhere in this layer (decision log #2).
 nonisolated struct ConflictDetector {

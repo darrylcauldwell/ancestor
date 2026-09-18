@@ -4,9 +4,9 @@ import Foundation
 /// to confidently narrow a subject's birth year. Output of
 /// `BirthYearConsensusDetector.detect`.
 ///
-/// Pure data. Slice A only logs these for verification; slice B2 will
-/// route them through `pending_facts` so the user reviews them with the
-/// supporting-evidence preview visible.
+/// Pure data. `toPendingFact` turns one into a `pending_facts` row, which
+/// `ResearchPipeline` does for every detection, so the user reviews it with
+/// the supporting-evidence preview visible.
 nonisolated struct BirthYearConsensus: Sendable {
 
     /// Discriminator for how prominently the UI should surface a

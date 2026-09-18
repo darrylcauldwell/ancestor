@@ -7,13 +7,13 @@ import Foundation
 /// matcher to compute *evidence reproduction rate* — the fraction of a
 /// certified profile's existing GEDCOM citations that the pipeline
 /// surfaces. The twin-export GEDCOM stores citations as semi-structured
-/// prose inside `1 NOTE` blocks (memory `the NOTE-block prose citation shape`),
-/// not as standard GEDCOM `SOUR`/`CITN` tags — so this matcher is a
+/// prose inside `1 NOTE` blocks — the digital twin writes citations that way
+/// rather than as standard GEDCOM `SOUR`/`CITN` tags, so this matcher is a
 /// tolerant pattern parser, not a tag walker.
 ///
-/// Reference implementation in Python lives at
-/// `eval/extract_gedcom_citations.py`. Keep the two in sync when adding
-/// new patterns.
+/// `eval/extract_gedcom_citations.py` solves the same problem in the Python
+/// agent. They are NOT kept in sync: the Swift app is the authoritative
+/// implementation and parity with the Python reference was retired.
 nonisolated struct CitationMatcher {
 
     // MARK: - Public API

@@ -34,12 +34,11 @@ nonisolated struct ProseCorpusExtractor {
 
     private static let logger = Logger(subsystem: "dev.dreamfold.Ancestor-Research", category: "ProseCorpusExtractor")
 
-    /// Hard cap on the CONTENT block sent to the model. Spec
-    /// calls 24 KB the v1 threshold based on DeepSeek-R1 7B's
-    /// effective context plus prompt overhead. Above this the spec
-    /// calls for section-boundary splitting; v1 takes the head-
-    /// truncate path with a logged warning so the user knows a long
-    /// page was clipped.
+    /// Hard cap on the CONTENT block sent to the model: 24 KB, sized to fit
+    /// the effective context of the smallest supported local model plus prompt
+    /// overhead. Above it, this takes the head-truncate path with a logged
+    /// warning so the user knows a long page was clipped; section-boundary
+    /// splitting would be the better answer and is not built.
     static let maxContentBytes: Int = 24 * 1024
 
     /// Run the extraction loop. Reads the system prompt from the

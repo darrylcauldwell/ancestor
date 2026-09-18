@@ -111,8 +111,9 @@ nonisolated enum FreeBMDCitationAudit {
             return (v, p)
         }
         // Fallback: an applied/imported FreeBMD row can carry vol/page ONLY in
-        // its stable id — built as "freebmd_{type}_{vol}_{page}_{row}"
-        // (FreeBMDSource:911) — while the typed volume/page never populated. It's
+        // its stable id — built as "freebmd_{type}_{vol}_{page}_{row}" where
+        // FreeBMDSource mints `RecordCommon.id` — while the typed volume/page
+        // never populated. It's
         // the same GRO reference, so recover it so the citation enricher can
         // re-locate the entry instead of falsely reporting "no volume/page"
         // (owner dogfood 2026-08-13: three profiles' applied death facts).

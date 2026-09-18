@@ -10,13 +10,11 @@ import Foundation
 /// element 4 requires and the verbatim-groundable input the T9 dossier
 /// consumes.
 ///
-/// CL1 state (spec Change 1): R3 (user-authoritative shield) and R1
-/// (precision subsumption, filtered at detection) are live; **R0 is inert
-/// until CL4** (needs WitnessIdentity) and **R2 until CL5** (quality
-/// dominance is the programme's first write-behaviour change). Because no
-/// rung can select a winner in CL1, `adjudicate` never returns a
-/// resolution — the zero-write-outcome guarantee: the only new persistence
-/// anywhere in Change 1 is open dispute rows.
+/// Every rung is live. `adjudicate` returns a resolution as soon as one
+/// fires — R0 (originality dominance), R2a/R2b/R2c (quality dominance) — and
+/// `nil` when none does, leaving the dispute open for a human. The trace
+/// records every rung it evaluated either way, including the ones skipped
+/// because an earlier rung already resolved.
 nonisolated struct DisputeResolver {
 
     /// One evaluated rung: `{rung, outcome, detail}` — persisted as the
@@ -27,8 +25,8 @@ nonisolated struct DisputeResolver {
         let detail: String
     }
 
-    /// Adjudication result. `resolution == nil` means the dispute stays
-    /// open (always the case in CL1).
+    /// Adjudication result. `resolution == nil` means no rung fired and the
+    /// dispute stays open — callers MUST handle a non-nil resolution.
     struct Adjudication: Sendable {
         let resolution: DisputeResolution?
         let trace: [RungEvaluation]

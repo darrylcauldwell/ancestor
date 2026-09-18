@@ -4,9 +4,9 @@ import Foundation
 /// current pipeline state. The single entry point that runs every kind's
 /// generator + grader.
 ///
-/// **T11 scaffold only.** This file lands the three central switches
-/// (`generate`, `grade`, `deficitQuery`) and dispatches to per-kind
-/// extension methods. Each extension file (one per kind) holds three
+/// This file holds the three central switches (`generate`, `grade`,
+/// `deficitQuery`) and dispatches to per-kind extension methods — the kinds
+/// themselves are implemented, not stubbed. Each extension file (one per kind) holds three
 /// `static func` clauses: `generate<Kind>`, `grade<Kind>`, and
 /// `deficitQuery<Kind>(for:atLevel:state:)`. Adding a new kind requires
 /// touching `HypothesisKind` + the three central switches + adding the

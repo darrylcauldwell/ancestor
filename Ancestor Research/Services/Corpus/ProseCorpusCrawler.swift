@@ -69,13 +69,14 @@ actor ProseCorpusCrawler {
         let userAgent: String
         /// Spec — 500 ms between consecutive requests.
         let requestDelay: Duration
-        /// Skip robots.txt entirely. Default `true`. Tests can flip to
-        /// `false` to exercise the crawl loop without staging a robots
-        /// fixture.
+        /// Fetch and OBEY robots.txt. Default `true` — a missing or
+        /// unreachable robots file means "no restrictions", per the de-facto
+        /// convention. Tests flip this to `false` to exercise the crawl loop
+        /// without staging a robots fixture; production never should.
         let respectRobots: Bool
-        /// Skip sitemap.xml discovery. Default `true`. Independent of
-        /// `respectRobots` because some sites publish a sitemap but have
-        /// no robots file.
+        /// Discover sitemap.xml and seed the frontier from it. Default `true`.
+        /// Independent of `respectRobots` because some sites publish a sitemap
+        /// but have no robots file.
         let useSitemap: Bool
 
         static let defaultUserAgent = "AncestorResearch/1.0 (macOS; genealogy research tool; github.com/darrylcauldwell/ancestor)"

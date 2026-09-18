@@ -212,7 +212,6 @@ nonisolated struct GPSScorer {
     /// field can no longer pool into a single inflated level. Met when at
     /// least one value group reaches `.possible`; the reason string always
     /// reports per-value levels so a split vote is visible.
-    /// (Interim lineage counting; witness counting lands CL4.)
     private static func criterion3Analysis(
         result: ResearchResult?, sourceInfoMap: [String: SourceInfo]
     ) -> GPSCriterion {

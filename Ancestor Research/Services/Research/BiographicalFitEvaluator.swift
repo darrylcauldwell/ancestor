@@ -14,8 +14,9 @@ nonisolated struct BiographicalFitResult: Sendable {
     let candidate: ScoredRecord
     let candidateBirthYear: Int
     let plausibility: Double
-    /// Count of independent corroborating signals — currently rule 2
-    /// age-at-death matches against same-named death records. Used by
+    /// Count of independent corroborating signals — rule 2 age-at-death
+    /// matches against same-named death records, rule 4 census
+    /// back-calculation, and rule 5 district affinity. Used by
     /// the pipeline's narrowing gate to distinguish "candidate with
     /// strong positive evidence" from "candidate that simply wasn't
     /// ruled out". A candidate with 5 matches and plausibility 1.00

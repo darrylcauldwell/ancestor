@@ -427,8 +427,8 @@ nonisolated struct ProseCandidate: Identifiable, Sendable, Equatable {
 
     var id: String { "\(sourceID):\(pageHash)" }
 
-    /// Spec weighting. Surname is the gate so this can be
-    /// zero only when surnameHits is non-zero but matched on a
-    /// page that scored zero on year/place (rare but legitimate).
+    /// Surname is the gate, and it is weighted 3, so any page that reaches
+    /// scoring has a score of at least 3 — this can never be zero. Year adds
+    /// 2 per hit, place 1.
     var score: Int { surnameHits * 3 + yearHits * 2 + placeHits }
 }

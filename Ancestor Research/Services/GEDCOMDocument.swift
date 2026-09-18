@@ -57,9 +57,10 @@ nonisolated struct GEDCOMDocument: FileDocument {
             workbenchSummary: summary
         )
         if format.isContainer, let projectID {
-            // M15 — GEDZip container assembled by GEDZipWriter (Agent Z2).
-            // Falls back to the raw text bytes if the writer hasn't been
-            // wired yet, so the file picker still gets *something*.
+            // GEDZip container assembled by GEDZipWriter. If the write throws
+            // (a malformed attachment, an unwritable temp dir) fall back to the
+            // raw text bytes so the file picker still gets a valid GEDCOM
+            // rather than nothing.
             if let zipped = try? GEDZipWriter.write(
                 gedcomText: result.content,
                 attachments: attachments,
