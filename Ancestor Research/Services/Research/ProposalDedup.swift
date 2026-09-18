@@ -2,10 +2,13 @@ import Foundation
 
 /// Pre-insert dedup for accepted proposals — both sibling
 /// (`SiblingProposal`) and parent-inferred (`ProposedRelative`).
-/// Mirrors `MCPServer.SiblingDedup.decideDedup` (the `promote_lead`
-/// path) so all three accept-flows behave identically per
-/// Engine foundation Change 3:
-/// surname + given-name + ±2-year window.
+/// Shares the shape of `MCPServer.decideDedup` (the `promote_lead`
+/// path) — surname + given-name + ±2-year window — but NOT its
+/// outcome in one case. Here an exact given-name match wins outright
+/// (`strongMatches.isEmpty ? weakMatches : strongMatches`); over MCP
+/// strong and weak land in one pool, so an exact match sitting
+/// alongside a surname-only placeholder reads as `.multipleMatches`
+/// there and `.matched` here. See `#CMT4`.
 ///
 /// Decision semantics:
 /// - `noMatch`  → caller should create a new profile.
