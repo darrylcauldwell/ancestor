@@ -122,7 +122,9 @@ Completed specs are removed once shipped (git history is the archive — see `An
 - `DESIGN.md` (root, 2536 lines) — end-state product design.
 - `GUIDE.md` — Python agent's user guide and session model.
 
-Per this project's spec-driven convention (and memory `no_github_issues.md`), planned work is driven by spec docs in `AncestorApp/` (and previously `*_SPEC.md` files in the repo root, now archived). Do **not** open GitHub issues for in-flight work; commit messages reference spec change numbers (`feat: ... #Change1`) or, for bug fixes, an issue number.
+Per this project's spec-driven convention (and memory `no_github_issues.md`), planned work is driven by spec docs in `AncestorApp/` (and previously `*_SPEC.md` files in the repo root, now archived). Do **not** open GitHub issues for in-flight work.
+
+**Open items live in `AncestorApp/BACKLOG.md`** — one row each, with a stable `#<TAG><n>` ID and an acceptance test. **Status is never written down**: derive it with `git log --oneline --grep='#<ID>' --all`, or invoke the `backlog` skill (`.claude/skills/backlog/`), which renders the file with derived status. Commit messages reference the item ID (`fix: ... #GL3`); a row with commits against it is done, so verify its acceptance test and delete the row. Avoid bare `#Change<n>` in new work — it collides across specs (33 commits), so its status can't be derived.
 
 ## Gotchas
 

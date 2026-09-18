@@ -6,7 +6,8 @@ A macOS SwiftUI genealogy research app. Digital twin of a family tree with autom
 
 ## Tech Stack
 
-- **Swift 6.2+**, macOS 26, SwiftUI with Liquid Glass
+- **Swift 6.4 toolchain** (Xcode 27) at language mode 6 (`SWIFT_VERSION = 6.0`, project level),
+  deployment target macOS 26.2 against the macOS 27 SDK, SwiftUI with Liquid Glass
 - **GRDB** for SQLite persistence
 - **MLX Swift** (mlx-swift-lm) for the local reasoning model (sole AI tier — no third-party API)
 - Build with: `xcodebuild -project "Ancestor Research.xcodeproj" -scheme "Ancestor Research" -destination "platform=macOS" build -skipMacroValidation`

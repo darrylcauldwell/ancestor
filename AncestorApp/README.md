@@ -1,19 +1,26 @@
 # AncestorApp/ — document index
 
-One line per **live** document: what it is and when to read it. Updated 2026-07-21.
+One line per **live** document: what it is and when to read it. This file carries **roles only
+— no status**, so it has nothing to keep up to date.
 
 **Convention (2026-07-16):** the only readers here are the developer and Claude, and both have
 full git history — so a *completed* spec is **deleted**, not kept. Git history is the archive
-(`git log --all --full-history -- AncestorApp/<file>` retrieves any removed spec). What shipped
-is recorded in `ROADMAP.md` (phase state + Stage 1, with commit refs) and, for load-bearing
-design rationale, in Claude's memory files. Only living work lives in this folder.
+(`git log --all --full-history -- AncestorApp/<file>` retrieves any removed spec). Only living
+work lives in this folder.
+
+**Where status lives (2026-09-18):** nowhere by hand. Open items are rows in `BACKLOG.md` with
+stable IDs; status is derived with `git log --oneline --grep='#<ID>' --all`, or by invoking the
+`backlog` skill. Status used to be duplicated across this file, `ROADMAP.md`, each spec's change
+list and `MEMORY.md` — four hand-maintained copies that drifted 6–8 weeks apart. Design rationale
+still belongs in the owning spec; sequencing and gates still belong in `ROADMAP.md`.
 
 ## Start here
 
-| Doc | Role | Status |
-|---|---|---|
-| `ROADMAP.md` | Routing: phase state, implementation order (Stage 1/2/3), backlog | Living — single source of truth for what's done / next |
-| `adr/` | Architecture decision records (001–006 Accepted; 007 rejected-as-proposed; 008 tosStatus fixes shipped, outreach/toggle outstanding) | Binding |
+| Doc | Role |
+|---|---|
+| `BACKLOG.md` | Open items with stable IDs + acceptance tests; status derived from git |
+| `ROADMAP.md` | Routing: phase state, implementation order (Stage 1/2/3), gates |
+| `adr/` | Architecture decision records — binding (001–006 Accepted; 007 rejected-as-proposed) |
 
 ## Governing / reference (ongoing)
 
@@ -26,14 +33,16 @@ design rationale, in Claude's memory files. Only living work lives in this folde
 
 ## Active / in-flight
 
-| Doc | Role | Status |
-|---|---|---|
-| `SANDWICH_AUDIT_2026-07.md` | Adversarial audit of the 4-gate scorer (DS-01..27) | **COMPLETE 2026-07-22** — all 14 gate repairs shipped; only DS-27(b) advisory feature deferred to Stage 2 |
-| `CONNECTOR_AUDIT_2026-07.md` | Connector fix backlog / as-built record | Core 56/58 + deferred residue shipped 2026-07-22 (UV-01/06/08/09, T1-C2/C3/C4; UV-02 via DS-15); open: FT-19, FT-21 (blocked), T1-C1 (NEEDS-DARRYL) |
-| `SOURCE_WEIGHTING_SPEC.md` | Staged-dispatch source weighting | Changes 0–5,7,8 shipped; live-verification pending + Change 6 gated on ADR-008 |
-| `SOURCE_ACCESS_COMPLIANCE_2026-07.md` | Connector terms-of-service evidence | Decisions pending ADR-008 |
-| `FAMILYSEARCH_SOURCE_SPEC.md` | FS deferred work (write leg, ARK detail-fetch, per-collection tiering, place/vocab) + reference (§16 licensing, GEDCOM X taxonomy) | Thinned 2026-07-21 — implemented surface removed; small follow-ups open |
-| `CROSS_PROFILE_CORROBORATION_SPEC.md` | Spouse-pair marriage corroboration across profiles | Changes 1–4 **SHIPPED + live-verified 2026-07-26**; Change 5 (machine-commit carve-out) deferred — gated on §14.B.2–6 extended to relationship entities, or corroboration volume |
+Sequencing and gates for these live in `ROADMAP.md`; per-item state comes from git.
+
+| Doc | Role |
+|---|---|
+| `SANDWICH_AUDIT_2026-07.md` | Adversarial audit of the 4-gate scorer (DS-01..27) — as-built record |
+| `CONNECTOR_AUDIT_2026-07.md` | Connector fix backlog / as-built record (FT-19, FT-21, T1-C1 tail) |
+| `SOURCE_WEIGHTING_SPEC.md` | Staged-dispatch source weighting (Change 6 gated on ADR-008) |
+| `SOURCE_ACCESS_COMPLIANCE_2026-07.md` | Connector terms-of-service evidence (decisions gated on ADR-008) |
+| `FAMILYSEARCH_SOURCE_SPEC.md` | FS deferred work (write leg, ARK detail-fetch, per-collection tiering, place/vocab) + reference (§16 licensing, GEDCOM X taxonomy) |
+| `CROSS_PROFILE_CORROBORATION_SPEC.md` | Spouse-pair marriage corroboration across profiles (Change 5 gated on §14.B.2–6 for relationship entities) |
 
 ## Proposed — awaiting review
 
@@ -51,8 +60,8 @@ design rationale, in Claude's memory files. Only living work lives in this folde
 
 ## Removed (completed — in git history)
 
-Fully-delivered specs are removed once shipped; retrieve any via git. Their shipped state +
-commits are recorded in `ROADMAP.md`.
+Fully-delivered specs are removed once shipped; retrieve any via git. Their commits are the
+record — `git log --all --full-history -- AncestorApp/<file>`.
 
 Removed 2026-07-21 (shipped/superseded): `LEAD_DISCOVERY_SPEC`, `IMPORT_DEDUPE_SPEC`,
 `PROFILE_LIFECYCLE_SPEC`, `PROFILE_SOURCES_LEDGER_SPEC`, `PROJECT_ONBOARDING_SPEC`,

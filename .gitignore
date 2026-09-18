@@ -30,7 +30,12 @@ site/dist/
 node_modules/
 
 # Claude session data
-.claude/
+# Ignore the session data but NOT project skills: a skill encodes workflow every
+# session must follow (see AncestorApp/BACKLOG.md), so it belongs in the repo.
+# Must be `.claude/*` not `.claude/` — git cannot re-include a file whose parent
+# directory is itself excluded, so `.claude/` would block the negation below.
+.claude/*
+!.claude/skills/
 
 # Captured API data (may contain session tokens)
 fs_api_capture.json
