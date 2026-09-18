@@ -548,36 +548,30 @@ struct ClusterReviewView: View {
 
                 Spacer()
 
-                if cluster.mergeCandidate != nil {
-                    Text("Possible duplicate")
-                        .font(AppTypography.badge)
-                        .foregroundStyle(.orange)
-                        .padding(.horizontal, 8)
-                        .padding(.vertical, 3)
-                        .glassEffect(.regular, in: .capsule)
-                }
+                // Up to three glass badges sit shoulder-to-shoulder here. A
+                // container makes the group share ONE backdrop sampling pass
+                // instead of one per capsule, and lets them merge as a group
+                // when they crowd (each bare `.glassEffect` is a real backdrop
+                // pass — the cost behind the Triage scroll hang, `512c520`).
+                GlassEffectContainer(spacing: 8) {
+                    HStack(spacing: 8) {
+                        if cluster.mergeCandidate != nil {
+                            clusterStatusBadge("Possible duplicate", tint: .orange)
+                        }
 
-                // CL3 — records in this cluster contradict the tree at
-                // conflict grade (run-time discrepancy signal).
-                if conflictDiscrepancyCount(for: cluster) > 0 {
-                    Text("Conflicts with tree")
-                        .font(AppTypography.badge)
-                        .foregroundStyle(.red)
-                        .padding(.horizontal, 8)
-                        .padding(.vertical, 3)
-                        .glassEffect(.regular, in: .capsule)
-                        .help("Applying will open a dispute for each conflict-grade disagreement with the tree")
-                }
+                        // CL3 — records in this cluster contradict the tree at
+                        // conflict grade (run-time discrepancy signal).
+                        if conflictDiscrepancyCount(for: cluster) > 0 {
+                            clusterStatusBadge("Conflicts with tree", tint: .red)
+                                .help("Applying will open a dispute for each conflict-grade disagreement with the tree")
+                        }
 
-                // CONFLICT_LAYER_SPEC CL2 AC3 — T-D same-year-census split badge.
-                if let reason = cluster.splitReason {
-                    Text("Split: contradiction")
-                        .font(AppTypography.badge)
-                        .foregroundStyle(.red)
-                        .padding(.horizontal, 8)
-                        .padding(.vertical, 3)
-                        .glassEffect(.regular, in: .capsule)
-                        .help(reason)
+                        // CONFLICT_LAYER_SPEC CL2 AC3 — T-D same-year-census split badge.
+                        if let reason = cluster.splitReason {
+                            clusterStatusBadge("Split: contradiction", tint: .red)
+                                .help(reason)
+                        }
+                    }
                 }
             }
 
@@ -1364,6 +1358,18 @@ struct ClusterReviewView: View {
         return "\(confirmedSide); \(recordSide) — \(verdict)."
     }
 
+    /// A cluster-header status badge. Glass-backed, so callers place these
+    /// inside a `GlassEffectContainer` — the group then costs one backdrop
+    /// pass rather than one per badge.
+    private func clusterStatusBadge(_ text: String, tint: Color) -> some View {
+        Text(text)
+            .font(AppTypography.badge)
+            .foregroundStyle(tint)
+            .padding(.horizontal, 8)
+            .padding(.vertical, 3)
+            .glassEffect(.regular, in: .capsule)
+    }
+
     private func statusPill(_ text: String, icon: String, tint: Color) -> some View {
         HStack(spacing: 3) {
             Image(systemName: icon)
@@ -1466,38 +1472,44 @@ struct ClusterReviewView: View {
 
     @ViewBuilder
     private var rejectedRecordsSection: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Button { rejectedExpanded.toggle() } label: {
-            HStack {
-                Image(systemName: rejectedExpanded ? "chevron.down" : "chevron.right")
-                    .font(AppTypography.cardMeta)
-                    .foregroundStyle(.secondary)
-                Text("Scorer rejected")
-                    .font(AppTypography.cardTitle)
-                Text("\(rejectedRecords.count)")
-                    .font(AppTypography.badge)
-                    .foregroundStyle(.secondary)
-                    .padding(.horizontal, 6)
-                    .padding(.vertical, 2)
-                    .glassEffect(.regular, in: .capsule)
-                Spacer()
-            }
-            .contentShape(Rectangle())
-            }
-            .buttonStyle(.plain)
-            if !rejectedExpanded {
-                Text("Records the scorer judged not to match \(vm.selectedProfile?.displayName ?? "this profile") — usually because the subject's profile is too sparse for the scorer to reconcile dates. Expand to override.")
-                    .font(AppTypography.cardMeta)
-                    .foregroundStyle(.tertiary)
-            }
-            if rejectedExpanded {
-                ForEach(rejectedRecords) { scored in
-                    rejectedRow(scored)
+        // Card + its count capsule are two glass shapes in one small
+        // region: the container shares a single backdrop pass between
+        // them. `spacing: 0` deliberately keeps them from merging — the
+        // capsule must stay a distinct pill, not blend into the card.
+        GlassEffectContainer(spacing: 0) {
+            VStack(alignment: .leading, spacing: 8) {
+                Button { rejectedExpanded.toggle() } label: {
+                HStack {
+                    Image(systemName: rejectedExpanded ? "chevron.down" : "chevron.right")
+                        .font(AppTypography.cardMeta)
+                        .foregroundStyle(.secondary)
+                    Text("Scorer rejected")
+                        .font(AppTypography.cardTitle)
+                    Text("\(rejectedRecords.count)")
+                        .font(AppTypography.badge)
+                        .foregroundStyle(.secondary)
+                        .padding(.horizontal, 6)
+                        .padding(.vertical, 2)
+                        .glassEffect(.regular, in: .capsule)
+                    Spacer()
+                }
+                .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                if !rejectedExpanded {
+                    Text("Records the scorer judged not to match \(vm.selectedProfile?.displayName ?? "this profile") — usually because the subject's profile is too sparse for the scorer to reconcile dates. Expand to override.")
+                        .font(AppTypography.cardMeta)
+                        .foregroundStyle(.tertiary)
+                }
+                if rejectedExpanded {
+                    ForEach(rejectedRecords) { scored in
+                        rejectedRow(scored)
+                    }
                 }
             }
+            .padding(14)
+            .glassEffect(.regular, in: .rect(cornerRadius: 14))
         }
-        .padding(14)
-        .glassEffect(.regular, in: .rect(cornerRadius: 14))
     }
 
     // MARK: - Discarded bin
@@ -1617,41 +1629,47 @@ struct ClusterReviewView: View {
 
     @ViewBuilder
     private var discardedRecordsSection: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Button { discardedExpanded.toggle() } label: {
-            HStack {
-                Image(systemName: discardedExpanded ? "chevron.down" : "chevron.right")
-                    .font(AppTypography.cardMeta)
-                    .foregroundStyle(.secondary)
-                Image(systemName: "trash")
-                    .font(AppTypography.cardMeta)
-                    .foregroundStyle(.secondary)
-                Text("Discarded")
-                    .font(AppTypography.cardTitle)
-                Text("\(discardedRecords.count)")
-                    .font(AppTypography.badge)
-                    .foregroundStyle(.secondary)
-                    .padding(.horizontal, 6)
-                    .padding(.vertical, 2)
-                    .glassEffect(.regular, in: .capsule)
-                Spacer()
-            }
-            .contentShape(Rectangle())
-            }
-            .buttonStyle(.plain)
-            if !discardedExpanded {
-                Text("Records you ruled out — hidden from the clusters above and never re-proposed by future runs. Expand to restore one discarded in error.")
-                    .font(AppTypography.cardMeta)
-                    .foregroundStyle(.tertiary)
-            }
-            if discardedExpanded {
-                ForEach(discardedRecords, id: \.id) { scored in
-                    discardedRow(scored)
+        // Card + its count capsule are two glass shapes in one small
+        // region: the container shares a single backdrop pass between
+        // them. `spacing: 0` deliberately keeps them from merging — the
+        // capsule must stay a distinct pill, not blend into the card.
+        GlassEffectContainer(spacing: 0) {
+            VStack(alignment: .leading, spacing: 8) {
+                Button { discardedExpanded.toggle() } label: {
+                HStack {
+                    Image(systemName: discardedExpanded ? "chevron.down" : "chevron.right")
+                        .font(AppTypography.cardMeta)
+                        .foregroundStyle(.secondary)
+                    Image(systemName: "trash")
+                        .font(AppTypography.cardMeta)
+                        .foregroundStyle(.secondary)
+                    Text("Discarded")
+                        .font(AppTypography.cardTitle)
+                    Text("\(discardedRecords.count)")
+                        .font(AppTypography.badge)
+                        .foregroundStyle(.secondary)
+                        .padding(.horizontal, 6)
+                        .padding(.vertical, 2)
+                        .glassEffect(.regular, in: .capsule)
+                    Spacer()
+                }
+                .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                if !discardedExpanded {
+                    Text("Records you ruled out — hidden from the clusters above and never re-proposed by future runs. Expand to restore one discarded in error.")
+                        .font(AppTypography.cardMeta)
+                        .foregroundStyle(.tertiary)
+                }
+                if discardedExpanded {
+                    ForEach(discardedRecords, id: \.id) { scored in
+                        discardedRow(scored)
+                    }
                 }
             }
+            .padding(14)
+            .glassEffect(.regular, in: .rect(cornerRadius: 14))
         }
-        .padding(14)
-        .glassEffect(.regular, in: .rect(cornerRadius: 14))
     }
 
     private func discardedRow(_ scored: ScoredRecord) -> some View {
