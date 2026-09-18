@@ -1518,44 +1518,6 @@ final class ResearchViewModel {
         !acceptedClusters.isEmpty
     }
 
-    // MARK: - Apply Results
-
-    /// Apply accepted clusters to the tree.
-    /// Returns the fields that were updated.
-    func applyAccepted(to appState: AppState) -> Int {
-        guard let profile = selectedProfile else { return 0 }
-        guard appState.currentDatabase != nil else { return 0 }
-
-        isApplying = true
-        applyMessage = "Applying research results..."
-        var fieldsUpdated = 0
-
-        for cluster in acceptedClusters {
-            for scored in cluster.records where scored.verdict == .fact {
-                switch scored.record {
-                // EV30 (2026-08-26) — no `?? r.district` here either: a
-                // registration district is not a place, and a counter that
-                // disagrees with `absorptionPlan` is exactly the drift the
-                // single declarative plan exists to prevent.
-                case .birth(let r):
-                    if profile.birthDate == nil, r.birthYear != nil { fieldsUpdated += 1 }
-                    if profile.birthLocation == nil, r.birthPlace != nil { fieldsUpdated += 1 }
-                case .death(let r):
-                    if profile.deathDate == nil, r.deathYear != nil { fieldsUpdated += 1 }
-                    if profile.deathLocation == nil, r.deathPlace != nil { fieldsUpdated += 1 }
-                case .marriage:
-                    fieldsUpdated += 1
-                default:
-                    break
-                }
-            }
-        }
-
-        isApplying = false
-        applyMessage = nil
-        return fieldsUpdated
-    }
-
     /// Re-run the current research session at a different scope.
     /// Used by the No-Candidates empty-state "Search nationally" button —
     /// keeps the same profile + mode but widens the scope.

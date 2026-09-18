@@ -425,10 +425,22 @@ struct PendingFactsReviewView: View {
         // their payload (marriage facts have no profile column; the generic
         // path would silently no-op) and resolve both sides' lead rows.
         if finding.finding.agentID == CorroborationSweep.agentID {
-            _ = try? db.applyCorroborationFact(
-                field: finding.finding.field,
-                payloadJSON: finding.finding.payloadJSON
-            )
+            // Same rule as the branch below — and `applyCorroborationFact`
+            // signals failure twice over: it throws, and it returns false
+            // when the payload won't decode or names a field it doesn't
+            // handle. Neither may be swallowed.
+            do {
+                guard try db.applyCorroborationFact(
+                    field: finding.finding.field,
+                    payloadJSON: finding.finding.payloadJSON
+                ) else {
+                    appState.errorMessage = "Could not apply this corroboration to the marriage edge: the stored payload is unreadable, or names a field the apply path does not handle."
+                    return false
+                }
+            } catch {
+                appState.errorMessage = error.localizedDescription
+                return false
+            }
         } else {
             // NOT `try?`. A field the accept path cannot land now throws, and
             // swallowing it would reproduce exactly the defect the throw was

@@ -90,7 +90,6 @@ struct AddHunchView: View {
         .frame(minWidth: 520, minHeight: 560)
         .onAppear {
             model.database = appState.currentDatabase
-            model.snapshot = appState.snapshot
         }
     }
 

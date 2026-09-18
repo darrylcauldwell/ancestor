@@ -154,7 +154,6 @@ struct UserHunchesView: View {
 
     private func reload() {
         model.database = appState.currentDatabase
-        model.snapshot = appState.snapshot
         if let subjectID {
             model.load(profileID: subjectID)
         } else {

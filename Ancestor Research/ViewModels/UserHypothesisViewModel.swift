@@ -29,12 +29,6 @@ final class UserHypothesisViewModel {
     /// operations become inert no-ops, never crashes.
     var database: ProjectDatabase?
 
-    /// Family graph, needed only so the submit path's downstream
-    /// materialisation (watcher) and the intake contradiction check see
-    /// current tree state. The VM itself doesn't read it — passed for
-    /// symmetry with the rest of AppState.
-    var snapshot: FamilyGraphSnapshot = .empty
-
     /// User-seeded hunches for the most recently loaded profile, already
     /// sorted for the surface: `.contradicted` first (the user
     /// asked a question; a refutation must not be buried), then

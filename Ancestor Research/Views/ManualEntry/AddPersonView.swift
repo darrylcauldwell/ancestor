@@ -323,12 +323,15 @@ struct AddPersonView: View {
         dismiss()
     }
 
-    /// Profile fields that received a `field_sources` row during addProfile —
-    /// mirrors `ProjectDatabase.insertFieldSources` (any non-nil value, including
-    /// empty strings, gets a row). Drives which rows we layer the citation onto.
+    /// Profile fields that received a `field_sources` row during addProfile,
+    /// and so need the citation layered on. `insertFieldSources` writes a row
+    /// for every non-nil value (empty strings included); this list covers the
+    /// subset this form can populate — it never sets nickName or
+    /// mothersMaidenName, so those can't have rows to decorate.
     private func fieldsWithSource(profile: Profile) -> [ProfileField] {
         var fields: [ProfileField] = []
         if profile.firstName != nil { fields.append(.firstName) }
+        if profile.middleName != nil { fields.append(.middleName) }
         if profile.lastName != nil { fields.append(.lastName) }
         if profile.gender != nil { fields.append(.gender) }
         if profile.birthDate != nil { fields.append(.birthDate) }
