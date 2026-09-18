@@ -53,7 +53,9 @@ nonisolated struct SiblingProposal: Identifiable, Sendable {
 /// Match rule (intentionally strict to keep the result trustworthy):
 ///   • Same surname as subject's birth record
 ///   • Same mother's maiden name (the BMD index's biological-mother key)
-///   • Same registration district
+///   • Same county (the orchestrator's deficit query fans out across the
+///     districts of the subject's Chapman code, so district is deliberately
+///     NOT re-checked here — cross-district siblings are real)
 ///   • |birthYear - subject.birthYear| ≤ 20  (typical fertility span)
 ///   • Not the subject themselves (record id mismatch)
 ///   • Not already a known child of the parents in the snapshot
@@ -104,21 +106,18 @@ nonisolated enum SiblingInferenceEngine {
             return []
         }
 
-        // Profile ids of children of EITHER parent in the snapshot —
+        // Birth years of children of EITHER parent in the snapshot —
         // candidates whose record we've already accepted should not be
-        // re-proposed. We can't match by record id directly (the linked
-        // child's id is the ghost profile, not the BMD record), so we
-        // match by (year, district) within ±1 year tolerance.
-        let knownChildSignatures: Set<String> = {
+        // re-proposed. We can't match by record id (the linked child's id is
+        // the ghost profile, not the BMD record), and a BMD birth index entry
+        // carries no birthplace, so the year is the only key both sides have.
+        // Exact year, no tolerance: a ±1 window would swallow genuine siblings
+        // born in adjacent years, which is the common case this engine exists
+        // to find.
+        let knownChildBirthYears: Set<Int> = {
             let children = snapshot.childrenOf(knownFatherID)
                 + snapshot.childrenOf(knownMotherID)
-            var seen: Set<String> = []
-            for child in children {
-                if let year = child.birthDate?.earliest {
-                    seen.insert("\(year)|\(child.birthLocation ?? "")")
-                }
-            }
-            return seen
+            return Set(children.compactMap { $0.birthDate?.earliest })
         }()
 
         var results: [SiblingProposal] = []
@@ -150,11 +149,11 @@ nonisolated enum SiblingInferenceEngine {
             guard let recordYear = birth.birthYear else { continue }
             guard abs(recordYear - subjectYear) <= maxSiblingAgeGap else { continue }
 
-            // Skip if a child with this rough birth signature is already in
-            // the tree (avoids re-proposing the subject and any siblings
-            // already accepted).
-            let signature = "\(recordYear)|"  // location not on record so partial dedup
-            if knownChildSignatures.contains(signature) { continue }
+            // Skip if a child born this year is already in the tree (avoids
+            // re-proposing the subject and any siblings already accepted).
+            // Coarse: two genuine siblings born in the same year — twins, or a
+            // Jan/Dec pair — collapse to one proposal.
+            if knownChildBirthYears.contains(recordYear) { continue }
 
             let inferredGender: Gender? = {
                 let given = (birth.common.givenName ?? "").trimmingCharacters(in: .whitespaces)
