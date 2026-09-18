@@ -42,8 +42,7 @@ struct ConfidenceBadgeViewTests {
     @Test func ac3_2_matchQualityColorMapping() {
         // The view's match colour is a private computed property; the
         // contract is that it maps confirmed→green / possible→amber / wrong→red.
-        // We assert via the contract documented in — colour vocabulary
-        // locked, must match per-quality.
+        // The colour vocabulary is locked and must differ per quality.
         // (Snapshot tests would assert the rendered pixel; absent that
         // infrastructure, we verify the mapping is well-defined by
         // exhaustively constructing each case and confirming the view
@@ -114,11 +113,10 @@ struct ConfidenceBadgeViewTests {
     // MARK: - AC3.5 — cluster cards adopt the new badge
     //
     // Verified by inspection at the call site (ClusterReviewView.clusterCard
-    // line ~136 instantiates ConfidenceBadgeView using
-    // cluster.evidenceConfidence(sourceInfoMap:)). Proposed-relative cards
-    // (line ~875) still use legacy confidenceBadge — Change 4 migrates them.
-    // This test verifies the helper still exists for the legacy call site
-    // so the build doesn't break before Change 4 lands.
+    // instantiates ConfidenceBadgeView using
+    // cluster.evidenceConfidence(sourceInfoMap:)). The legacy
+    // `confidenceBadge(_:)` helper is gone — proposed-relative cards were
+    // migrated to the same badge, so there is no legacy call site left.
 
     @Test func ac3_5_clusterCardsUseNewBadge() {
         // Verified by inspection at ClusterReviewView.clusterCard — instantiates

@@ -192,7 +192,7 @@ struct PlaceAuthorityRegistryTests {
     // The parish lists were scraped from UKBMD's HTML and kept the entities:
     // 685 distinct parish names carry a literal "&amp;". Nothing on the
     // resolution path unescaped, while the RECORD side does
-    // (FreeCenSource.swift:847) — so a census district could never match a
+    // (`FreeCenSource.stripHTML`) — so a census district could never match a
     // catalogue parish containing an ampersand. "Wensley & Snitterton" ships
     // under DBY/Bakewell and DBY/Matlock and was unreachable.
 

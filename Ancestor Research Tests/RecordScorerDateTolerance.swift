@@ -3,10 +3,11 @@ import Foundation
 @testable import Ancestor_Research
 
 /// Pins the per-record-type date tolerance contract introduced when we
-/// noticed the previous single `birthYearTolerance = 2` constant was both
-/// too loose for civil birth registrations (a real Q4-born baby registered
-/// Q1 next year is ±1, not ±2) and far too tight for 19th-century census
-/// records (where age misreporting routinely produces ±3–5 year drift).
+/// noticed a single `birthYearTolerance = 2` constant could not serve every
+/// record type: it is far too tight for 19th-century census records, where age
+/// misreporting routinely produces ±3–5 years' drift. `tolerance(for:)` now
+/// varies by type — birth and probate/burial 2, census and baptism 5, parish 3,
+/// death/military/marriage 1, pedigree 0.
 ///
 /// Per-type values live in `ScoringRules.tolerance(for:)`. These tests
 /// pin the bands the scorer's date gate now applies, with both pass and

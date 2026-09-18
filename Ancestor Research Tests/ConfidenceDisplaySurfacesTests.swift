@@ -62,7 +62,8 @@ struct ConfidenceDisplaySurfacesTests {
 
     // MARK: - AC4.3 — No view in Views/ uses ClusterConfidence directly
     //
-    // This is enforced by a build-time grep gate. The legacy
+    // Enforced by the runtime test below, which walks the Views/ sources and
+    // fails on a direct use — there is no build-time gate. The legacy
     // `confidenceBadge(_:ClusterConfidence)` helper was removed in Change 4;
     // BulkReviewView's friction-tier routing now reads RecordVerdict on the
     // cluster's records, not cluster.confidence. The grep test below would
@@ -96,8 +97,9 @@ struct ConfidenceDisplaySurfacesTests {
 
     @Test func bulkRoutingClassifiesImpossibleVerdictAsConflict() {
         // The routing inputs were migrated to use RecordVerdict directly.
-        // We verify the new behaviour: a cluster with an .impossible record
-        // routes to .conflict (was: cluster.confidence == .ambiguous).
+        // This asserts the INPUT that routing now keys on — a cluster holding
+        // an .impossible record — not the routing call itself, which this test
+        // does not exercise.
         let cluster = makeCluster(verdicts: [.fact, .impossible])
         let hasImpossible = cluster.records.contains { $0.verdict == .impossible }
         #expect(hasImpossible)

@@ -2,8 +2,8 @@ import Testing
 import Foundation
 @testable import Ancestor_Research
 
-/// Pins the stable-record-ID behaviour for FreeREG and Wirksworth
-/// (connector-audit FT-16).
+/// Pins the stable-record-ID behaviour for FreeREG (connector-audit FT-16).
+/// The Wirksworth source this also covered has since been retired.
 ///
 /// Both connectors previously built record IDs from `String.hashValue`
 /// (`"freereg_\(name.hashValue)_\(date.hashValue)"` and

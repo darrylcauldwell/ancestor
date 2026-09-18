@@ -7,7 +7,7 @@ import AncestorKit
 /// district names against the REAL bundled catalogue.
 ///
 /// `PlaceResolver.resolveDistrict` only matches nodes whose kind is
-/// `.registrationDistrict` (`PlaceAuthority+Resolution.swift:162`), but a census
+/// `.registrationDistrict` (`PlaceAuthority+Resolution` in AncestorKit), but a census
 /// prints the civil parish in its district column. So a name the catalogue
 /// genuinely contained could never resolve, and the gate answered
 /// "unknown district".
@@ -17,7 +17,7 @@ import AncestorKit
 /// catalogue that ships it as `Wensley &amp; Snitterton` under DBY/Bakewell
 /// (from 1839) and DBY/Matlock (to 1838). Two defects stacked: the parish list
 /// kept its scraped HTML entities while the record side unescapes
-/// (`FreeCenSource.swift:847`), and the gate never consulted the parish tier.
+/// (`FreeCenSource.stripHTML`), and the gate never consulted the parish tier.
 ///
 /// These tests run against the SHIPPED data deliberately — the synthetic-seed
 /// derivation is covered in `PlaceAuthorityRegistryTests`; what is proved here

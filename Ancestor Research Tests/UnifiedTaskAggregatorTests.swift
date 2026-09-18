@@ -203,7 +203,9 @@ struct UnifiedTaskAggregatorTests {
     // MARK: - Leads are NOT tasks (owner decision 2026-07-17)
 
     @Test func aggregatorHasNoLeadStream() {
-        // Leads live only in Triage (Findings + Possible People). The
+        // Leads live on the person's profile card, not in Tasks — the Triage
+        // tab and Possible People panel that once held them were both retired.
+        // The
         // aggregator takes no leads input and TaskCategory has no lead case —
         // this pins the taxonomy so a regression re-adding lead rows to Tasks
         // fails here first.

@@ -6,7 +6,7 @@ import Foundation
 @MainActor
 struct ResearchScopeHierarchyTests {
 
-    // MARK: - AC3.1 — enum has 5 cases in widening order
+    // MARK: - AC3.1 — enum has 6 cases in widening order
 
     @Test func ac3_1_sixCasesInWideningOrder() {
         let all: [ResearchScope] = [.parish, .district, .county, .adjacent, .national, .international]
@@ -114,9 +114,10 @@ struct ResearchScopeHierarchyTests {
 
     // MARK: - AC3.4 — nil-birthLocationCode subjects fall through to county
     //
-    // The dispatcher uses subject.homeChapmanCode as the lookup; subject's
-    // location-code carrying is in prior spec's Change 2, not yet shipped.
-    // For now any subject is effectively "no parish data", so .parish and
+    // The dispatcher uses subject.homeChapmanCode as the lookup.
+    // `Profile.birthLocationCode` has since shipped and is the first tier of
+    // that derivation, so a subject with no code is the fallback case this
+    // test pins, not the only case. With no code, .parish and
     // .district paths must produce the same query set as .county for
     // parish/district-supporting sources.
 

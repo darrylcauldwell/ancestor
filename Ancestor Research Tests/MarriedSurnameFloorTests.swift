@@ -6,7 +6,7 @@ import AncestorKit
 /// The married-surname temporal bound had no floor from the children.
 ///
 /// DS-18 gates the married-surname axis on `recordYear >= marriedSurnameEffectiveFrom`
-/// (`RecordScorer.swift:494-499`) — right, and it stops an 1891 census "Mary E
+/// (in `RecordScorer.checkName`) — right, and it stops an 1891 census "Mary E
 /// HOLMES" matching a woman who became Holmes by a 1915 marriage. But the bound
 /// came from `marriageAliveYears.min()` alone: the RECORDED marriage date, and
 /// nothing else, even though `childAliveYears` was being computed four lines

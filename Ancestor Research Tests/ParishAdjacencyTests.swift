@@ -34,9 +34,9 @@ struct ParishAdjacencyTests {
         // Bolehill IS a Derbyshire hamlet (near Wirksworth — Ida Louisa
         // Land grew up there) but isn't yet in the RegionConfig parish
         // catalogue. This test pins the gap so we know what catalogue
-        // entries to add when we curate the next batch. When Bolehill
-        // is added to RegionConfig.swift's Wirksworth-district list,
-        // flip the assertion to expect true.
+        // entries to add when we curate the next batch. Wirksworth is a
+        // PARISH in RegionConfig's Bakewell-district list, not a district of
+        // its own — when Bolehill joins that list, flip this to expect true.
         #expect(!ScoringRules.isLocalParish("Bolehill", forHomeChapman: "DBY"),
                 "Bolehill not yet catalogued — flag for region-config curation. Flip when added.")
     }

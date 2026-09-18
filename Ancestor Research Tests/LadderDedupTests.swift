@@ -4,8 +4,8 @@ import Foundation
 
 /// Connector-audit T1-03 (the 2026-07 connector audit): the strictness
 /// ladder re-fires WIRE-IDENTICAL queries at `.loose`/`.variant` for sources
-/// whose outbound request doesn't vary by strictness (FindAGrave, Probate,
-/// Wirksworth). They read `query.strictness` only to label activity-bus
+/// whose outbound request doesn't vary by strictness (FindAGrave, Probate).
+/// They read `query.strictness` only to label activity-bus
 /// events; the HTTP request is byte-identical across tiers.
 ///
 /// The task's question: was T1-03 already incidentally covered by the

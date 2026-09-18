@@ -2,9 +2,8 @@ import Testing
 import Foundation
 @testable import Ancestor_Research
 
-/// Tests for the geography gate's BMD-record place-fallback chain
-/// (RecordScorer.swift:487-507). Mirrors the Python reference in
-/// `agent/scorer.py:273-281` — when a record carries no UK
+/// Tests for the geography gate's BMD-record place-fallback chain in
+/// `RecordScorer.checkGeography` — when a record carries no UK
 /// registration district, the gate should consult the typed
 /// place fields (`birthPlace`, `deathPlace`, `marriagePlace`) before
 /// falling through to "no location data".
