@@ -4,10 +4,13 @@ import SwiftUI
 /// credible backing (no source / estimate-only / manual-only) so the user
 /// can prioritise citation work before generating a research report.
 ///
-/// Three sections, each collapsible:
-///   - Unsourced     — the field has no FieldSource at all
-///   - Estimate only — every source has origin == .manualEstimate
-///   - Manual only   — every source is one of manual.* (no external corroboration)
+/// Four sections:
+///   - Unsourced     — the field has no FieldSource at all      (collapsible)
+///   - Estimate only — every source has origin == .manualEstimate (collapsible)
+///   - Manual only   — every source is one of manual.* (no external
+///                     corroboration)                            (collapsible)
+///   - Evidence verdicts — per-field evidence-chain verdicts
+///                     (SOURCE_WEIGHTING Change 8)
 ///
 /// Each row exposes "Add citation" which opens EditPersonView for that profile.
 struct SourcingIntegrityView: View {

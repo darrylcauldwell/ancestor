@@ -5,7 +5,7 @@ import AncestorKit
 ///
 /// Owner ruling (2026-08-25): red must never sit below amber, and quick wins
 /// are "a factor likely equal to red hard-to-fix issues". The ladder answers
-/// both without a blended score: one lexicographic sort on a six-part key.
+/// both without a blended score: one lexicographic sort on a seven-part key.
 /// Every position is explainable by reciting the keys in order —
 ///
 ///   K1  pin        genuine disagreements (correction/conflict disputes)

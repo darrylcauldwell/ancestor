@@ -10,8 +10,9 @@ struct ResearchConfigSheet: View {
     let snapshot: FamilyGraphSnapshot
     /// Optional pre-selected focus from the caller — set when the user
     /// triggered the sheet from a per-gap "Research parents / siblings /
-    /// …" button. The mode default flips to `.discover` when focus is
-    /// non-nil. See Research pipeline.
+    /// …" button. Seeds the SCOPE picker only — the run's mode is
+    /// `.adaptive`, or `.all` when the exhaustive toggle is on, regardless
+    /// of focus.
     let focus: ResearchFocus?
     /// Project-level home-county fallback (the last step of the
     /// derivation chain) — needed to tell whether this subject has ANY
@@ -81,9 +82,10 @@ struct ResearchConfigSheet: View {
             VStack(alignment: .leading, spacing: 8) {
                 Text("Scope")
                     .font(.headline)
-                // 5-option hierarchy: parish → district → county → adjacent
-                // → national. Menu style keeps the sheet width manageable
-                // (segmented would be too wide for 5 options at 420pt).
+                // 6-option hierarchy: parish → district → county →
+                // adjacent → national → international. Menu style keeps the
+                // sheet width manageable (segmented would be far too wide at
+                // 420pt).
                 Picker("Scope", selection: $scope) {
                     Text("Parish").tag(ResearchScope.parish)
                     Text("District").tag(ResearchScope.district)

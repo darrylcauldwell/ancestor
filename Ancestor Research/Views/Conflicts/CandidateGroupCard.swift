@@ -1,11 +1,12 @@
 import SwiftUI
 import AncestorKit
 
-/// Conflict layer ⟨G5⟩ — the choose-one candidate card. All rivals in
-/// one `candidateGroupID` render as a SINGLE card with radio selection and
-/// exactly ONE action control; accepting marks every rival `.contradicted`
-/// in the same user action (the atomic core shipped with CL5/CL6 — this is
-/// its surface).
+/// Conflict layer ⟨G5⟩ — the choose-one candidate card. All rivals in one
+/// `candidateGroupID` render as a SINGLE card with radio selection.
+/// Accepting a birth-year or parent-identity candidate marks every rival
+/// `.contradicted` in the same user action (the atomic core shipped with
+/// CL5/CL6 — this is its surface). Death-year accepts do NOT yet contradict
+/// their rivals: see `#CMT8`.
 struct CandidateGroupCard: View {
     @Environment(AppState.self) private var appState
     let group: [ResearchHypothesis]
@@ -82,7 +83,9 @@ struct CandidateGroupCard: View {
                 }
             }
 
-            // ⟨G5⟩ exactly one action control per group.
+            // ⟨G5⟩ one accept control per group, plus "Keep both" for
+            // parent-identity groups — two parents can both be right
+            // (one adoptive), two birth years cannot.
             HStack {
                 Button(isYearGroup ? "Accept selected year" : "Keep selected parent") {
                     acceptSelected()

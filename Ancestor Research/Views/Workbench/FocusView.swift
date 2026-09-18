@@ -1,8 +1,9 @@
 import SwiftUI
 
 /// List of focus sets, with an "active" indicator. Selecting a focus set
-/// makes it active (and bumps its lastActiveAt). Per-row buttons rename
-/// or delete. The Tree's "Focus only" toggle reads from the active set.
+/// makes it active (and bumps its lastActiveAt). A right-click context menu
+/// per row renames, activates or deletes. The Tree's "Focus only" toggle
+/// reads from the active set.
 struct FocusView: View {
     @Environment(AppState.self) private var appState
     @State private var showingComposer: Bool = false

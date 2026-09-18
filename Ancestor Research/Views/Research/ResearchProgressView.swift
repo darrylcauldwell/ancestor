@@ -145,8 +145,8 @@ struct ResearchProgressView: View {
 
     #if DEBUG
     /// Dual-phase soft-deadline clocks visible in dev builds. Iteration
-    /// loop has its own budget (~5 min); prose extraction (Discover/All
-    /// only) has a separate ~20 min budget so the user can tell
+    /// loop has its own budget (~5 min); prose extraction has a separate
+    /// ~20 min budget so the user can tell
     /// at a glance which phase is over time, rather than seeing one
     /// combined clock that's red whenever prose extraction runs.
     @ViewBuilder

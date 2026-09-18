@@ -1,8 +1,9 @@
 import SwiftUI
 
-/// Project-wide notes list with create/edit/delete. Shows the tag, attachment
-/// (clickable in W6), and updated time. New notes default to a `.observation`
-/// tagged note attached to the project.
+/// Project-wide notes list with create/edit/delete. Shows the tag, what the
+/// note is attached to (as plain text — not a link) and the updated time.
+/// New notes default to a `.observation` tagged note attached to the
+/// project.
 struct NotesView: View {
     @Environment(AppState.self) private var appState
     @State private var showingComposer: Bool = false

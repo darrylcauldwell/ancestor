@@ -519,10 +519,9 @@ struct ClusterReviewView: View {
                     Text(cluster.displayName)
                         .font(AppTypography.cardTitle)
                     HStack(spacing: 8) {
-                        // Research confidence Change 3 — cluster
-                        // cards adopt the three-axis badge. Proposed-relative
-                        // cards (line below) keep the legacy tier badge until
-                        // Change 4 migrates them.
+                        // Research confidence — cluster and
+                        // proposed-relative cards both use the three-axis
+                        // badge; the legacy tier badge is gone.
                         ConfidenceBadgeView(
                             confidence: cluster.evidenceConfidence(sourceInfoMap: sourceInfoMap)
                         )
@@ -728,9 +727,6 @@ struct ClusterReviewView: View {
 
     // MARK: - Record Row
 
-    /// IDs of records explicitly collapsed by the user. Default state is expanded
-    /// — full detail visible without a click. The chevron now means "collapse to
-    /// summary" (pointing up) rather than "expand to show detail".
     // Record rows are COLLAPSED by default (compact summary), expanded on tap.
     // Expanded-by-default rendered every record's full detail — scoring gates,
     // record fields, raw fields, citation, absorption preview, several Liquid
@@ -1461,7 +1457,7 @@ struct ClusterReviewView: View {
 
     /// Records the scorer marked `.impossible` — wrong-person hits, dates
     /// outside the subject's lifespan, etc. They're surfaced in their own
-    /// collapsible Triage section so the user can override the scorer when
+    /// collapsible section of this review so the user can override the scorer when
     /// the subject's identity is so sparse that the scorer is being too
     /// strict (e.g. no death date → every burial looks like a wrong match).
     private var rejectedRecords: [ScoredRecord] {

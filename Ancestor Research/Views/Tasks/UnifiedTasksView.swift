@@ -25,8 +25,8 @@ import SwiftUI
 // without touching the view or the database.
 
 /// One actionable item in the unified Tasks list. Heterogeneous by design —
-/// the view branches on `category` for the trailing action button, but the
-/// list rendering itself is uniform.
+/// the view branches per case for the trailing action (some cases have
+/// none), but the list rendering itself is uniform.
 nonisolated enum UnifiedTask: Identifiable {
     case auditIssue(AuditResult)
     case gap(profileID: String, profileName: String, completeness: ProfileCompleteness)
@@ -625,10 +625,10 @@ struct UnifiedTasksView: View {
 
 // MARK: - Row
 
-/// One row in the Tasks list. Branches on `task.category` for the trailing
-/// action button — promote to question for audit, per-field promote menu
-/// for gaps, "Open" for questions, and a placeholder "Resolve" stub for
-/// tentative facts (no-op for now).
+/// One row in the Tasks list. Branches on `task` for the trailing action:
+/// audit rows get open-to-fix and rule-specific fixes, gap rows a research
+/// launch and per-field promote menu. Open-question and tentative-fact rows
+/// render no trailing action — the row body click is the whole affordance.
 private struct TaskRow: View {
     let task: UnifiedTask
     /// Called after an in-row action mutates the graph (e.g. the placeholder

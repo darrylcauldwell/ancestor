@@ -4,13 +4,14 @@ struct SidebarView: View {
     @Environment(AppState.self) private var appState
     @Binding var selectedTab: SidebarTab
 
-    /// By design +: progressive disclosure. The sidebar
-    /// reveals tabs as the project earns them — Workbench on first note,
-    /// Tasks once a manual project crosses the 5-profile threshold (always
-    /// visible for imported projects), Sourcing once any citation exists.
-    /// Tree, Health, Workbench and Settings are always shown — the Workbench
-    /// carries the Attention router now the Research/Triage tabs are retired
-    /// (SC-9; review happens on profile cards).
+    /// By design: progressive disclosure. The sidebar reveals tabs as the
+    /// project earns them — Tasks once a manual project crosses the
+    /// 5-profile threshold (always visible for imported projects), Places
+    /// and Sourcing on their own conditions. Tree, Health, Workbench and
+    /// Settings are always shown: the Workbench carries the Attention
+    /// router now the Research/Triage tabs are retired (SC-9; review
+    /// happens on profile cards), so it can no longer be gated behind a
+    /// first note.
     private var visibleTabs: [SidebarTab] {
         SidebarTab.allCases.filter { tab in
             switch tab {

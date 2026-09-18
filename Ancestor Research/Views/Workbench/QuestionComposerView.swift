@@ -1,8 +1,9 @@
 import SwiftUI
 
 /// Sheet for creating or editing a question. Supports priority, status,
-/// related profiles (typed in by id for now — full picker comes with W3),
-/// tried sources, and resolution notes when status is .resolved.
+/// tried sources, and resolution notes when status is .resolved. Related
+/// profiles are shown and can be removed, but there is no way to add one
+/// here — they arrive with the question being edited.
 struct QuestionComposerView: View {
     @Environment(AppState.self) private var appState
     @Environment(\.dismiss) private var dismiss

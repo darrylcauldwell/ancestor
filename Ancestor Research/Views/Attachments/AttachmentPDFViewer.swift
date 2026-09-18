@@ -53,8 +53,8 @@ struct AttachmentPDFViewer: View {
     }
 }
 
-/// Bridges `PDFView` (AppKit) into SwiftUI. Uses `.scaleFactorForSizeToFit`
-/// so the document fills the sheet on first present.
+/// Bridges `PDFView` (AppKit) into SwiftUI. `autoScales` keeps the document
+/// fitted to the sheet, including across resizes.
 private struct PDFKitRepresentedView: NSViewRepresentable {
     let url: URL
 

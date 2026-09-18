@@ -3,8 +3,9 @@ import SwiftUI
 /// The per-rule one-click fix for an audit finding — extracted from the
 /// Health screen so the profile card's Health strip offers the SAME fixes
 /// (owner request 2026-07-31: everything actionable visible where the
-/// person is). One switch, two hosts; the closures are the only
-/// host-specific behaviour:
+/// person is). One switch, two hosts. What the host varies —
+/// `lastResearched` and `householdRowYears` shape the row's affordances;
+/// the closures carry the host-specific actions:
 ///  - `onFixed` — refresh the host's finding list after a write.
 ///  - `onCompare` — open the host's compare sheet for duplicate pairs;
 ///    nil (the profile card) falls back to a "Review in Health" jump,

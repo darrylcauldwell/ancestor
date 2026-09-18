@@ -5,8 +5,8 @@ import SwiftUI
 ///
 /// Plain text segments use `Text`; link segments use a small `Button`
 /// styled blue + underlined. When a name resolves uniquely the tap fires
-/// `onLinkTapped` directly. Ambiguous names (multiple matches) open an
-/// alert listing the candidates so the user can pick one. Unknown names
+/// `onLinkTapped` directly. Ambiguous names open a chooser: an alert for
+/// two candidates, a confirmationDialog for three or more. Unknown names
 /// stay visible (still bracketed, dimmed) to flag the dangling reference.
 ///
 /// Presentation-only — never mutates AppState or the database.

@@ -13,7 +13,7 @@ struct CensusFieldsSection: View {
     ///
     /// They used to be one field, and the street went into the life event's
     /// `location`. That put "12 Chapel Street" where the automated absorption
-    /// path puts a parish (`NarrativeAssembler.swift:141` uses `parish ?? district`),
+    /// path puts a parish (`NarrativeAssembler` coalesces `parish ?? district`),
     /// so hand-entered census events and applied ones disagreed about what
     /// `location` means — and every hand-entered one arrived uncoded, for the
     /// whole household at once. A picker on the street field would have been the

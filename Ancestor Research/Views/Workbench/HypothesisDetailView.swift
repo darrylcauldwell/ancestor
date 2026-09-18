@@ -2,7 +2,7 @@ import SwiftUI
 
 /// Full hypothesis detail with editable confidence and reasoning, an
 /// add/remove evidence list, and the action footer (promote, dismiss,
-/// supersede, delete). Promote routes to AppState.promoteHypothesis;
+/// delete). Promote routes to AppState.promoteHypothesis;
 /// dismiss prompts for a reason then writes it to the record.
 struct HypothesisDetailView: View {
     @Environment(AppState.self) private var appState

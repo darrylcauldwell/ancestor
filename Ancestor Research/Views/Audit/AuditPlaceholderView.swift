@@ -329,10 +329,6 @@ struct HealthView: View {
         openDisputeCount = try? appState.currentDatabase?.openDisputeCount()
     }
 
-    /// Promote an audit issue to an OpenQuestion. The question text mirrors
-    /// the audit message; provenance is recorded via QuestionOrigin.fromAudit
-    /// so the workbench can surface where the question came from. Maps audit
-    /// severity to question priority (error → high, warning → medium, info → low).
     // MARK: - Duplicate grouping
 
     enum HealthRow: Identifiable {
@@ -1231,11 +1227,8 @@ struct HealthView: View {
         }
     }
 
-    /// One chip per distinct rule present, with counts, so the list can be
-    /// narrowed to a single issue type (e.g. married-surname-missing) — the
-    /// per-issue-type filtering that used to live in Tasks.
-    /// Worst severity per rule id, for tinting the filter chips (error > warning
-    /// > info). Plain (non-ViewBuilder) so the loop is legal.
+    /// Worst severity per rule id, for tinting the filter chips (error >
+    /// warning > info). Plain (non-ViewBuilder) so the loop is legal.
     private var worstSeverityByRule: [String: Severity] {
         var out: [String: Severity] = [:]
         for r in auditVM.filteredResults {
@@ -1480,6 +1473,10 @@ struct HealthView: View {
         return Int(message[range].prefix(4))
     }
 
+    /// Promote an audit issue to an OpenQuestion. The question text mirrors
+    /// the audit message; provenance is recorded via QuestionOrigin.fromAudit
+    /// so the workbench can surface where the question came from. Maps audit
+    /// severity to question priority (error → high, warning → medium, info → low).
     private func promoteToQuestion(_ result: AuditResult) {
         let priority: QuestionPriority = switch result.severity {
         case .error: .high

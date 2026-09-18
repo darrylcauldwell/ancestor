@@ -1,10 +1,10 @@
 import SwiftUI
 
 /// Tree-overlay banner shown when the family graph has multiple connected
-/// components. Offers a "Connect them?" call-to-action that opens the
-/// AddRelationship sheet pre-populated with anchors from the two largest
-/// components, plus a dismiss button to suppress the banner for the rest of
-/// the session.
+/// components. Offers a "Connect them?" call-to-action that opens a picker
+/// of the separate groups so the user chooses which island to connect — the
+/// app never guesses an anchor — plus a dismiss button to suppress the
+/// banner for the rest of the session.
 struct DisconnectedBannerView: View {
     let componentCount: Int
     /// Whether a connection suggestion is available (i.e. there are two or

@@ -4,9 +4,10 @@ import SwiftUI
 /// a `NarrativeDocument` produced by `NarrativeComposer.compose(...)` and
 /// renders the prose paragraphs followed by a footnotes section.
 ///
-/// The view is sized to fill a `PaperSize` by `PDFRenderer`. Overflow is
-/// clipped — true pagination is deferred to a future polish pass per
-/// the M10 brief.
+/// The view is sized to fill a `PaperSize` by `PDFRenderer` and renders ONE
+/// page. `NarrativeReport` splits a long document into paragraph chunks and
+/// renders a page per chunk, repeating the header; overflow within a single
+/// page is still clipped.
 @MainActor
 struct NarrativeReportPage: View {
     let document: NarrativeDocument

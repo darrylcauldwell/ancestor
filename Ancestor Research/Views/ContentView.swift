@@ -273,9 +273,8 @@ struct MainView: View {
             appState.researchConfigProfile = profile
         }
         .onChange(of: appState.requestSidebarTab) { _, requested in
-            // Cross-view tab navigation — e.g. the profile panel's
-            // pending-facts badge hands the user to Triage. One-shot:
-            // consume and clear.
+            // Cross-view tab navigation — e.g. a record-review "show on
+            // tree" action. One-shot: consume and clear.
             guard let requested else { return }
             appState.requestSidebarTab = nil
             selectedTab = requested

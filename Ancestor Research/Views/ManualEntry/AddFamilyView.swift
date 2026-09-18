@@ -328,8 +328,8 @@ struct AddFamilyView: View {
 
         appState.addFamily(profiles: profiles, relationships: relationships, source: effectiveSource)
 
-        // Attach a `.census` LifeEvent for each profile that the user
-        // populated with a year + address. Age and occupation are
+        // Attach a `.census` LifeEvent for each profile, given a year plus
+        // either a place or a street address. Age and occupation are
         // optional; we still create the event without them so the
         // appearance-on-the-record fact is captured.
         if transcribingCensus {
