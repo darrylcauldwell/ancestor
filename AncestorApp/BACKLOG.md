@@ -66,6 +66,12 @@ and get `@Generable` guided decoding, tool calling and streaming while staying o
 | `#MS1` | Settle whether app work runs on the main thread during a research run. Before 2026-09-18, `RecordSource.search` and `HTTPClient.get` were inferred `@MainActor` (the properties were all explicitly `nonisolated`, the async methods were not), so calls may have hopped to main. Also covers the open `runrequestwatcher` SQLite-writes-on-main item | `sample <pid>` during a run that triggers the marriage fan-out (`async let groomSide`/`brideSide`) shows the main thread idle or in AttributeGraph, not in URLSession completion, HTML parsing or GRDB frames |
 | `#MS2` | The glass changes are verified in the running app, not just compiled | A Triage screen showing a cluster with a "Possible duplicate" or "Conflicts with tree" badge renders the badge group correctly, and the two collapsed bins ("Scorer rejected", "Discarded") show their count pill distinct from the card behind it |
 
+## WT — stale workflow worktrees
+
+| ID | Outcome | Acceptance test |
+|---|---|---|
+| `#WT1` | The four `.claude/worktrees/wf_53b1eec3-032-*` worktrees (1.4GB) are salvaged or removed, deliberately. All four are 0 commits ahead of main but carry **uncommitted** edits (2/2/6/2 files) — `MCPServer.swift` + a new `GetScoredRecordsTests.swift`, `FamilySearchSource.swift`, `QueryCache.swift`/`SearchDispatcher.swift`, `RecordTypes.swift`. They are based on `3251abc`, so diffing them against today's main measures main's divergence rather than unique work; the real comparison is each worktree's own `git diff` against `3251abc`, then asking whether that change already exists on main | Every dirty file is confirmed redundant or its change is committed to main, then `git worktree remove` for each and the 1.4GB is gone |
+
 ## CFG — build configuration
 
 | ID | Outcome | Acceptance test |
