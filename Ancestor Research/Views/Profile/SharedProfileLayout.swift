@@ -428,8 +428,8 @@ struct SharedProfileLayout: View {
     @Environment(\.accessibilityDifferentiateWithoutColor) private var differentiateWithoutColor
 
     @State private var showingNoteComposer: Bool = false
-    /// SC-1 — pending-facts review presents right here on the card instead
-    /// of deep-linking to the Triage tab (which is being retired).
+    /// Pending-facts review presents right here on the card. There is no
+    /// Triage tab to deep-link to — the card is the review surface.
     @State private var showingPendingReview: Bool = false
     @State private var editingNote: WorkbenchNote?
     @State private var showingLifeEventEditor: Bool = false

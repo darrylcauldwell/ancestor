@@ -19,9 +19,9 @@ import AncestorKit
 /// Consumers ask "places of kind X covering year Y" instead of reading a bespoke
 /// field.
 ///
-/// **Slice 2 populates this and nothing reads it.** Behaviour change is zero by
-/// construction. Readers move one at a time in Slice 3, each proving the
-/// characterization tests still pass, with the replay diff over the corpus as
+/// Read by `ConflictDetector`, `ResearchSubject` and the FamilySearch GEDCOM X
+/// mapper. Readers were migrated one at a time, each proving the
+/// characterization tests still passed, with the replay diff over the corpus as
 /// the gate.
 nonisolated struct PlaceRef: Sendable, Equatable, Hashable {
 

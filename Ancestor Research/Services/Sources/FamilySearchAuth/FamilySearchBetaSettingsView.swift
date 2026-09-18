@@ -3,9 +3,8 @@ import SwiftUI
 /// Settings surface for the FamilySearch OAuth session (Beta). Replaces the
 /// retired cookie sign-in. This is the live-handshake UX for the FS pivot
 /// (owner 2026-07-21): set the confidential Beta AppKey, sign in through the
-/// browser + loopback OAuth flow, and verify the token reaches the API. Once
-/// this passes on Beta, the enrichment / Tree-API integration builds on the
-/// same OAuth foundation.
+/// browser + loopback OAuth flow, and verify the token reaches the API. The
+/// enrichment and Tree-API integration build on this same OAuth foundation.
 ///
 /// Developer Program Level = non-production / Beta only, so the environment is
 /// fixed to `.beta` here.

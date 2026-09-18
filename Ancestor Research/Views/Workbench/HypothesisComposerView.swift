@@ -8,8 +8,8 @@ struct HypothesisComposerView: View {
     @Environment(AppState.self) private var appState
     @Environment(\.dismiss) private var dismiss
 
-    /// Currently only `nil` is meaningful — composer is create-only.
-    /// (Edit goes through `HypothesisDetailView`.)
+    /// Always `nil` in practice — the composer is create-only and nothing in
+    /// this view reads it. Editing goes through `HypothesisDetailView`.
     let initial: Hypothesis?
 
     @State private var kind: HypothesisClaim.Kind = .relationship

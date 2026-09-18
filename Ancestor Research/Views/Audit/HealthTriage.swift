@@ -89,7 +89,8 @@ enum HealthTriage {
     /// of network calls at a volunteer source. `hasDatabase` (the
     /// `appState.currentDatabase` guard that button sits behind) stays in the
     /// signature for the callers' sake and for any future DB-gated LOCAL
-    /// one-click; nothing currently reads it.
+    /// one-click. No branch below reads it — if you add one that does, this
+    /// sentence is the thing to delete.
     static func isOneClickFinding(
         _ r: AuditResult, snapshot: FamilyGraphSnapshot, hasDatabase: Bool
     ) -> Bool {

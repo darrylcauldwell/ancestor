@@ -166,8 +166,8 @@ struct ScoreReplayTests {
     /// copy of the subject — no given name, no birth window, family surname —
     /// to sweep for infant deaths in a birth gap. The replay rebuilds one
     /// subject per profile and cannot reconstruct that, so those rows compare
-    /// different inputs. On the owner's project they were 46% of the apparent
-    /// drift; quoting them as "the store disagrees with the rules" is wrong.
+    /// different inputs. They were a large share of the apparent drift when
+    /// measured; quoting them as "the store disagrees with the rules" is wrong.
     private func probeRow(_ recordID: String) -> EvidenceRecord {
         let record = SourceRecord.death(DeathRecord(
             common: RecordCommon(id: recordID, sourceID: "freebmd", name: nil,

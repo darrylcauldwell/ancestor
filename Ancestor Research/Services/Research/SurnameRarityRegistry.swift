@@ -22,8 +22,9 @@ nonisolated enum SurnameRarity: String, Sendable, Equatable, Codable {
     case uncommon
     /// Reserved for future use — a manually-curated set of explicitly
     /// rare surnames (e.g. Wheatman, rank 24,000+) where a single
-    /// matching source carries near-confirmed weight. Not populated in
-    /// MVP; the engine treats `.rare` and `.uncommon` identically for now.
+    /// matching source would carry near-confirmed weight. Nothing populates
+    /// this tier and no branch distinguishes it from `.uncommon`, so adding a
+    /// surname here changes nothing until a consumer reads it.
     case rare
 }
 

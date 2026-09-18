@@ -3,9 +3,9 @@ import AncestorKit
 
 /// SC-2 — this profile's lead queue, reviewed IN CONTEXT on the card.
 ///
-/// The consolidation ruling (owner, 2026-08-24): per-profile is the review
-/// surface; the global Triage tab is being retired. This block gives every
-/// lead action Triage had — contextual Add (including the #37
+/// The consolidation ruling (owner, 2026-08-24): per-profile is THE review
+/// surface; the global Triage tab was retired. This block gives every lead
+/// action Triage had — contextual Add (including the #37
 /// child-of-shared-parents promotion), Research, Dismiss/Restore, the
 /// contradicted fold — scoped to one person, with no watermark: the queue
 /// is the truth, a row leaves when acted on.

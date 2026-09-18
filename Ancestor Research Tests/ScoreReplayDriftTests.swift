@@ -5,8 +5,9 @@ import AncestorKit
 
 /// Store-vs-rules drift analysis.
 ///
-/// The Slice 1.5 capture reported 12,875 of 31,481 stored records re-scoring
-/// differently than the verdict on disk, 117 of them stored as `fact`. That
+/// A capture on the owner's project showed a large majority of stored records
+/// re-scoring differently from the verdict on disk, a minority of them stored
+/// as `fact`. That
 /// number on its own is not a finding — it has at least four possible causes
 /// with completely different consequences, and this suite separates them:
 ///

@@ -317,10 +317,8 @@ nonisolated extension SourceRecord {
         // EV16 (2026-08-26) — the census fan-out shipped without carrying the
         // record's citation onto the derived rows, so the occupation and
         // residence read UNCITED next to the fully-cited `.census` event that
-        // states the identical fact. Observed live on William Gladwin: life
-        // events 8DEBEAC0 ("Sawyer", 1881, Handsworth) and B0A6E31A ("Wood
-        // Sawyer", 1891, Beighton) both held `sources: []`, plus four other
-        // profiles. Same helper as the primary — one household page, one URL.
+        // states the identical fact. Same helper as the primary — one
+        // household page, one URL.
         let sources = censusSource(r)
         var out: [LifeEvent] = []
         if let occupation = r.occupation?.trimmingCharacters(in: .whitespaces), !occupation.isEmpty {

@@ -3,7 +3,8 @@ import Foundation
 @testable import Ancestor_Research
 
 /// EXHAUSTIVE coverage + correctness check over every distinct location string
-/// in the owner's live tree (88 of them, dumped 2026-08-17).
+/// dumped from the owner's live tree — the fixture list below is the dump, and
+/// extending it extends the check.
 ///
 /// Two questions, asked of ALL of them rather than a sample:
 ///   1. Does it resolve to a registration district at all?

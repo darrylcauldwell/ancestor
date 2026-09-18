@@ -98,9 +98,9 @@ public nonisolated enum ConfidenceVocabulary {
     ]
 }
 
-/// Deterministic zero-hallucination gate for model-smoothed text (spec).
-/// Change-1 ships the core checks; smoothing itself arrives with #T9-Change5
-/// — until then the verifier exists so the contract is testable and shared.
+/// Deterministic zero-hallucination gate for model-smoothed text. The core
+/// checks are here and testable independently of any smoother, so the contract
+/// is fixed before a consumer exists rather than after.
 public nonisolated enum GroundedProseVerifier {
 
     public struct Verification: Sendable, Equatable {

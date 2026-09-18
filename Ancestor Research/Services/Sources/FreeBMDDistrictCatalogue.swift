@@ -15,10 +15,10 @@ nonisolated struct FreeBMDDistrict: Codable, Sendable, Hashable {
     let name: String
     let code: String
     /// Chapman code of the historical county this district belongs to.
-    /// 100% coverage as of the 2026-05 enrichment — every catalogue entry
-    /// tagged from UKBMD's per-county and per-district pages, with hand
-    /// overrides for post-1974 administrative-county districts mapped to
-    /// their predominant historical Chapman code.
+    /// Populated for every catalogue entry from UKBMD's per-county and
+    /// per-district pages, with hand overrides mapping post-1974
+    /// administrative-county districts to their predominant historical Chapman
+    /// code. Optional because a re-scrape can introduce an untagged entry.
     let chapmanCode: String?
     let startYear: Int?
     let endYear: Int?

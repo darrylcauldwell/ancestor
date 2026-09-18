@@ -906,7 +906,7 @@ struct SearchDispatcher {
                 // EV19 (2026-08-26) — home PLUS the subject-evidenced counties,
                 // where this branch previously read `homeChapmanCode` alone and
                 // silently discarded everything `counties` had accumulated.
-                // The FT-01 gate is ON in production so no shipped search was
+                // The FT-01 gate defaults ON, so no shipped search was
                 // affected, but leaving it would mean the EV19 repair
                 // evaporates the moment the gate is flipped back — the exact
                 // shape of the 86674fd failure, where the fix and the code the
