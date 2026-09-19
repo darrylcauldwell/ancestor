@@ -123,8 +123,7 @@ struct RecentChangesCollapseTests {
     }
 }
 
-/// DOSSIER_SPEC #T9-Change1 acceptance criterion 6 — the MCP dossier
-/// resource renders the deterministic skeleton from the same rows, with the
+/// The MCP dossier resource renders the deterministic skeleton from the same rows, with the
 /// honesty envelope intact (a truncated search is never an absence claim).
 struct DossierResourceTests {
 

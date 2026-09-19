@@ -3,9 +3,9 @@ import Foundation
 import GRDB
 @testable import FieldResearcherMCP
 
-/// CONFLICT_LAYER_SPEC CL6 (§4.8.5) — the MCP dispute surface:
-/// AC3 (read-only ledger on get_profile + the disputes resource; no
-/// dispute-writing tool exists) and AC4 (§14.3 gate refuses auto-approval
+/// The MCP dispute surface: a read-only ledger on get_profile plus the
+/// disputes resource (no dispute-writing tool exists), and the
+/// auto-approval gate refusing
 /// on open disputes, including structural kinds field_sources
 /// recomputation cannot see).
 struct DisputeSurfaceTests {

@@ -3,7 +3,8 @@ import Foundation
 @testable import AncestorViewerKit
 
 // The bundle is the offline stand-in for the CloudKit zone (same UUIDs,
-// same schema — PUBLISHER_SPEC decision #3), so decoding one through the
+// same schema, deliberately — one contract, two transports), so decoding
+// one through the
 // cache + builder exercises the full viewer pipeline without a network.
 struct BundleDecoderTests {
 

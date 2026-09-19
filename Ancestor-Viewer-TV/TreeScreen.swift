@@ -3,7 +3,8 @@ import AncestorKit
 import AncestorKitUI
 import AncestorViewerKit
 
-/// The living-room tree. Focus-driven per PHASE4_VIEWER_SPEC §5: remote
+/// The living-room tree, focus-driven because a Siri Remote has no
+/// pointer: remote
 /// swipes move the focal person (up = parent, down = child, left/right =
 /// spouse/siblings), the layout re-centres on every move, and the glass
 /// info panel narrates whoever is focal. Select opens the full person

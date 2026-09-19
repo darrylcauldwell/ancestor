@@ -5,12 +5,12 @@ import AncestorViewerKit
 
 /// App-level state for the viewer: account gate → scope probe → fetch →
 /// cached tree. Renders from cache immediately when one exists
-/// (render-before-refresh, PUBLISHER_SPEC §4.3), then refreshes.
+/// (render-before-refresh), then refreshes.
 ///
 /// Scope: the owner's Apple TV finds the tree in the PRIVATE database; a
 /// family member's Apple TV finds it in the SHARED database after they
 /// accept the invite once on iPhone/iPad (tvOS itself has no acceptance
-/// UI — PUBLISHER_SPEC §2). The probe remembers what worked.
+/// UI at all). The probe remembers what worked.
 @Observable
 @MainActor
 final class ViewerModel {

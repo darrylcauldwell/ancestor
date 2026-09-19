@@ -241,7 +241,7 @@ public nonisolated struct FreeREGMarriage: Codable, Sendable, Equatable {
     public var groomMarked: String?
     public var brideMarked: String?
     /// Relatives routinely witness marriages — a collateral-kin signal
-    /// (CONNECTOR_AUDIT FT-21).
+    /// (`#S1-4b`).
     public var witnesses: [FreeREGWitness]
 
     public init(

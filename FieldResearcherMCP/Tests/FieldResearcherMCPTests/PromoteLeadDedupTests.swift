@@ -2,9 +2,8 @@ import Testing
 import Foundation
 @testable import FieldResearcherMCP
 
-/// Unit tests for the dedup decision helper used by `promote_lead`
-/// (ENGINE_FOUNDATION_SPEC #Change3). These cover the pure matching
-/// logic only; the SQL fetch + side-effect path is exercised by the
+/// Unit tests for the dedup decision helper used by `promote_lead`.
+/// These cover the pure matching logic only; the SQL fetch + side-effect path is exercised by the
 /// existing integration setup (out of scope for this test file).
 struct PromoteLeadDedupTests {
 

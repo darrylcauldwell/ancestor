@@ -241,8 +241,9 @@ public nonisolated struct ViewerCitation: Codable, Sendable, Equatable {
 }
 
 /// The schema version this build of the viewer core understands.
-/// A manifest above this renders from cache under an "update the app"
-/// banner (PUBLISHER_SPEC §4.3).
+/// A manifest declaring a HIGHER version still renders, from cache, under
+/// an "update the app" banner — a viewer must never go blank because the
+/// publisher moved ahead of it.
 public nonisolated enum ViewerSchema {
     public static let supportedVersion = 1
 }

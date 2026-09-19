@@ -1003,7 +1003,7 @@ struct SearchDispatcher {
     /// batched requests. Blank codes (an empty home) are dropped first so a
     /// batch never carries an empty repeated key. When the batching gate is
     /// OFF (the safe default until the repeated-key idiom is probed against
-    /// FreeCen's live form — CONNECTOR_AUDIT FT-27), every code is its own
+    /// FreeCen's live form — `#FR4`), every code is its own
     /// single-element group → one code per request, the proven pre-FT-25
     /// wire shape. When ON, codes chunk into `FreeCenParams.batchGroupSize`
     /// groups. nonisolated + static so ResearchScopeHierarchyTests can pin

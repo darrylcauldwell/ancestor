@@ -7,8 +7,6 @@ import Foundation
 /// integration tests for those land in a follow-up. These cover the
 /// regex / parsing / comparison logic that's most prone to silently
 /// going wrong.
-///
-/// Reference: AncestorApp/AUTO_APPROVAL_VIA_MCP_SPEC.md.
 struct AutoApprovalHelpersTests {
 
     // MARK: extractYear
@@ -214,7 +212,7 @@ struct AutoApprovalHelpersTests {
         #expect(!MCPHandler.trustedHosts.contains("randomblog.example.com"))
     }
 
-    // MARK: - §14.3.4 carve-out (Q5 — RESEARCH_PIPELINE_SPEC §5.14.5)
+    // MARK: - The SubjectSpouseMarriage carve-out
 
     @Test func carveOut_positivePathQualifies() {
         // All four §14.3.4 carve-out conditions satisfied — predicate

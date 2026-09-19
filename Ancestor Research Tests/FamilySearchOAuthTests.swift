@@ -2,7 +2,7 @@ import Testing
 import Foundation
 @testable import Ancestor_Research
 
-/// FAMILYSEARCH_READ_LEG_PLAN #Change4 — OAuth foundation. Everything here
+/// FamilySearch OAuth foundation. Everything here
 /// is offline: PKCE vectors, URL construction, callback grammar, token
 /// parsing, expiry arithmetic, form encoding, and a fully-local loopback
 /// round-trip. The live sign-in is exercised manually once FamilySearch

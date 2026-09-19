@@ -20,9 +20,8 @@ public nonisolated struct RecordCommon: Codable, Sendable {
     public let detailURL: String?
     public let rawFields: [String: String]
 
-    // MARK: Secondary-metadata columns (FAMILYSEARCH_READ_LEG_PLAN #Change7,
-    // FamilySearch source). Data-model commits landing NOW so
-    // second-cut endpoint work needed no schema migration. The
+    // MARK: Secondary-metadata columns (FamilySearch). Added ahead of the
+    // endpoints that fill them so later work needed no schema migration. The
     // FamilySearch connector now fills `placeARK` and
     // `collectionCompleteness`; `volatilityScore` is still always nil.
     // Optional + synthesized Codable = old JSON without these keys
@@ -599,9 +598,8 @@ public nonisolated struct RecordQuery: Sendable {
     public let birthPlace: String?
     public let deathPlace: String?
     /// Residence place (census scoping) and marriage place — FS's
-    /// `q.residenceLikePlace` / `q.marriageLikePlace`
-    /// (FAMILYSEARCH_READ_LEG_PLAN #Change6). Optional like the other
-    /// family-context axes; nil skips the parameter.
+    /// `q.residenceLikePlace` / `q.marriageLikePlace`. Optional like the
+    /// other family-context axes; nil skips the parameter.
     public let residencePlace: String?
     public let marriagePlace: String?
     /// Soft country/region scoping — FS's `q.anyPlace`. A tree-derived home
@@ -815,9 +813,9 @@ public nonisolated struct FreeCenParams: Sendable {
     /// safe default — the dispatcher emits the pre-FT-25 one-code-per-
     /// query fan-out, which is proven wire behaviour (Python builds the
     /// POST as a tuple list precisely for the repeated key, but whether
-    /// FreeCen's live form honours it is UNVERIFIED — CONNECTOR_AUDIT
-    /// FT-27; needs the one live probe session before enabling blind,
-    /// exactly as `FreeBMDParams.countyQueryEnabled` was gated).
+    /// FreeCen's live form honours it is UNVERIFIED (`#FR4`) and needs one
+    /// live probe before enabling blind, exactly as
+    /// `FreeBMDParams.countyQueryEnabled` was gated).
     ///
     /// Default false = flag for a probe rather than enable blind.
     public static let multiCodeBatchEnabled = false
@@ -990,7 +988,7 @@ public nonisolated struct FreeREGParams: Sendable {
     /// request via the repeated `search_query[chapman_codes][]` idiom.
     /// Default false — the pre-FT-25 one-code-per-query fan-out is proven
     /// wire behaviour; whether FreeREG's live form honours the repeated
-    /// key is UNVERIFIED (CONNECTOR_AUDIT FT-27, same as FreeCen), so
+    /// key is UNVERIFIED (`#FR4`, same as FreeCen), so
     /// this flags for a probe rather than enabling blind — the
     /// `FreeBMDParams.countyQueryEnabled` pattern.
     public static let multiCodeBatchEnabled = false
@@ -999,8 +997,8 @@ public nonisolated struct FreeREGParams: Sendable {
     /// MyopicVicar's `SearchQuery` (the live FreeREG/FreeCEN engine) rejects
     /// more than 3 counties per query — the sole exception being the Channel
     /// Islands quartet `Self.channelIslandsCodes` (FreeREG integration).
-    /// This resolves CONNECTOR_AUDIT FT-27 ("is the repeated key honoured?"):
-    /// 1–3 yes, more no. Was 10 (would have exceeded the cap the moment
+    /// So even once the repeated key is proven honoured (`#FR4`), a batch
+    /// may carry at most 3. Was 10 (would have exceeded the cap the moment
     /// `multiCodeBatchEnabled` flipped on); corrected 2026-07-29.
     public static let batchGroupSize = 3
 

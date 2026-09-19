@@ -1324,8 +1324,7 @@ nonisolated final class ProjectDatabase: Sendable {
             }
         }
 
-        // MARK: v42 — negative-search outcome columns
-        // (FAMILYSEARCH_READ_LEG_PLAN #Change3 / FS spec). Until now
+        // MARK: v42 — negative-search outcome columns. Until now
         // the table could only say "searched, empty"; these columns let a
         // row distinguish HOW the search concluded so a truncated page-1
         // answer can never masquerade as verified absence.
@@ -1342,8 +1341,7 @@ nonisolated final class ProjectDatabase: Sendable {
             }
         }
 
-        // MARK: v43 — evidence external ARK identity columns
-        // (FAMILYSEARCH_READ_LEG_PLAN #Change7 / FS spec). Bare
+        // MARK: v43 — evidence external ARK identity columns. Bare
         // `ark:/61903/…` PATH SEGMENTS only, never full URLs (the FS
         // permanence guarantee excludes domain + query decorations). These
         // are the idempotency key for FS evidence ingestion and the

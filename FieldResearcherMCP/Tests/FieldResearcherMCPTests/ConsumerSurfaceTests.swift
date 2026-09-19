@@ -3,7 +3,7 @@ import Foundation
 import GRDB
 @testable import FieldResearcherMCP
 
-/// MC1/MC3 consumer-surface fixes (MCP_CONSUMER_SURFACE_SPEC): tokenised
+/// Consumer-surface behaviour: tokenised
 /// multi-token search (incl. married-surname matching), soft-deleted rows
 /// excluded from the list resources, split name fields, the implemented
 /// find_ancestor / research_lifecycle prompts, and user_status + gates

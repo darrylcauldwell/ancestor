@@ -1,7 +1,7 @@
 // swift-tools-version:6.1
 import PackageDescription
 
-// AncestorViewerKit — PHASE4_VIEWER_SPEC Change 1: the platform-neutral
+// AncestorViewerKit — the platform-neutral
 // fetch/cache core shared by the tvOS and iOS viewers. Read-only by
 // construction: it wraps only CloudKit FETCH operations (never a modify),
 // caches rows in a disposable GRDB database, and rebuilds AncestorKit's

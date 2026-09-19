@@ -3,7 +3,7 @@ import Foundation
 @testable import FieldResearcherMCP
 
 /// Unit tests for the expansion-bound decision helper used by
-/// `promote_lead` (ENGINE_FOUNDATION_SPEC #Change7). Cover the pure
+/// `promote_lead`. Cover the pure
 /// graph-distance logic only; the SQL fetch that gathers edges + seeds is
 /// a thin wrapper exercised by the running server. Mirrors AncestorKit's
 /// `ExpansionBoundsTests` so both sides of the (deliberately duplicated)

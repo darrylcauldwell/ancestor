@@ -14,8 +14,8 @@ import GRDB
 ///   * `dismiss_lead` — dismiss a lead, cascade to the scored record.
 ///
 /// The load-bearing invariant throughout: `user_status` ONLY. `verdict` is
-/// scorer-owned (CROSS_PROFILE_CORROBORATION_SPEC line 8 — re-stomped every
-/// run, "only user_status survives") and must never move.
+/// scorer-owned — re-stomped on every run, with only `user_status`
+/// surviving one — and must never move.
 struct EvidenceLeadSyncTests {
 
     /// The tables the handler's schema-age check needs, plus the three this

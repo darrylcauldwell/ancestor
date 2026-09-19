@@ -109,7 +109,7 @@ nonisolated struct NegativeSearchPersistenceTests {
         #expect(p1.first?.queryKey == "k1")
     }
 
-    // MARK: - v42 result-kind outcome columns (FAMILYSEARCH_READ_LEG_PLAN #Change3)
+    // MARK: - v42 result-kind outcome columns
 
     @Test func v42AppendsToTheMigrationChain() throws {
         let path = NSTemporaryDirectory() + UUID().uuidString + ".sqlite"

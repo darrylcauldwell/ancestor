@@ -2,9 +2,9 @@ import Testing
 import Foundation
 @testable import FieldResearcherMCP
 
-/// Unit tests for the `submit_hypothesis` synchronous validation core
-/// (RESEARCH_PIPELINE_SPEC §5.15.2 / §5.15.7, Decision E2). These cover
-/// the pure logic only — profile facts are pre-fetched by the caller,
+/// Unit tests for the `submit_hypothesis` synchronous validation core.
+/// These cover the pure logic only — profile facts are pre-fetched by the
+/// caller,
 /// same pattern as `PromoteLeadDedupTests`. The rejection-memory check
 /// and the seeds-table INSERT ride the SQL path exercised end-to-end by
 /// the app-side `HypothesisSeedServiceTests`.

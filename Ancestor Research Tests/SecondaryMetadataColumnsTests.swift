@@ -4,7 +4,7 @@ import GRDB
 @testable import Ancestor_Research
 import AncestorKit
 
-/// FAMILYSEARCH_READ_LEG_PLAN #Change7 — the secondary-metadata data-model
+/// The secondary-metadata data-model
 /// commits: RecordCommon's placeARK / collectionCompleteness /
 /// volatilityScore columns, the v43 evidence external-ARK
 /// migration, and FS promoting completeness + place ARK to

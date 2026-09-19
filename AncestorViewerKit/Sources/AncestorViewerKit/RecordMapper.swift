@@ -5,7 +5,9 @@ import CloudKit
 // production schema (published-schema-v1.ckdb), so values are read from
 // `record.encryptedValues` — the one exception is `asset`, a plain ASSET
 // field. Unknown record types and unknown fields are ignored silently
-// (PUBLISHER_SPEC §4.3 forward compatibility); a record missing its `id`
+// (forward compatibility: a newer publisher may send fields this build
+// has never heard of, and that must not fail the decode); a record
+// missing its `id`
 // falls back to the SQLiteData record-name convention `<uuid>:<tableName>`.
 
 public nonisolated enum RecordMapper {

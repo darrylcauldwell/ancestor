@@ -5,7 +5,7 @@ import AncestorViewerKit
 
 /// App-level state for the viewer: account gate → scope probe → fetch →
 /// cached tree. Renders from cache immediately when one exists
-/// (render-before-refresh, PUBLISHER_SPEC §4.3), then refreshes.
+/// (render-before-refresh), then refreshes.
 ///
 /// Scope: the owner's devices find the tree in the PRIVATE database; a
 /// family member who accepted a share finds it in the SHARED database.

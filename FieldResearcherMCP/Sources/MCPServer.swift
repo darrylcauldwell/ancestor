@@ -332,7 +332,7 @@ actor MCPHandler {
             let id = String(trimmed.dropLast("/disputes".count))
             content = try disputesResource(profileID: id)
         case _ where uri.hasPrefix("ancestor://profile/") && uri.hasSuffix("/dossier"):
-            // DOSSIER_SPEC #T9-Change1 — the deterministic skeleton as JSON.
+            // The deterministic dossier skeleton as JSON.
             // Read-only, model-free (this server never runs MLX); rendered
             // from the same rows the in-app assembler reads.
             let trimmed = uri.dropFirst("ancestor://profile/".count)
@@ -588,7 +588,7 @@ actor MCPHandler {
                 ),
                 tool(
                     name: "get_research_result",
-                    description: "Return the §3 eval-harness envelope for a completed research run (SWIFT_MCP_EVAL_BACKEND_SPEC #Change4). Reads research_runs.result_json — verdicts plus future hypothesis / citation fields. Errors when the run id is unknown or the run completed before envelope persistence shipped (empty result_json).",
+                    description: "Return the eval-harness envelope for a completed research run. Reads research_runs.result_json — verdicts plus future hypothesis / citation fields. Errors when the run id is unknown or the run completed before envelope persistence shipped (empty result_json).",
                     properties: [
                         "run_id": ["type": "string", "description": "The run_id returned by get_run_status once status == completed"],
                     ],
@@ -605,8 +605,7 @@ actor MCPHandler {
                     ],
                     required: ["profile_id"]
                 ),
-                // Auto-approval — see AncestorApp/AUTO_APPROVAL_VIA_MCP_SPEC.md.
-                // Rules' authority extends to commit when the gate evaluator
+                // Auto-approval: rules' authority extends to commit when the gate evaluator
                 // says unambiguous; ambiguous facts still go to human review.
                 tool(
                     name: "approve_pending_fact",
@@ -1183,7 +1182,7 @@ actor MCPHandler {
         }
     }
 
-    /// DOSSIER_SPEC #T9-Change1 — the pre-commit decision dossier as a
+    /// The pre-commit decision dossier as a
     /// deterministic JSON skeleton: what we know (D1), what conflicts (D2),
     /// what's honestly missing (D3 — clean negatives vs partial answers,
     /// never conflated), what's being investigated (D4), plus last-run
@@ -1356,7 +1355,7 @@ actor MCPHandler {
                 p["name_forms"] = list
             }
 
-            // CONFLICT_LAYER_SPEC CL6 (§4.8.5) — read-only dispute ledger:
+            // Read-only dispute ledger:
             // open + resolved, with kind/field/severity/reasoning-bearing
             // columns. Writes stay app-side (Evidence Firewall unchanged).
             let profileRowID: String = row["id"]
@@ -2210,7 +2209,7 @@ actor MCPHandler {
                 )
             }
 
-            // Expansion bound (ENGINE_FOUNDATION_SPEC #Change7): before
+            // Expansion bound: before
             // INSERT, refuse leads whose generator sits too far from the
             // probands/seeds so an autonomous run stops burning budget on
             // peripheral kin while the core tree still has gaps. Pure
@@ -2244,7 +2243,7 @@ actor MCPHandler {
                 )
             }
 
-            // Dedup gate (ENGINE_FOUNDATION_SPEC #Change3): before INSERT,
+            // Dedup gate: before INSERT,
             // see whether an existing profile already represents this
             // person. Avoids the Jennifer Holmes case from the cross-day
             // run, where a surname-only lead promoted a duplicate of a
@@ -2385,7 +2384,7 @@ actor MCPHandler {
             // 'promoted' — must be a LeadStatus rawValue. The previous
             // 'resolved' was not one, so the in-app loaders' status guard
             // silently DROPPED every MCP-promoted lead from every surface
-            // (CAMPAIGN_REVIEW_SPEC Change 1). The dedup audit detail
+            // The dedup audit detail
             // (matched_existing_/promoted_to_) stays in `resolution`.
             try db.execute(sql: """
                 UPDATE leads
@@ -2437,9 +2436,8 @@ actor MCPHandler {
     //
     // FIREWALL POSTURE for everything below. `user_status` is META — the
     // HUMAN's review verdict living on a machine-owned table.
-    // AncestorApp/CROSS_PROFILE_CORROBORATION_SPEC.md line 8 is explicit that
-    // `evidence_records.verdict` is scorer-owned and re-stomped every run
-    // while "only user_status survives". Writing it asserts no genealogy,
+    // `evidence_records.verdict` is scorer-owned: it is re-stomped on every
+    // run, and only `user_status` survives one. Writing it asserts no genealogy,
     // creates no profile and applies no fact, so it is on the legal side of
     // the Evidence Firewall — and it is dispatched ungated for that reason.
     // `verdict`, `gates_json`, the scores and `applied_at` are never written
@@ -3253,7 +3251,7 @@ actor MCPHandler {
         ]
     }
 
-    // MARK: - submit_hypothesis (RESEARCH_PIPELINE_SPEC §5.15, Decision E2)
+    // MARK: - submit_hypothesis
 
     /// Seed a user hypothesis. Validates synchronously (read-only checks
     /// per §5.15.2), INSERTs one `user_hypothesis_seeds` row (v32), and
@@ -4800,7 +4798,7 @@ actor MCPHandler {
         ]
     }
 
-    // MARK: - Auto-approval (AUTO_APPROVAL_VIA_MCP_SPEC.md)
+    // MARK: - Auto-approval
     //
     // The deterministic gate runs entirely inside the MCP package; it
     // does not import the app's research module. The implementation is
@@ -4817,7 +4815,7 @@ actor MCPHandler {
         "occupation", "address",
     ]
 
-    /// §14.3.4 carve-out (RESEARCH_PIPELINE_SPEC §5.14.5).
+    /// The SubjectSpouseMarriage carve-out.
     /// Pure predicate: returns true iff the pending fact is eligible
     /// for the SubjectSpouseMarriage-strategy fast path — fact_kind
     /// "firstName", agent_id "subject-spouse-marriage", and the
@@ -5108,7 +5106,7 @@ actor MCPHandler {
                 )
             }
 
-            // §14.3.4 carve-out (RESEARCH_PIPELINE_SPEC §5.14.5): when
+            // The SubjectSpouseMarriage carve-out: when
             // the pending fact came from a `.subjectSpouseMarriage`
             // hypothesis write-back AND the subject's `first_name` is
             // currently empty (recovery, not correction), the gate
@@ -5138,7 +5136,7 @@ actor MCPHandler {
                 }
             }
 
-            // CONFLICT_LAYER_SPEC CL6 (§4.8.5) — an OPEN dispute on the
+            // An OPEN dispute on the
             // target profile refuses auto-approval outright: field-level
             // disputes on the target field, and structural kinds
             // (timeline/parentRole/spouseIdentity) that field_sources
@@ -5411,7 +5409,7 @@ actor MCPHandler {
         return false
     }
 
-    // MARK: - Expansion bound at promote-time (ENGINE_FOUNDATION_SPEC #Change7)
+    // MARK: - Expansion bound at promote-time
 
     /// A single parent/child or spouse edge, as fetched from the
     /// `relationships` table. Mirrors the columns the SQL BFS needs so the
@@ -5650,7 +5648,7 @@ actor MCPHandler {
         return out
     }
 
-    // MARK: - Dedup at promote-time (ENGINE_FOUNDATION_SPEC #Change3)
+    // MARK: - Dedup at promote-time
 
     /// Same-surname candidate row used by `decideDedup`. Mirrors the
     /// columns selected from `profiles` so the matching logic can be
@@ -5672,7 +5670,7 @@ actor MCPHandler {
     /// Decide whether a `promote_lead` INSERT should dedup against an
     /// existing profile, given pre-fetched same-surname candidates.
     ///
-    /// Per ENGINE_FOUNDATION_SPEC #Change3:
+    /// Two matching paths:
     /// - Strict path: lead and candidate both have `givenName` → exact
     ///   (case-insensitive) match + year overlap.
     /// - Asymmetric path: either side lacks `givenName` → year overlap

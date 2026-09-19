@@ -2,7 +2,7 @@ import SwiftUI
 import AncestorKit
 import AncestorViewerKit
 
-/// The primary reading experience (PHASE4_VIEWER_SPEC §5): a glass panel
+/// The primary reading experience on tvOS: a glass panel
 /// beside the tree narrating whoever is focal — name, vitals, portrait,
 /// and the publish-time bio prose. Redacted persons show the name card
 /// only; that is the privacy design, not a gap.

@@ -5,8 +5,8 @@ import Security
 import AppKit
 import os
 
-/// FamilySearch official-API OAuth 2.0 (FAMILYSEARCH_READ_LEG_PLAN
-/// #Change4; spec). Authorization-code + PKCE (S256) through the
+/// FamilySearch official-API OAuth 2.0: authorization-code + PKCE (S256)
+/// through the
 /// system default browser and a loopback redirect — the flow FamilySearch
 /// mandates for native apps (Unauthenticated Session and Client
 /// Credentials are explicitly not available to our key).

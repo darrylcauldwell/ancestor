@@ -3,7 +3,7 @@ import AncestorKit
 import AncestorKitUI
 import AncestorViewerKit
 
-/// Touch tree per PHASE4_VIEWER_SPEC §6: full pan/zoom canvas — drag to
+/// The touch tree: full pan/zoom canvas — drag to
 /// pan, pinch to zoom, tap a person for their sheet, "focus" from the
 /// sheet re-roots the layout on them. CanvasTransform stays the single
 /// source of truth for draw and hit-testing, exactly as on macOS.
