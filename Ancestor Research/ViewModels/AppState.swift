@@ -3483,7 +3483,7 @@ final class AppState {
     /// conflict verdict: registration-district/town pairs that legitimately
     /// differ at the token (Milford-in-Belper) still surface — a neutral
     /// juxtaposition the human eye reads correctly. A principled place-nesting
-    /// check is deferred to the PlaceAuthority work (LOCATION_MODEL Stage 3).
+    /// check is deferred to the `PlaceAuthority` hierarchy (`#S1-6b`).
     nonisolated static func placesDivergeAtTown(_ a: String?, _ b: String?) -> Bool {
         guard let ka = placeTownKey(a), let kb = placeTownKey(b) else { return false }
         return ka != kb && !ka.contains(kb) && !kb.contains(ka)

@@ -4,7 +4,7 @@ import GRDB
 @testable import Ancestor_Research
 import AncestorKit
 
-/// PARISH_ABSORPTION follow-up — `fillRelationshipMarriage` is directional on
+/// `fillRelationshipMarriage` is directional on
 /// year-span, but a parish register's exact day ("30 Jan 1915") and a FreeBMD
 /// registration quarter ("Mar 1915") both collapse to year-span 0, so the tie
 /// never broke and the coarser value stayed (owner report 2026-08-06, Ernest

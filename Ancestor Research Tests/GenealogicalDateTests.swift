@@ -216,7 +216,7 @@ struct GenealogicalDateTests {
         #expect(result.displayText.contains("1900"))
     }
 
-    // MARK: intraYearPrecision (marriage-fill tie-break, PARISH_ABSORPTION follow-up)
+    // MARK: intraYearPrecision (marriage-fill tie-break)
 
     @Test func intraYearPrecisionRanksDayOverMonthOverYear() {
         // The Ernest Cauldwell case: a parish register's exact day must

@@ -632,7 +632,7 @@ actor MCPHandler {
                     ],
                     required: ["lead_id"]
                 ),
-                // FamilySearch (WL7 — FAMILYSEARCH_TREES_WRITE_SPEC). Reads are
+                // FamilySearch. Reads are
                 // plain DB reads of the v52/v53 tables; the two request tools
                 // only STAGE rows — the app's watcher executes them with the
                 // app's own FamilySearch auth (the MCP server never makes

@@ -56,7 +56,7 @@ struct CensusAbsorbBirthplaceDisplayTests {
     /// DOCUMENTED non-goal: a registration-district vs town pair (Milford sits in
     /// Belper district) DOES diverge at the token — the capsule surfaces it as a
     /// neutral juxtaposition, not a block. A principled place-nesting check is
-    /// deferred to PlaceAuthority (LOCATION_MODEL Stage 3).
+    /// deferred to the `PlaceAuthority` hierarchy (`#S1-6b`).
     @Test func districtTownPairStillDivergesByDesign() {
         #expect(AppState.placesDivergeAtTown("Milford", "Belper"))
     }

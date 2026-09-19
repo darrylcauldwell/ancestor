@@ -1503,7 +1503,7 @@ struct SearchDispatcher {
             // speculative widening — additive, census-year-bounded, home
             // county never dropped. The blessing covers exactly this
             // behaviour; it does not cover the anchor-less-subject skip
-            // (SUBJECT_PLACE_MODEL Slice 5) or the FT-27 batching gate.
+            // (`#SP5`) or the FT-27 batching gate.
             //
             // Kin-derived counties (`subject.kinResidenceAxes`) ride the same
             // arm on the same terms. A subject whose ONLY place fact is a
