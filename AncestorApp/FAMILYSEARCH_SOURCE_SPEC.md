@@ -31,12 +31,14 @@
   conclusions, source references). The Evidence Firewall already prohibits
   writing directly to profiles; collaborative-tree writes would compound
   the issue. *Future direction worth not forgetting*: "attach source to FS
-  tree person" as a soft-write (now WF-C in the write-leg spec).
+  tree person" as a soft-write — now `#FS5`.
   **SUPERSEDED IN PART 2026-07-30: the USER TREE write leg (a separate
-  app-created tree, not the shared Family Tree) is BUILT** — see
-  `FAMILYSEARCH_TREES_WRITE_SPEC.md` (#WL0–#WL6). Uploading the local tree
-  to a private/owned User Tree is outbound-only and firewall-clean: nothing
-  writes back into app profiles except the E1 pid identifiers.
+  app-created tree, not the shared Family Tree) is BUILT** (#WL0–#WL7,
+  live-verified on beta) — `FamilySearchTreeEncoder` and
+  `FamilySearchTreeUploadService` are the implementation. Uploading the
+  local tree to a private/owned User Tree is outbound-only and
+  firewall-clean: nothing writes back into app profiles except the E1 pid
+  identifiers.
 - **Memories upload** (photos, stories, documents). Not pipeline-relevant.
 - **DNA matching**. Private to the user, separate auth, out of V2 scope.
 - **Discussions / forum threads**. Conversational, not evidentiary.

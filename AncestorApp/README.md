@@ -3,6 +3,10 @@
 One line per **live** document: what it is and when to read it. This file carries **roles only
 — no status**, so it has nothing to keep up to date.
 
+**Invariant:** this index lists every file in `AncestorApp/` bar itself and `adr/`. A document absent from it is a
+document nobody can find — on 2026-09-19 twelve had accumulated that way. Check with
+`ls AncestorApp/` against the tables below when adding or retiring one.
+
 **Convention (2026-07-16):** the only readers here are the developer and Claude, and both have
 full git history — so a *completed* spec is **deleted**, not kept. Git history is the archive
 (`git log --all --full-history -- AncestorApp/<file>` retrieves any removed spec). Only living
@@ -27,8 +31,10 @@ still belongs in the owning spec; sequencing and gates belong in `BACKLOG.md`.
 |---|---|
 | `RESEARCH_PIPELINE_SPEC.md` | Governing architectural spec (Part I as-built engine; Part II remainder T9/T23/T31) |
 | `GEDCOMX_CONCEPT_MAPPING.md` | GEDCOM X ↔ our-model boundary contract (mandated by ADR-003) |
+| `FS_WRITE_WIRE_CONTRACTS.md` | FamilySearch User-Trees write API — verbatim request/response extracts captured 2026-07-30. Kept because it records an EXTERNAL contract we cannot re-derive from our own history; read before touching `FamilySearchTreeEncoder` |
 | `published-schema-v1.ckdb` | Canonical CloudKit schema (prod 2026-07-08) — viewers' data contract |
 | `family-bundle.schema.json` | Offline family-bundle contract (viewer test double) |
+| `district-chapman-audit-2026-07-30.json` | Evidence record for the 119-district Chapman-code audit — one UKBMD/GENUKI citation per correction |
 
 ## Active / in-flight
 
@@ -61,6 +67,18 @@ Sequencing and gates for these live in `BACKLOG.md`; per-item state comes from g
 
 Fully-delivered specs are removed once shipped; retrieve any via git. Their commits are the
 record — `git log --all --full-history -- AncestorApp/<file>`.
+
+Removed 2026-09-19 — twelve orphaned documents, each assessed against the code and its
+remainder extracted into `BACKLOG.md` rows before deletion:
+`BIRTH_AGE_CONSISTENCY_AUDIT_SPEC` (a WON'T BUILD; residuals → `#BA1`/`#BA2`),
+`WIKITREE_MERGEEDIT_SPEC` (#WT0–#WT4 shipped; WT5 → `#FUT1`),
+`HEALTH_RECATEGORISATION_SPEC` (→ `#HR5`), `SURFACE_CONSOLIDATION_SPEC` (→ `#SC10`),
+`FREEBMD_CITATION_BACKFILL_SPEC` (→ `#FB1`), `PARISH_ABSORPTION_SPEC` (→ `#PA1`/`#PA2`),
+`FAMILYSEARCH_TREES_WRITE_SPEC` (#WL0–#WL7 shipped and live-verified; → `#FS3`–`#FS6`),
+`FREEREG_INTEGRATION_SPEC` (→ `#FR1`–`#FR3`), `LOCATION_MODEL_SPEC` (→ `#S1-6b`, `#LOC2`, `#LOC3`),
+`SUBJECT_PLACE_MODEL_SPEC` (→ `#SP3`–`#SP5`), and `UAT_LOCATION_SURFACES` (stale: its pinned
+per-row expectations pre-dated the Health recategorisation and the late-August dogfood runs;
+intent carried into `#LOC4`).
 
 Removed 2026-07-21 (shipped/superseded): `LEAD_DISCOVERY_SPEC`, `IMPORT_DEDUPE_SPEC`,
 `PROFILE_LIFECYCLE_SPEC`, `PROFILE_SOURCES_LEDGER_SPEC`, `PROJECT_ONBOARDING_SPEC`,
