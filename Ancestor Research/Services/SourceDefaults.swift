@@ -46,8 +46,10 @@ nonisolated enum EntryContext: Sendable {
     case homePerson
 
     /// Adding a relative attached to an existing profile. The optional
-    /// `primarySource` is the existing profile's first-listed source for
-    /// any field; nil if unknown.
+    /// `primarySource` is an ARBITRARY source from any field on the existing
+    /// profile — `Profile.sources` is a dictionary with no defined order, so
+    /// it can differ between runs on identical data (`#CMT2`). A hint for the
+    /// default, never an identity. Nil if unknown.
     case relativeOf(profileID: String, primarySource: SourceOrigin?)
 
     /// Adding via the sibling shortcut. The optional `inherited` is the
