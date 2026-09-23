@@ -3,9 +3,9 @@
 **Status: SHIPPED 2026-07-15 — one deferred residue (Change 6).** The staged-dispatch
 design (free-sources-first, FS on-miss), the scope contract + per-source pins, the visible
 skip/miss-test semantics, the one-research-action UX, and the Sourcing report all shipped
-2026-07-15 and are verified in code. See `ROADMAP.md` #7 and git history
+2026-07-15 and are verified in code. Git history
 (`63259a9`, `b99ce47`, `72de503`, `07914e4`, `d07a0c5`, `88d526a`, `1931d59`, `cd78eea`,
-`7d3bf10`) for what landed; the live-verification thread lives in ROADMAP #7. Everything
+`7d3bf10`) records what landed; the live verification is `#S1-1`. Everything
 below is the sole unbuilt residue.
 
 ## Change 6 — FreeCEN place scoping (FT-13) — DEFERRED, gated on ADR-008

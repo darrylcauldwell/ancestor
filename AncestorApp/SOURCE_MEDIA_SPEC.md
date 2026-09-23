@@ -6,9 +6,9 @@
 > was deleted (git-only). The rationale held: image capture is an
 > output-surface concern, and the engine that decides *which* records
 > get media attached had to be trustworthy first. It now is. This
-> work is therefore no longer *blocked* — it is queued behind Epic
-> priority (see ROADMAP Epic 8) and starts whenever it reaches the
-> top of the backlog.
+> work is therefore no longer *blocked* — it is queued on priority
+> (`#MED1`–`#MED7`) and starts whenever it reaches the top of the
+> backlog.
 
 **Status:** Paper-only. No code yet — none of the eight shipping
 source plugins captures any image data, even when the upstream
