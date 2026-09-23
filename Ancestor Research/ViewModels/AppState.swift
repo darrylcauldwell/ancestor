@@ -1322,7 +1322,10 @@ final class AppState {
             // Best-effort backup snapshot (M14). Silent on failure so a
             // disk-full or permission glitch never blocks the user from
             // working with their project.
-            try? BackupService.snapshotBackup(projectID: proj.id)
+            // A failed backup must not block opening the project, but it is
+            // the safety net for an irreversible merge — never lose it silently.
+            do { try BackupService.snapshotBackup(projectID: proj.id) }
+            catch { Self.persistLogger.error("Snapshot backup failed: \(error.localizedDescription)") }
         } catch {
             errorMessage = "Failed to open project: \(error.localizedDescription)"
         }
@@ -2320,7 +2323,12 @@ final class AppState {
         let transaction = try db.importSnapshot(parseResult.snapshot, source: path)
         // Conflict layer CL2 (T-C trigger): post-import sweep —
         // imported trees surface their latent contradictions immediately.
-        _ = try? ConflictSweep.run(db: db, snapshot: try db.buildSnapshot(), force: true)
+        // A failed sweep must not abort an otherwise-good import, but silence
+        // here means the tree looks clean when its contradictions were simply
+        // never looked for.
+        persist("Sweeping the imported tree for conflicts", surfacing: false) {
+            _ = try ConflictSweep.run(db: db, snapshot: try db.buildSnapshot(), force: true)
+        }
 
         loadingMessage = "Building tree..."
         snapshot = try db.buildSnapshot()

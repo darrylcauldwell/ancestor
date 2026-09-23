@@ -398,7 +398,7 @@ struct PlacesView: View {
 
     private func restore(_ row: PlaceInventory.Row) {
         guard let db = appState.currentDatabase else { return }
-        try? PlaceInventory.clearNotAPlace(row, in: db)
+        appState.persist("Restoring the place") { try PlaceInventory.clearNotAPlace(row, in: db) }
         lastAction = "\"\(row.text)\" restored"
         rebuild()
     }

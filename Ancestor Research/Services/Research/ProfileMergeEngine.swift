@@ -1,5 +1,9 @@
 import Foundation
+import os
 import AncestorKit
+
+private nonisolated let mergeLogger = Logger(
+    subsystem: "dev.dreamfold.Ancestor-Research", category: "Merge")
 
 /// Import dedupe Change 3 — whole-profile merge execution (distinct
 /// from `MergeEngine`, which is field-level *value* policy). Redirects a
@@ -76,9 +80,16 @@ enum ProfileMergeEngine {
 
         for edge in snapshot.relationships where edge.from == loserID || edge.to == loserID {
             let other = edge.from == loserID ? edge.to : edge.from
-            if other == winnerID { try? _ = db.removeRelationship(id: edge.id); continue }
+            // Merge is irreversible — an edge that fails to drop leaves the
+            // winner carrying kinship the merge was meant to collapse, and
+            // there is no undo to fall back on.
+            func dropEdge() {
+                do { _ = try db.removeRelationship(id: edge.id) }
+                catch { mergeLogger.error("Removing edge \(edge.id) during merge failed: \(error.localizedDescription)") }
+            }
+            if other == winnerID { dropEdge(); continue }
             if winnerAlreadyLinks(other, type: edge.type, role: edge.role) {
-                try? _ = db.removeRelationship(id: edge.id)
+                dropEdge()
                 continue
             }
             // Repoint: drop the loser edge, add the equivalent on the winner.

@@ -62,7 +62,7 @@ struct SettingsPlaceholderView: View {
                             guard var project = appState.currentProject else { return }
                             project.homeChapmanCode = newCode.isEmpty ? nil : newCode
                             appState.currentProject = project
-                            try? appState.currentDatabase?.saveProjectMeta(project)
+                            appState.persist("Saving the home county") { try appState.currentDatabase?.saveProjectMeta(project) }
                         }
                     )) {
                         Text("None — derive per profile").tag("")
@@ -265,7 +265,7 @@ struct SettingsPlaceholderView: View {
                             .font(AppTypography.cardBody)
                         Spacer()
                         Button("Reset all") {
-                            try? appState.currentDatabase?.clearAllCleanseUnresolvableFlags()
+                            appState.persist("Resetting the unresolvable flags") { try appState.currentDatabase?.clearAllCleanseUnresolvableFlags() }
                             refreshUnresolvableFlagCount()
                         }
                         .buttonStyle(.glass)

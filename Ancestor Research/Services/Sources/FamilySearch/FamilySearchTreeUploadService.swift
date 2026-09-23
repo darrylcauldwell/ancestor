@@ -294,7 +294,10 @@ actor FamilySearchTreeUploadService {
             // Auth loss / throttle exhaustion / cancellation: state is already
             // saved incrementally — mark the run resumable and restore context.
             run.phase = "uploading"
-            try? database.saveFamilySearchUploadRun(run)
+            // This write is what makes the interrupted run resumable; losing it
+            // silently means the next attempt starts a fresh tree.
+            do { try database.saveFamilySearchUploadRun(run) }
+            catch { logger.error("Saving the interrupted upload run failed: \(error.localizedDescription, privacy: .public)") }
             try? await client.setCurrentTree(treeID: "GLOBAL")
             logger.error("FS upload interrupted: \(String(describing: error), privacy: .public)")
             throw error

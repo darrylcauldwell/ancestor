@@ -2399,26 +2399,26 @@ struct SharedProfileLayout: View {
                         .compactMap { snapshot.profiles[$0.from] }
                     ForEach(occupants, id: \.id) { parent in
                         Button("Keep \(parent.displayName)") {
-                            try? ConflictResolutionActions.chooseParent(
+                            appState.persist("Keeping \(parent.displayName)") { try ConflictResolutionActions.chooseParent(
                                 subjectID: profile.id, role: role,
                                 keepParentID: parent.id,
                                 snapshot: snapshot,
-                                db: appState.currentDatabase!)
+                                db: appState.currentDatabase!) }
                             refreshAfterResolve()
                         }
                     }
                     Button("Keep both (e.g. adoptive)") {
-                        try? ConflictResolutionActions.keepBothParents(
+                        appState.persist("Keeping both parents") { try ConflictResolutionActions.keepBothParents(
                             subjectID: profile.id, role: role,
-                            db: appState.currentDatabase!)
+                            db: appState.currentDatabase!) }
                         refreshAfterResolve()
                     }
                 }
             case .timeline:
                 if row.field == "death-vs-alive" {
                     Button("Death date is wrong — clear it") {
-                        try? ConflictResolutionActions.clearDeathDate(
-                            profile: profile, db: appState.currentDatabase!)
+                        appState.persist("Clearing the death date") { try ConflictResolutionActions.clearDeathDate(
+                            profile: profile, db: appState.currentDatabase!) }
                         refreshAfterResolve()
                     }
                 }
@@ -2428,9 +2428,11 @@ struct SharedProfileLayout: View {
                 if events.count == 2, let keep = events.first, let drop = events.last,
                    sameHousehold(censusHousehold(keep), censusHousehold(drop)) {
                     Button("Same household — remove the duplicate, keep one") {
-                        try? ConflictResolutionActions.discardLifeEvent(
-                            drop, disputeFieldKey: row.field, reason: .duplicate,
-                            db: appState.currentDatabase!)
+                        appState.persist("Removing the duplicate event") {
+                            try ConflictResolutionActions.discardLifeEvent(
+                                drop, disputeFieldKey: row.field, reason: .duplicate,
+                                db: appState.currentDatabase!)
+                        }
                         refreshAfterResolve()
                     }
                     Divider()
@@ -2439,17 +2441,19 @@ struct SharedProfileLayout: View {
                     // Name WHICH census (place + household head) so the two
                     // options are never identical.
                     Button("Discard \(event.type.rawValue) \(event.date?.original ?? "") at \(disputedEventLabel(event)) — not the same person") {
-                        try? ConflictResolutionActions.discardLifeEvent(
-                            event, disputeFieldKey: row.field,
-                            db: appState.currentDatabase!)
+                        appState.persist("Discarding the event") {
+                            try ConflictResolutionActions.discardLifeEvent(
+                                event, disputeFieldKey: row.field,
+                                db: appState.currentDatabase!)
+                        }
                         refreshAfterResolve()
                     }
                 }
             case .spouseIdentity:
                 Button("Dismiss — not the same person") {
-                    try? ConflictResolutionActions.dismissNotSamePerson(
+                    appState.persist("Dismissing the match") { try ConflictResolutionActions.dismissNotSamePerson(
                         profileID: profile.id, kind: row.kind, fieldKey: row.field,
-                        db: appState.currentDatabase!)
+                        db: appState.currentDatabase!) }
                     refreshAfterResolve()
                 }
             case .fieldValue:
@@ -2457,9 +2461,9 @@ struct SharedProfileLayout: View {
             }
             Divider()
             Button("Defer") {
-                try? ConflictResolutionActions.deferDispute(
+                appState.persist("Deferring the dispute") { try ConflictResolutionActions.deferDispute(
                     profileID: profile.id, kind: row.kind, fieldKey: row.field,
-                    db: appState.currentDatabase!)
+                    db: appState.currentDatabase!) }
                 refreshAfterResolve()
             }
         }
