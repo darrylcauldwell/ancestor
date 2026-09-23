@@ -107,16 +107,23 @@ struct SubmitEvidenceMarriageRoutingTests {
             "source_title": "GRO marriage index 9c/313",
             "evidence_text": "t", "reasoning": "t",
         ])
-        let row = try DatabaseQueue(path: path).read { db in
+        // Read the columns out INSIDE the closure: GRDB's `Row` is not
+        // Sendable, so letting one escape the read is a concurrency error.
+        let row = try await DatabaseQueue(path: path).read { db -> [String: String]? in
             try Row.fetchOne(db, sql: """
                 SELECT rel_type, review_status, marriage_date, marriage_location
                 FROM pending_relationships
-                """)
+                """).map { r in
+                    ["rel_type": r["rel_type"] as String? ?? "",
+                     "review_status": r["review_status"] as String? ?? "",
+                     "marriage_date": r["marriage_date"] as String? ?? "",
+                     "marriage_location": r["marriage_location"] as String? ?? ""]
+                }
         }
         let found = try #require(row)
-        #expect(found["marriage_date"] as String? == "Jun 1880")
-        #expect(found["marriage_location"] as String? == "Ecclesall Bierlow, Sheffield")
-        #expect(found["rel_type"] as String? == "spouse")
-        #expect(found["review_status"] as String? == "pending")
+        #expect(found["marriage_date"] == "Jun 1880")
+        #expect(found["marriage_location"] == "Ecclesall Bierlow, Sheffield")
+        #expect(found["rel_type"] == "spouse")
+        #expect(found["review_status"] == "pending")
     }
 }

@@ -67,9 +67,16 @@ struct SubmitRelationshipProposalResubmitTests {
         return args
     }
 
-    private func pendingRow(_ path: String) async throws -> Row? {
-        try await DatabaseQueue(path: path).read { db in
-            try Row.fetchOne(db, sql: "SELECT * FROM pending_relationships")
+    /// Columns are read out INSIDE the read: GRDB's `Row` is not Sendable, so
+    /// returning one from the closure is a concurrency error.
+    private func pendingRow(_ path: String) async throws -> [String: String]? {
+        try await DatabaseQueue(path: path).read { db -> [String: String]? in
+            try Row.fetchOne(db, sql: "SELECT * FROM pending_relationships").map { r in
+                ["review_status": r["review_status"] as String? ?? "",
+                 "evidence_text": r["evidence_text"] as String? ?? "",
+                 "marriage_date": r["marriage_date"] as String? ?? "",
+                 "marriage_location": r["marriage_location"] as String? ?? ""]
+            }
         }
     }
 
@@ -110,11 +117,11 @@ struct SubmitRelationshipProposalResubmitTests {
             evidence: "GRO index row, corrected quarter"))
 
         let row = try #require(try await pendingRow(path))
-        #expect(row["marriage_date"] as String? == "Jun 1881",
+        #expect(row["marriage_date"] == "Jun 1881",
                 "the corrected date must land — Approve fills whatever is stored onto the edge")
-        #expect(row["marriage_location"] as String? == "Ecclesall Bierlow, Sheffield")
-        #expect(row["evidence_text"] as String? == "GRO index row, corrected quarter")
-        #expect(row["review_status"] as String? == "pending")
+        #expect(row["marriage_location"] == "Ecclesall Bierlow, Sheffield")
+        #expect(row["evidence_text"] == "GRO index row, corrected quarter")
+        #expect(row["review_status"] == "pending")
         #expect(try await rowCount(path) == 1, "refreshed in place, never duplicated")
         // And the response says an UPDATE happened, not a fresh submission.
         #expect(text.contains("already pending"))
@@ -132,9 +139,9 @@ struct SubmitRelationshipProposalResubmitTests {
         _ = try await handler.resubmitText(spouseArgs(evidence: "wording tweak only"))
 
         let row = try #require(try await pendingRow(path))
-        #expect(row["marriage_date"] as String? == "Jun 1880")
-        #expect(row["marriage_location"] as String? == "Sheffield")
-        #expect(row["evidence_text"] as String? == "wording tweak only")
+        #expect(row["marriage_date"] == "Jun 1880")
+        #expect(row["marriage_location"] == "Sheffield")
+        #expect(row["evidence_text"] == "wording tweak only")
     }
 
     @Test func resubmittingARejectedProposalSaysSoAndChangesNothing() async throws {
@@ -150,8 +157,8 @@ struct SubmitRelationshipProposalResubmitTests {
         #expect(!text.contains("Status: pending human review"),
                 "never claim a rejected proposal is pending again")
         let row = try #require(try await pendingRow(path))
-        #expect(row["review_status"] as String? == "rejected", "the human ruling stands")
-        #expect(row["marriage_date"] as String? == "Jun 1880", "nothing was changed")
+        #expect(row["review_status"] == "rejected", "the human ruling stands")
+        #expect(row["marriage_date"] == "Jun 1880", "nothing was changed")
     }
 
     @Test func resubmittingAnApprovedProposalSaysSoAndChangesNothing() async throws {
@@ -165,8 +172,8 @@ struct SubmitRelationshipProposalResubmitTests {
         #expect(text.contains("NOT SUBMITTED"))
         #expect(text.contains("approved"))
         let row = try #require(try await pendingRow(path))
-        #expect(row["review_status"] as String? == "approved")
-        #expect(row["marriage_date"] as String? == "Jun 1880")
+        #expect(row["review_status"] == "approved")
+        #expect(row["marriage_date"] == "Jun 1880")
     }
 
     /// A DIFFERENT source URL is genuinely new evidence — it keys a separate
