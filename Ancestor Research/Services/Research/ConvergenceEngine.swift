@@ -26,9 +26,7 @@ nonisolated struct ConvergenceEngine {
         if records.count == 1 { return .singleSource }
 
         // Group by source lineage — independent agreements count
-        let lineageSet: Set<SourceLineage> = Set(records.compactMap { record in
-            sourceInfoMap[record.common.sourceID]?.lineage
-        })
+        let lineageSet = independentLineages(records: records, sourceInfoMap: sourceInfoMap)
 
         // Trust-weighted score
         let trustScore = records.reduce(0.0) { sum, record in
@@ -82,15 +80,37 @@ nonisolated struct ConvergenceEngine {
     /// Produce a `SourcingStrength` summary for a set of source records.
     /// Research confidence — one of three independent confidence
     /// axes, surfaced directly in the new ConfidenceBadgeView. Uses the same
+    /// The distinct originals this record set can be shown to transcribe.
+    ///
+    /// `.unattributedTranscription` is excluded rather than counted as its own
+    /// lineage. An aggregator spanning many collections may be transcribing the
+    /// very original another source here transcribes — so counting it as
+    /// independent turns one GRO index page, read twice, into "corroborated",
+    /// and two independent lineages is the auto-promote gate
+    /// (`LifeCluster.hypothesisVerdict` → `.stronglySupported`). Under-counting
+    /// costs throughput; over-counting writes wrong genealogy unattended.
+    ///
+    /// Both the convergence level and `sourcingStrength` go through here: the
+    /// two used to hold identical copies of this rule, which is how they could
+    /// drift apart.
+    private static func independentLineages(
+        records: [SourceRecord],
+        sourceInfoMap: [String: SourceInfo]
+    ) -> Set<SourceLineage> {
+        Set(
+            records
+                .compactMap { sourceInfoMap[$0.common.sourceID]?.lineage }
+                .filter { $0 != .unattributedTranscription }
+        )
+    }
+
     /// lineage-grouping rules as `score(records:sourceInfoMap:)` so the
     /// "cross-referenced" threshold aligns across all consumers.
     static func sourcingStrength(
         records: [SourceRecord],
         sourceInfoMap: [String: SourceInfo]
     ) -> SourcingStrength {
-        let lineageSet: Set<SourceLineage> = Set(records.compactMap { record in
-            sourceInfoMap[record.common.sourceID]?.lineage
-        })
+        let lineageSet = independentLineages(records: records, sourceInfoMap: sourceInfoMap)
         let topTier: SourceTrustTier = records.reduce(.community) { acc, record in
             let tier = sourceInfoMap[record.common.sourceID]?.trustTier ?? .community
             return max(acc, tier)

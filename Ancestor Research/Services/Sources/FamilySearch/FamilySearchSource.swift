@@ -36,7 +36,11 @@ actor FamilySearchSource: RecordSource {
     ]
     nonisolated let coverageYearRange: ClosedRange<Int>? = nil
     nonisolated let coverageRegions: Set<Region> = [.englandAndWales, .scotland, .ireland, .commonwealthMilitary]
-    nonisolated let dataLineage: SourceLineage = .independentTranscription(of: "various")
+    /// FamilySearch republishes 2,000+ distinct collections — this record may
+    /// transcribe the GRO indexes, a parish register, a census, or a user's
+    /// tree. One blanket lineage cannot be honest about which, so it claims
+    /// none. Per-collection lineage is `#FS9`.
+    nonisolated let dataLineage: SourceLineage = .unattributedTranscription
     nonisolated let trustTier: SourceTrustTier = .transcription
     nonisolated let evidenceDirectness: EvidenceDirectness = .directTranscription
     nonisolated let tosStatus = SourceToSStatus(
