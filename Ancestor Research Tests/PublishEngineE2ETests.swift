@@ -199,10 +199,10 @@ struct PublishEngineE2ETests {
             print("E2E ZONE ON SERVER: \(zone.zoneID.zoneName) owner=\(zone.zoneID.ownerName)")
         }
 
-        if let manifestMeta = metaRows.first(where: { (($0["recordName"] as String?) ?? "").contains("anifest") }) {
-            let name: String = manifestMeta["recordName"]
-            let zone: String = manifestMeta["zoneName"]
-            let owner: String = manifestMeta["ownerName"]
+        if let manifestMeta = metaRows.first(where: { $0.name.contains("anifest") }) {
+            let name = manifestMeta.name
+            let zone = manifestMeta.zone
+            let owner = manifestMeta.owner
             let directID = CKRecord.ID(recordName: name,
                                        zoneID: CKRecordZone.ID(zoneName: zone, ownerName: owner))
             do {
