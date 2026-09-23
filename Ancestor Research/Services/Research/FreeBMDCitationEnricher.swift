@@ -1,5 +1,8 @@
 import Foundation
+import os
 import AncestorKit
+
+private nonisolated let logger = Logger(subsystem: "dev.dreamfold.Ancestor-Research", category: "FreeBMDEnrich")
 
 /// FreeBMD citation backfill Change 5 — the targeted, budget-light backfill.
 ///
@@ -81,13 +84,22 @@ enum FreeBMDCitationEnricher {
         }
 
         let updates = FreeBMDCitationAudit.enrichmentUpdates(flagged: flagged, results: results)
+        // Count what actually landed, not what was attempted: reporting
+        // `updates.count` told the user a record was enriched even when its
+        // write failed, and the audit rule would then re-flag it forever.
+        var enriched = 0
         for update in updates {
-            try? db.applyFreeBMDEnrichment(
-                evidenceID: update.evidenceID,
-                citationURL: update.citationURL,
-                mothersMaidenName: update.mothersMaidenName)
+            do {
+                try db.applyFreeBMDEnrichment(
+                    evidenceID: update.evidenceID,
+                    citationURL: update.citationURL,
+                    mothersMaidenName: update.mothersMaidenName)
+                enriched += 1
+            } catch {
+                logger.error("Enriching \(update.evidenceID) failed: \(error.localizedDescription)")
+            }
         }
-        return Outcome(enriched: updates.count, throttled: throttled,
+        return Outcome(enriched: enriched, throttled: throttled,
                        unavailableReason: unavailableReason, queriesRun: queriesRun,
                        healed: healed)
     }

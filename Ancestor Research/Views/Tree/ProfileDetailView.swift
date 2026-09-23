@@ -969,11 +969,13 @@ struct ProfileDetailView: View {
         }
 
         if let db = appState.currentDatabase {
-            try? db.updateProfileLocationCodes(
-                profileID: profile.id,
-                birthCode: birthLocationCode,
-                deathCode: deathLocationCode
-            )
+            appState.persist("Saving the location codes") {
+                try db.updateProfileLocationCodes(
+                    profileID: profile.id,
+                    birthCode: birthLocationCode,
+                    deathCode: deathLocationCode
+                )
+            }
         }
 
         for change in allChanges where (fieldChoice[change.field] ?? .correct) == .alternative {

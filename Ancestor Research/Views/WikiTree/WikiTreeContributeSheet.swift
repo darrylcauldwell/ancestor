@@ -171,12 +171,16 @@ struct WikiTreeContributeSheet: View {
                 let fieldsJSON = (try? JSONSerialization.data(
                     withJSONObject: payload.personFields, options: [.sortedKeys]))
                     .flatMap { String(data: $0, encoding: .utf8) } ?? "{}"
-                try? db.recordWikiTreeContribution(
-                    profileID: context.profile.id,
-                    wikiTreeID: payload.userName,
-                    fieldsJSON: fieldsJSON,
-                    bioAppended: payload.bioAppend != nil,
-                    summary: payload.summary)
+                // Losing this leaves no record that the review page was ever
+                // opened for this profile, which is the only trace the app keeps.
+                appState.persist("Recording the WikiTree contribution") {
+                    try db.recordWikiTreeContribution(
+                        profileID: context.profile.id,
+                        wikiTreeID: payload.userName,
+                        fieldsJSON: fieldsJSON,
+                        bioAppended: payload.bioAppend != nil,
+                        summary: payload.summary)
+                }
             }
             openedFileURL = url
         } catch {

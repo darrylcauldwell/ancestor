@@ -1,5 +1,9 @@
 import Foundation
+import os
 import GRDB
+
+private nonisolated let fsUploadLogger = Logger(
+    subsystem: "dev.dreamfold.Ancestor-Research", category: "FSUpload")
 import AncestorKit
 
 /// One FamilySearch User Tree upload run (v52). A run is created when the
@@ -208,23 +212,35 @@ nonisolated extension ProjectDatabase {
         }) ?? nil
     }
 
+    /// A dropped status write leaves the request reading `running` forever,
+    /// and the watcher will not pick it up again.
     func markFSActionCompleted(id: String, note: String) {
-        try? dbQueue.write { db in
-            try db.execute(sql: """
-                UPDATE fs_action_requests
-                SET status = 'completed', note = ?, completed_at = ?
-                WHERE id = ?
-                """, arguments: [note, Date(), id])
+        do {
+            try dbQueue.write { db in
+                try db.execute(sql: """
+                    UPDATE fs_action_requests
+                    SET status = 'completed', note = ?, completed_at = ?
+                    WHERE id = ?
+                    """, arguments: [note, Date(), id])
+            }
+        } catch {
+            fsUploadLogger.error("Marking FS action \(id) completed failed: \(error.localizedDescription)")
         }
     }
 
+    /// A dropped status write leaves the request reading `running` forever,
+    /// and the watcher will not pick it up again.
     func markFSActionFailed(id: String, note: String) {
-        try? dbQueue.write { db in
-            try db.execute(sql: """
-                UPDATE fs_action_requests
-                SET status = 'failed', note = ?, completed_at = ?
-                WHERE id = ?
-                """, arguments: [note, Date(), id])
+        do {
+            try dbQueue.write { db in
+                try db.execute(sql: """
+                    UPDATE fs_action_requests
+                    SET status = 'failed', note = ?, completed_at = ?
+                    WHERE id = ?
+                    """, arguments: [note, Date(), id])
+            }
+        } catch {
+            fsUploadLogger.error("Marking FS action \(id) failed failed: \(error.localizedDescription)")
         }
     }
 

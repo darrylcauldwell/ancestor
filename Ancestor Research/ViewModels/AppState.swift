@@ -18,6 +18,25 @@ struct VerifiedRecordInput {
 final class AppState {
     private let sweepLogger = Logger(subsystem: "dev.dreamfold.Ancestor-Research", category: "ConflictSweep")
     private let applyLogger = Logger(subsystem: "dev.dreamfold.Ancestor-Research", category: "Apply")
+    private nonisolated static let persistLogger = Logger(subsystem: "dev.dreamfold.Ancestor-Research", category: "Persist")
+
+    /// Run a database write whose failure must not interrupt the caller, but
+    /// must never vanish. A `try?`-swallowed write is how a user comes to
+    /// believe a decision was recorded when it was not.
+    ///
+    /// `surfacing: false` for writes the user did not personally trigger
+    /// (audit snapshots, session bookkeeping) — those log without raising a
+    /// banner for something nobody asked for.
+    @discardableResult
+    func persist<T>(_ what: String, surfacing: Bool = true, _ op: () throws -> T) -> T? {
+        do {
+            return try op()
+        } catch {
+            Self.persistLogger.error("\(what) failed: \(error.localizedDescription)")
+            if surfacing { errorMessage = "\(what) failed: \(error.localizedDescription)" }
+            return nil
+        }
+    }
 
     /// Surface `ApplyEngine` write failures through the log + `errorMessage`
     /// channel, and answer the only question a caller actually needs: did this
@@ -459,7 +478,9 @@ final class AppState {
         // the only persistence point — Health relies solely on this auto-audit
         // (UnifiedTasksView's separate AuditViewModel pass is not persisted).
         if let summary = auditSummary, let db = currentDatabase {
-            try? db.replaceAuditFindings(summary.errors + summary.warnings + summary.info)
+            persist("Saving audit findings", surfacing: false) {
+                try db.replaceAuditFindings(summary.errors + summary.warnings + summary.info)
+            }
         }
     }
 
@@ -589,7 +610,7 @@ final class AppState {
                     c.household = HouseholdRetarget.retarget(c.household, to: profile)
                     event.details = .census(c)
                 }
-                _ = try? db.addLifeEventIfAbsent(event)
+                persist("Adding the life event", surfacing: false) { _ = try db.addLifeEventIfAbsent(event) }
             }
             snapshot = try db.buildSnapshot()
             runConflictSweep(force: true)
@@ -694,7 +715,10 @@ final class AppState {
         // search, while a missed one costs only that this pair stays manual.
         guard recorded.prefix(2) == known.prefix(2),
               abs(recorded.count - known.count) <= 3 else { return }
-        try? db.saveNameEquivalence(nameA: recorded, nameB: known)
+        // Static, so it cannot reach the instance `persist`. A dropped write
+        // here just means the pair stays unlearned — log it and move on.
+        do { try db.saveNameEquivalence(nameA: recorded, nameB: known) }
+        catch { persistLogger.error("Learning the name equivalence failed: \(error.localizedDescription)") }
     }
 
     /// Fetch a specific census's household roster on demand — one detail-page GET
@@ -1165,7 +1189,7 @@ final class AppState {
             // created the rich life event and only wants the cited evidence.
             if projectLifeEvent {
                 for event in scored.record.projectToLifeEvents(profileID: profileID) {
-                    _ = try? db.addLifeEventIfAbsent(event)
+                    persist("Adding the life event", surfacing: false) { _ = try db.addLifeEventIfAbsent(event) }
                 }
             }
             snapshot = try db.buildSnapshot()
@@ -1402,7 +1426,7 @@ final class AppState {
     /// session is active (e.g. tests that don't go through openProject).
     private func recordSessionEvent(_ event: SessionEvent) {
         guard let db = currentDatabase, let id = currentSessionID else { return }
-        try? db.recordSessionEvent(event, sessionID: id)
+        persist("Recording the session event", surfacing: false) { try db.recordSessionEvent(event, sessionID: id) }
     }
 
     /// Continue the resumable session (used by SessionResumeView). Activates
@@ -1507,7 +1531,7 @@ final class AppState {
     /// Delete a narrative finding (human dismissal — see the ProjectDatabase
     /// counterpart). Hard delete so it can never reach bio synthesis.
     func deleteNarrativeFinding(id: String) {
-        try? currentDatabase?.deleteNarrativeFinding(id: id)
+        persist("Deleting the narrative finding") { try currentDatabase?.deleteNarrativeFinding(id: id) }
     }
 
     // MARK: - Relationship proposals (#36)
@@ -1796,7 +1820,7 @@ final class AppState {
             try db.touchFocusSet(id: id)
             activeFocusSetID = id
             if let sid = currentSessionID {
-                try? db.updateSessionFocus(sessionID: sid, focusSetID: id)
+                persist("Updating the session focus", surfacing: false) { try db.updateSessionFocus(sessionID: sid, focusSetID: id) }
             }
             loadWorkbench()
         } catch {
@@ -3004,7 +3028,9 @@ final class AppState {
         guard let db = currentDatabase else { return nil }
         do {
             let report = try db.removeAppliedRecord(evidence)
-            try? db.clearEvidenceApplied(evidenceID: evidence.id)   // v56 stamp off
+            // v56 stamp off. If this fails the record still reads as applied
+            // after being removed, so it must not pass silently.
+            persist("Clearing the applied stamp") { try db.clearEvidenceApplied(evidenceID: evidence.id) }
             if let tx = report.transactionID {
                 recordSessionEvent(.transactionRecorded(tx))
             }
@@ -4681,7 +4707,7 @@ final class AppState {
     /// never auto-offered again, and dismiss.
     func finishSetup() {
         if let db = currentDatabase {
-            try? db.markSetupComplete(at: Date())
+            persist("Marking setup complete") { try db.markSetupComplete(at: Date()) }
         }
         showSetupWizard = false
     }
@@ -5223,7 +5249,9 @@ final class AppState {
             // `.noCandidate`, which would tell the user the opposite of what
             // happened.
             if landed {
-                try? db.updateEvidenceUserStatus(evidenceID: evidenceRow.id, status: .savedAsLead)
+                persist("Marking the record saved as a lead") {
+                    try db.updateEvidenceUserStatus(evidenceID: evidenceRow.id, status: .savedAsLead)
+                }
             }
             snapshot = try db.buildSnapshot()
             runPostLoadAudit()

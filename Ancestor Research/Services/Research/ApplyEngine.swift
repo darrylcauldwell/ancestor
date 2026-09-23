@@ -1,4 +1,7 @@
 import Foundation
+import os
+
+private nonisolated let logger = Logger(subsystem: "dev.dreamfold.Ancestor-Research", category: "ApplyEngine")
 
 /// The single record-level commit path: takes a scored record that a human
 /// (or a rules-gated automation) has accepted and writes its data onto the
@@ -131,7 +134,8 @@ nonisolated struct ApplyEngine {
         // is enforced by the writer — a user-set or earlier-resolved RD wins, and
         // re-applying the same record is a no-op.
         if let rdID = birthRegistrationDistrictID(for: scored.record, profile: profile) {
-            try? db.setBirthRegistrationDistrictIfEmpty(profileID: profile.id, district: rdID)
+            do { try db.setBirthRegistrationDistrictIfEmpty(profileID: profile.id, district: rdID) }
+            catch { logger.error("Setting the birth registration district failed: \(error.localizedDescription)") }
         }
         // v56 — record that the apply ACTION ran for this record (even a
         // fully-blocked apply was a deliberate act; Remove clears it). This
@@ -148,7 +152,10 @@ nonisolated struct ApplyEngine {
         // an EMPTY plan (a citation-only manual record with no facts) keeps
         // today's behaviour — nothing was asked of it, so nothing was dropped.
         if plan.isEmpty || landedSomething {
-            try? db.markEvidenceApplied(evidenceID: "\(profile.id)|\(scored.id)")
+            // The stamp is what stops a record being offered again. Losing it
+            // silently means the user is asked to apply what they just applied.
+            do { try db.markEvidenceApplied(evidenceID: "\(profile.id)|\(scored.id)") }
+            catch { logger.error("Stamping the record applied failed: \(error.localizedDescription)") }
         }
         return failures
     }
@@ -1230,9 +1237,15 @@ nonisolated struct ApplyEngine {
         // Accepting the candidate IS resolving the conflict: the linked
         // open deathDate dispute (if any) records the user's choice.
         let accepted = chosen ?? FieldSource(origin: origin, raw: raw, addedAt: Date())
-        _ = try? db.resolveFieldDispute(
-            profileID: profile.id, field: .deathDate,
-            resolution: .accepted(accepted))
+        do {
+            _ = try db.resolveFieldDispute(
+                profileID: profile.id, field: .deathDate,
+                resolution: .accepted(accepted))
+        } catch {
+            // The dispute stays open, so the records its openness holds back
+            // stay held back — and the user believes they settled it.
+            logger.error("Resolving the deathDate dispute failed: \(error.localizedDescription)")
+        }
 
         // EV35 (2026-08-26) — same hook as `AppState.resolveDispute`: the
         // deathDate is now settled, so the records its openness held back are

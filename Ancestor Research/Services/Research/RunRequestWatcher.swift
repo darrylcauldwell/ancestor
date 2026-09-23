@@ -678,23 +678,33 @@ final class RunRequestWatcher {
     // MARK: - Status writeback
 
     private func markCompleted(_ requestID: String, runID: String?, db: ProjectDatabase) {
-        try? db.dbQueue.write { dbConn in
-            try dbConn.execute(sql: """
-                UPDATE research_run_requests
-                SET status = 'completed', run_id = ?, completed_at = ?
-                WHERE id = ?
-                """, arguments: [runID, Date(), requestID])
+        // A dropped status write leaves the request reading `running` forever,
+        // and the watcher will not reclaim what it believes is still in flight.
+        do {
+            try db.dbQueue.write { dbConn in
+                try dbConn.execute(sql: """
+                    UPDATE research_run_requests
+                    SET status = 'completed', run_id = ?, completed_at = ?
+                    WHERE id = ?
+                    """, arguments: [runID, Date(), requestID])
+            }
+        } catch {
+            logger.error("Marking request \(requestID) completed failed: \(error.localizedDescription)")
         }
     }
 
     private func markFailed(_ requestID: String, error: String, db: ProjectDatabase) {
         logger.error("Request \(requestID) failed: \(error)")
-        try? db.dbQueue.write { dbConn in
-            try dbConn.execute(sql: """
-                UPDATE research_run_requests
-                SET status = 'failed', error = ?, completed_at = ?
-                WHERE id = ?
-                """, arguments: [error, Date(), requestID])
+        do {
+            try db.dbQueue.write { dbConn in
+                try dbConn.execute(sql: """
+                    UPDATE research_run_requests
+                    SET status = 'failed', error = ?, completed_at = ?
+                    WHERE id = ?
+                    """, arguments: [error, Date(), requestID])
+            }
+        } catch {
+            logger.error("Marking request \(requestID) failed did not persist: \(error.localizedDescription)")
         }
     }
 

@@ -243,10 +243,16 @@ enum ResearchRunService {
             // Demote the stored rivals in place (upsert preserves the
             // human's user_status and the v56 applied_at stamp).
             for item in demotedStored {
-                try? db.saveEvidence(
-                    profileID: profileID, scored: item.scored,
-                    citationFull: item.citationFull, citationURL: item.citationURL,
-                    isEnrichment: item.isEnrichment, runID: runID.uuidString)
+                do {
+                    try db.saveEvidence(
+                        profileID: profileID, scored: item.scored,
+                        citationFull: item.citationFull, citationURL: item.citationURL,
+                        isEnrichment: item.isEnrichment, runID: runID.uuidString)
+                } catch {
+                    // A rival that fails to demote keeps its old, higher verdict
+                    // and goes on competing with the record that beat it.
+                    Self.logger.error("Demoting stored rival \(item.scored.id) failed: \(error.localizedDescription)")
+                }
             }
             if !demotedStored.isEmpty {
                 logger.info("Cross-run exclusivity demoted \(demotedStored.count) stored fact(s) for \(profileID)")

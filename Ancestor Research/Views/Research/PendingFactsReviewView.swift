@@ -395,6 +395,19 @@ struct PendingFactsReviewView: View {
 
     // MARK: - Actions
 
+    /// Run a firewall write whose failure must reach the user. This surface
+    /// records review decisions: a silently-dropped write leaves the row
+    /// looking decided while the database still says pending, and the user
+    /// has no way to tell.
+    private func persistWrite(_ what: String, _ op: () throws -> Void) {
+        do {
+            try op()
+        } catch {
+            appState.errorMessage = "\(what) failed: \(error.localizedDescription)"
+        }
+    }
+
+
     private func acceptFinding(_ finding: ProcessedFinding, humanAttested: Bool = false) {
         guard let db = appState.currentDatabase else { return }
 
@@ -407,9 +420,11 @@ struct PendingFactsReviewView: View {
         // 2. Mark pending fact as accepted. A human override of a failed URL
         // verification records `human_attested`, never `verified` — provenance
         // must not claim the machine check passed when it didn't.
-        try? db.updatePendingFactStatus(
-            id: finding.id, status: "accepted",
-            verificationStatus: humanAttested ? "human_attested" : "verified")
+        persistWrite("Marking the fact accepted") {
+            try db.updatePendingFactStatus(
+                id: finding.id, status: "accepted",
+                verificationStatus: humanAttested ? "human_attested" : "verified")
+        }
 
         // 3. Add field source for provenance tracking
         addFieldSource(finding: finding, db: db)
@@ -477,7 +492,8 @@ struct PendingFactsReviewView: View {
         // (#CPC-Change2; the edge write records its own transaction, and the
         // payload carries both evidence-record ids).
         guard finding.finding.agentID != CorroborationSweep.agentID else { return }
-        try? db.addAcceptedFactProvenance(
+        persistWrite("Recording where the accepted fact came from") {
+        try db.addAcceptedFactProvenance(
             profileID: profileID,
             field: finding.finding.field,
             value: finding.finding.value,
@@ -489,13 +505,18 @@ struct PendingFactsReviewView: View {
             // output was attributed to the external MCP agent.
             origin: finding.finding.agentID
         )
+        }
     }
 
     private func rejectFinding(_ finding: ProcessedFinding) {
         guard let db = appState.currentDatabase else { return }
-        try? db.updatePendingFactStatus(id: finding.id, status: "rejected", verificationStatus: "rejected")
+        persistWrite("Marking the fact rejected") {
+            try db.updatePendingFactStatus(id: finding.id, status: "rejected", verificationStatus: "rejected")
+        }
         // Record rejection for this profile (sticky memory)
-        try? db.saveRejection(profileID: profileID, recordID: finding.id)
+        persistWrite("Remembering the rejection") {
+            try db.saveRejection(profileID: profileID, recordID: finding.id)
+        }
         processedFindings.removeAll { $0.id == finding.id }
     }
 }

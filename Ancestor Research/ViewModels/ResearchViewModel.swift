@@ -1654,7 +1654,7 @@ final class ResearchViewModel {
             createdAt: lead.createdAt, investigatedAt: lead.investigatedAt,
             resolvedAt: Date(), resolution: .merged
         )
-        try? db.upsertLead(merged)
+        persist("Merging the lead") { try db.upsertLead(merged) }
     }
 
     /// Reset for a new research session.
