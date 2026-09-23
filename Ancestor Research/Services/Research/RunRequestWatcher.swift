@@ -234,7 +234,16 @@ final class RunRequestWatcher {
                 return
             }
         } else if let leadID = request.leadID, !leadID.isEmpty {
-            guard let lead = loadLead(id: leadID, db: db) else {
+            let loaded: Lead?
+            do {
+                loaded = try loadLead(id: leadID, db: db)
+            } catch {
+                markFailed(request.id,
+                           error: "reading lead \(leadID) failed: \(error.localizedDescription)",
+                           db: db)
+                return
+            }
+            guard let lead = loaded else {
                 markFailed(request.id, error: "lead \(leadID) not found", db: db)
                 return
             }
@@ -708,8 +717,12 @@ final class RunRequestWatcher {
         }
     }
 
-    private func loadLead(id: String, db: ProjectDatabase) -> Lead? {
-        try? db.dbQueue.read { dbConn in
+    /// Throws when the READ fails; returns nil when the lead simply is not
+    /// there. Collapsing both into nil made a database error report itself as
+    /// "lead not found", sending the reader after a missing row that was never
+    /// the problem.
+    private func loadLead(id: String, db: ProjectDatabase) throws -> Lead? {
+        try db.dbQueue.read { dbConn in
             guard let row = try Row.fetchOne(dbConn, sql: """
                 SELECT id, profile_id, name, surname, given_name, birth_year, death_year,
                        age_at_death, place,
