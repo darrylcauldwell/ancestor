@@ -3,10 +3,13 @@ import AncestorKit
 
 /// Conflict layer ⟨G5⟩ — the choose-one candidate card. All rivals in one
 /// `candidateGroupID` render as a SINGLE card with radio selection.
-/// Accepting a birth-year or parent-identity candidate marks every rival
-/// `.contradicted` in the same user action (the atomic core shipped with
-/// CL5/CL6 — this is its surface). Death-year accepts do NOT yet contradict
-/// their rivals: see `#CMT8`.
+/// Accepting any candidate marks every rival `.contradicted` in the same user
+/// action (the atomic core shipped with CL5/CL6 — this is its surface). Note
+/// WHERE that happens differs by kind: birth-year contradicts here at the call
+/// site, while death-year and parent-identity do it inside
+/// `ApplyEngine.applyDeathYearCandidate` and
+/// `ConflictResolutionActions.chooseParent`. Check the callee before adding a
+/// call here — doing both would double-contradict.
 struct CandidateGroupCard: View {
     @Environment(AppState.self) private var appState
     let group: [ResearchHypothesis]
