@@ -1,22 +1,14 @@
 # AncestorApp/ — document index
 
-One line per **live** document: what it is and when to read it. This file carries **roles only
-— no status**, so it has nothing to keep up to date.
+One line per live document: what it is and when to read it. Roles only, no status.
 
-**Invariant:** this index lists every file in `AncestorApp/` bar itself and `adr/`. A document absent from it is a
-document nobody can find — on 2026-09-19 twelve had accumulated that way. Check with
-`ls AncestorApp/` against the tables below when adding or retiring one.
+Four rules:
 
-**Convention (2026-07-16):** the only readers here are the developer and Claude, and both have
-full git history — so a *completed* spec is **deleted**, not kept. Git history is the archive
-(`git log --all --full-history -- AncestorApp/<file>` retrieves any removed spec). Only living
-work lives in this folder.
-
-**Where status lives (2026-09-18):** nowhere by hand. Open items are rows in `BACKLOG.md` with
-stable IDs; status is derived with `git log --oneline --grep='#<ID>' --all`, or by invoking the
-`backlog` skill. Status used to be duplicated across this file, the former `ROADMAP.md`, each spec's change
-list and `MEMORY.md` — four hand-maintained copies that drifted 6–8 weeks apart. Design rationale
-still belongs in the owning spec; sequencing and gates belong in `BACKLOG.md`.
+- Every file in `AncestorApp/` appears below (bar this index and `adr/`). Check with `ls`.
+- A completed spec is deleted, not kept — `git log --all --full-history -- AncestorApp/<file>`.
+- Status is never written down. Derive it: `git log --oneline --grep='#<ID>' --all`, or use
+  the `backlog` skill.
+- Design rationale lives in the owning spec; gates and sequencing live in `BACKLOG.md`.
 
 ## Start here
 
@@ -68,17 +60,10 @@ Sequencing and gates for these live in `BACKLOG.md`; per-item state comes from g
 Fully-delivered specs are removed once shipped; retrieve any via git. Their commits are the
 record — `git log --all --full-history -- AncestorApp/<file>`.
 
-Removed 2026-09-19 — twelve orphaned documents, each assessed against the code and its
-remainder extracted into `BACKLOG.md` rows before deletion:
-`BIRTH_AGE_CONSISTENCY_AUDIT_SPEC` (a WON'T BUILD; residuals → `#BA1`/`#BA2`),
-`WIKITREE_MERGEEDIT_SPEC` (#WT0–#WT4 shipped; WT5 → `#FUT1`),
-`HEALTH_RECATEGORISATION_SPEC` (→ `#HR5`), `SURFACE_CONSOLIDATION_SPEC` (→ `#SC10`),
-`FREEBMD_CITATION_BACKFILL_SPEC` (→ `#FB1`), `PARISH_ABSORPTION_SPEC` (→ `#PA1`/`#PA2`),
-`FAMILYSEARCH_TREES_WRITE_SPEC` (#WL0–#WL7 shipped and live-verified; → `#FS3`–`#FS6`),
-`FREEREG_INTEGRATION_SPEC` (→ `#FR1`–`#FR3`), `LOCATION_MODEL_SPEC` (→ `#S1-6b`, `#LOC2`, `#LOC3`),
-`SUBJECT_PLACE_MODEL_SPEC` (→ `#SP3`–`#SP5`), and `UAT_LOCATION_SURFACES` (stale: its pinned
-per-row expectations pre-dated the Health recategorisation and the late-August dogfood runs;
-intent carried into `#LOC4`).
+Removed 2026-09-19: `BIRTH_AGE_CONSISTENCY_AUDIT_SPEC`, `WIKITREE_MERGEEDIT_SPEC`,
+`HEALTH_RECATEGORISATION_SPEC`, `SURFACE_CONSOLIDATION_SPEC`, `FREEBMD_CITATION_BACKFILL_SPEC`,
+`PARISH_ABSORPTION_SPEC`, `FAMILYSEARCH_TREES_WRITE_SPEC`, `FREEREG_INTEGRATION_SPEC`,
+`LOCATION_MODEL_SPEC`, `SUBJECT_PLACE_MODEL_SPEC`, `UAT_LOCATION_SURFACES`.
 
 Removed 2026-07-21 (shipped/superseded): `LEAD_DISCOVERY_SPEC`, `IMPORT_DEDUPE_SPEC`,
 `PROFILE_LIFECYCLE_SPEC`, `PROFILE_SOURCES_LEDGER_SPEC`, `PROJECT_ONBOARDING_SPEC`,
