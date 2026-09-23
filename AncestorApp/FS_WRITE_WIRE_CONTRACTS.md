@@ -81,7 +81,7 @@ Reference-page field table (createtree):
 | `allAccess` | No | Defaults to `groupAccess` if not provided |
 
 Enum values per reference page: `http://familysearch.org/v1/AnyApps`, `http://familysearch.org/v1/CompanyApp`, `http://familysearch.org/v1/None`.
-NOTE INCONSISTENCY: the tutorial example uses bare `"CompanyApps"` / `"None"`; the reference uses full URIs with singular `CompanyApp`; the update example uses URI with plural `CompanyApps`. Unresolved — probe live.
+NOTE INCONSISTENCY (SETTLED 2026-07-30 — bare `AnyApps` accepted and echoed; see the closing section): the tutorial example uses bare `"CompanyApps"` / `"None"`; the reference uses full URIs with singular `CompanyApp`; the update example uses URI with plural `CompanyApps`. Unresolved — probe live.
 
 `hidden`, `private`, `startingPersonId` are NOT accepted at creation (not listed on createtree); trees are created `hidden=true`, `private=true` by default.
 
@@ -513,12 +513,33 @@ Rules (verbatim):
 11. **Save an upload timestamp** after finishing, for later syncing via the Tree Change History endpoint; that feed excludes changes to Memories, Source Descriptions, and Discussions.
 12. **Unsupported in user trees**: Ordinances, Relationship Finder, Current User Person, Match by Example.
 
-## Unresolved / needs live probe
+## Was unresolved — SETTLED by the live probe, 2026-07-30 (beta)
 
-- Access enum wire values are inconsistent across docs: bare `"CompanyApps"`/`"None"` (create example) vs URI `http://familysearch.org/v1/CompanyApp` (createtree reference, singular) vs URI `http://familysearch.org/v1/CompanyApps` (update example, plural).
-- The update-user-tree example JSON is malformed in the docs (missing closing quotes on two keys) — corrected form must be inferred.
-- Content-Type for Update Tree: example shows `application/x-gedcomx-v1+json`, but trees are FS extension types elsewhere (`x-fs-v1+json` on create). Either may work; probe.
-- Scope of current-tree selection ("session"): whether it binds to the access token or the user is not documented; treat as per-token and re-assert before each write batch.
+Answers from the first real upload: project "Cauldwell Discovery", 87 profiles → group
+`9M9J-9QZ`, tree `9NMM-98CV`, 47 persons / 5 relationships, finalized private in 16 seconds
+with zero failures. Verified three ways — the FS web UI, a raw API readback, and the local
+v52 bookkeeping. **These answers live here because the spec that recorded them was retired
+once its build shipped; they are the reason not to re-probe.**
+
+- **Access enum wire values.** The docs are inconsistent — bare `"CompanyApps"`/`"None"` in
+  the create example, singular URI `.../v1/CompanyApp` in the createtree reference, plural
+  URI in the update example. **Bare `AnyApps` was accepted and echoed back unchanged** on
+  readback. Send the bare enum.
+- **Content-Type for Update Tree.** The docs show `application/x-gedcomx-v1+json` while
+  trees are FS extension types elsewhere. **Finalize succeeded on the default gedcomx-v1
+  media type.** The client keeps an `x-fs-v1+json` fallback on a 400/415, which has not
+  been needed.
+- **Scope of current-tree selection.** Undocumented whether it binds to the token or the
+  user. **Session tree-context held across every write batch** in the run. The service
+  still re-asserts it before each batch — cheap, and the guarantee is not in writing.
+- **Person-ID capture.** `X-entity-id` was present; the `Location` last-path-component
+  fallback was not needed but is retained, since the contract notes beta may omit the
+  header on person create.
+- The update-user-tree example JSON in the docs is malformed (missing closing quotes on two
+  keys); the corrected form is what `FamilySearchTreeEncoder` emits.
+
+Still genuinely open: nothing on this list. New wire questions belong in `#FS6` (the
+production-host flip), where the host and key both change.
 - Whether Create Person returns `X-entity-id` on beta host (reference page documents only `Location`; classic usecase shows `X-entity-id: 12345`).
 - Whether the couple person1=male/person2=female constraint applies inside user trees (stated for Family Tree only).
 - Beta host `apibeta.familysearch.org` vs production `api.familysearch.org`: reference pages use apibeta; Location examples use api. Use the host your key is enrolled for (this project's FS access is via the Beta program).
